@@ -97,26 +97,19 @@ fn serve(
         if inl.read_until(input_separator, &mut item)? == 0 {
             break;
         }
-        match item.last() {
-            Some(&c) => {
-                if c == input_separator {
-                    item.pop();
-                    ()
-                }
+        if let Some(&c) = item.last() {
+            if c == input_separator {
+                item.pop();
             }
-            None => (),
         }
         let osstr = OsStr::from_bytes(&item);
         let pb = PathBuf::from(osstr);
         let b = cleanup_target(pb);
-        match items_from_target.get(&b) {
-            Some(vec) => {
-                for item in vec {
-                    write(&mut outl, item.as_os_str().as_bytes())?;
-                    write(&mut outl, &sep)?;
-                }
+        if let Some(vec) = items_from_target.get(&b) {
+            for item in vec {
+                write(&mut outl, item.as_os_str().as_bytes())?;
+                write(&mut outl, &sep)?;
             }
-            None => (),
         }
         write(&mut outl, &sep)?;
         flush(&mut outl)?;

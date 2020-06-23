@@ -209,10 +209,9 @@ fn main() {
     let args = app.get_matches();
 
     let debug = args.is_present("debug");
-    let remove_base = match args.value_of("remove base") {
-        Some(s) => Some(OsString::from(s)),
-        None => None,
-    };
+    let remove_base = args
+        .value_of("remove base")
+        .and_then(|s| Some(OsString::from(s)));
     let opt_z = args.is_present("null as write terminator");
     let opt_0 = args.is_present("null as read+write terminator");
     let input_separator = if opt_0 { 0 } else { b'\n' };

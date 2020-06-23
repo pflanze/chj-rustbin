@@ -13,6 +13,9 @@ use std::io::{
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::PathBuf;
 use std::process::exit;
+#[macro_use]
+extern crate log;
+extern crate stderrlog;
 
 macro_rules! Do {
     ( $($b:tt)* ) => ( (|| -> Result<_> { $($b)* })() )
@@ -25,7 +28,6 @@ fn cleanup_target(path: PathBuf) -> PathBuf {
 }
 
 fn dirs_index(
-    debug: bool,
     dirs: &mut dyn Iterator<Item = &str>,
     remove_base: Option<OsString>,
 ) -> Result<HashMap<PathBuf, Vec<OsString>>> {
@@ -58,9 +60,7 @@ fn dirs_index(
                 };
                 let target = cleanup_target(target);
                 let fnam = item.file_name();
-                if debug {
-                    eprintln!("target = {:?}, fnam = {:?}", &target, &fnam)
-                };
+                trace!("target = {:?}, fnam = {:?}", &target, &fnam);
                 match items_from_target.get_mut(&target) {
                     Some(vec) => vec.push(fnam),
                     None => {
@@ -75,7 +75,6 @@ fn dirs_index(
 }
 
 fn serve(
-    _debug: bool,
     inp: Stdin,   // XX how to generalize?
     outp: Stdout, // XX
     items_from_target: HashMap<PathBuf, Vec<OsString>>,
@@ -221,14 +220,16 @@ fn main() {
 
     if let Some(mut dirpaths) = args.values_of("directory-path") {
         (Do! {
+            stderrlog::new()
+                .module(module_path!())
+                .verbosity(if debug { 5 } else { 0 })
+                .init()?;
+
             let items_from_target =
-                dirs_index(debug, &mut dirpaths, remove_base)
+                dirs_index(&mut dirpaths, remove_base)
                     .with_context(|| "indexing")?;
-            if debug {
-                eprintln!("items_from_target = {:?}", &items_from_target)
-            }
-            serve(debug,
-                  stdin(),
+            trace!("items_from_target = {:?}", &items_from_target);
+            serve(stdin(),
                   stdout(),
                   items_from_target,
                   input_separator,

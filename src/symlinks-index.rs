@@ -239,9 +239,7 @@ fn main() {
               items_from_target,
               input_separator,
               output_separator)
-            .with_context(|| "serving pipe")?;
-
-        Ok(())
+            .with_context(|| "serving pipe")
     })
     .unwrap_or_else(|err| {
         eprintln!("Error {:#}", err);

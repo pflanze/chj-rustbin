@@ -157,14 +157,15 @@ impl StartsWith<&OsString> for OsStr {
 fn main() {
     let app =
         App::new("symlinks-index")
-            .author("Christian Jaeger")
+            // .author("Christian Jaeger") looks messy
             .about(
                 "On startup creates an in-memory index of the symlinks \
-                 contained in $dirpath, then reads target-paths from stdin \
-                 and writes the source-paths that link to the target-path \
-                 to stdout. The end of an answer group is indicated by an \
-                 empty string written to stdout.  By default, entries are \
-                 terminated by newline characters.",
+                 contained in specified directories, then repeatedly \
+                 reads a target-path from stdin and writes the source-paths \
+                 that link to the target-path to stdout. The end of an answer \
+                 group is indicated by an empty string. Entries are \
+                 terminated by newline characters by default, but see -z \
+                 and -0.",
             )
             .arg(
                 Arg::with_name("debug")

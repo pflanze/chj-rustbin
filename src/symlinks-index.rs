@@ -204,7 +204,7 @@ fn main() {
                 ) {
                     Ok(()) => (),
                     Err(err) => {
-                        eprintln!("Error serving pipe: {:?}", err);
+                        eprintln!("Error serving pipe: {:#}", err);
                         exit(1);
                     }
                 }

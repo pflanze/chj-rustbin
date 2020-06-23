@@ -194,7 +194,9 @@ fn main() {
                 )
                 .value_name("PATH"),
         )
-        .arg(Arg::with_name("directory-paths").multiple(true));
+        .arg(Arg::with_name("directory-path").multiple(true).help(
+            "path to a directory to be scanned for symlinks to index",
+        ));
 
     let args = app.get_matches();
 
@@ -208,7 +210,7 @@ fn main() {
     let input_separator = if opt_0 { 0 } else { b'\n' };
     let output_separator = if opt_0 || opt_z { 0 } else { b'\n' };
 
-    if let Some(mut dirpaths) = args.values_of("directory-paths") {
+    if let Some(mut dirpaths) = args.values_of("directory-path") {
         match dirs_index(debug, &mut dirpaths, remove_base) {
             Ok(items_from_target) => {
                 if debug {

@@ -218,31 +218,33 @@ fn main() {
     let input_separator = if opt_0 { 0 } else { b'\n' };
     let output_separator = if opt_0 || opt_z { 0 } else { b'\n' };
 
-    if let Some(mut dirpaths) = args.values_of("directory-path") {
-        (Do! {
-            stderrlog::new()
-                .module(module_path!())
-                .verbosity(if debug { 5 } else { 0 })
-                .init()?;
+    (Do! {
+        stderrlog::new()
+            .module(module_path!())
+            .verbosity(if debug { 5 } else { 0 })
+            .init()?;
 
-            let items_from_target =
-                dirs_index(&mut dirpaths, remove_base)
-                    .with_context(|| "indexing")?;
-            trace!("items_from_target = {:?}", &items_from_target);
-            serve(stdin(),
-                  stdout(),
-                  items_from_target,
-                  input_separator,
-                  output_separator)
-                .with_context(|| "serving pipe")?;
-            Ok(())
-        })
-        .unwrap_or_else(|err| {
-            eprintln!("Error {:#}", err);
-            exit(1);
-        });
-    } else {
-        eprintln!("Missing directory-path. Run with --help for help.");
+        let mut dirpaths = args.values_of("directory-path")
+            .with_context(|| "parsing arguments: missing directory-path. \
+                              Run with --help for help.")?;
+
+        let items_from_target =
+            dirs_index(&mut dirpaths, remove_base)
+                .with_context(|| "indexing")?;
+
+        trace!("items_from_target = {:?}", &items_from_target);
+
+        serve(stdin(),
+              stdout(),
+              items_from_target,
+              input_separator,
+              output_separator)
+            .with_context(|| "serving pipe")?;
+
+        Ok(())
+    })
+    .unwrap_or_else(|err| {
+        eprintln!("Error {:#}", err);
         exit(1);
-    }
+    });
 }

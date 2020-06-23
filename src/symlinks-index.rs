@@ -7,7 +7,9 @@ use clap::{App, Arg};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::fs;
-use std::io::{stdin, stdout, BufRead, BufWriter, Stdin, Stdout, StdoutLock, Write};
+use std::io::{
+    stdin, stdout, BufRead, BufWriter, Stdin, Stdout, StdoutLock, Write,
+};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::PathBuf;
 use std::process::exit;
@@ -26,15 +28,20 @@ fn dirs_index(
     let mut items_from_target: HashMap<PathBuf, Vec<OsString>> = HashMap::new();
 
     for path in dirs {
-        for item in fs::read_dir(path).with_context(|| format!("opening directory {:?}", path))? {
-            let item = item.with_context(|| format!("reading directory {:?}", path))?;
+        for item in fs::read_dir(path)
+            .with_context(|| format!("opening directory {:?}", path))?
+        {
+            let item =
+                item.with_context(|| format!("reading directory {:?}", path))?;
             let s = item.path().symlink_metadata()?;
             if s.file_type().is_symlink() {
                 let target: PathBuf = item.path().read_link()?;
                 let target = match remove_base {
                     Some(ref remove_base) => {
                         let targetos = target.as_os_str();
-                        if let Some(pos) = targetos.starts_with_to_pos(remove_base) {
+                        if let Some(pos) =
+                            targetos.starts_with_to_pos(remove_base)
+                        {
                             let bs = targetos.as_bytes();
                             let nbs = Vec::from(&bs[pos..bs.len()]);
                             let os = OsString::from_vec(nbs);

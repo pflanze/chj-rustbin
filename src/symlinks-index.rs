@@ -14,6 +14,10 @@ use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::PathBuf;
 use std::process::exit;
 
+macro_rules! Do {
+    ( $($b:tt)* ) => ( (|| -> Result<_> { $($b)* })() )
+}
+
 fn cleanup_target(path: PathBuf) -> PathBuf {
     // remove end slash (but only if it's not the '/' dir), and
     // slightly canonicalize
@@ -216,24 +220,22 @@ fn main() {
     let output_separator = if opt_0 || opt_z { 0 } else { b'\n' };
 
     if let Some(mut dirpaths) = args.values_of("directory-path") {
-        match (|| -> Result<()> {
+        match Do! {
             let items_from_target =
                 dirs_index(debug, &mut dirpaths, remove_base)
                     .with_context(|| "indexing")?;
             if debug {
                 eprintln!("items_from_target = {:?}", &items_from_target)
             }
-            serve(
-                debug,
-                stdin(),
-                stdout(),
-                items_from_target,
-                input_separator,
-                output_separator,
-            )
-            .with_context(|| "serving pipe")?;
+            serve(debug,
+                  stdin(),
+                  stdout(),
+                  items_from_target,
+                  input_separator,
+                  output_separator)
+                .with_context(|| "serving pipe")?;
             Ok(())
-        })() {
+        } {
             Ok(()) => (),
             Err(err) => {
                 eprintln!("Error {:#}", err);

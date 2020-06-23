@@ -164,7 +164,10 @@ fn main() {
              that link to the target-path to stdout. The end of an answer \
              group is indicated by an empty string. Entries are \
              terminated by newline characters by default, but see -z \
-             and -0.",
+             and -0. \n\
+             \n\
+             See the `coproc` feature in Bash for how to integrate this \
+             into scripts.",
         )
         .arg(
             Arg::with_name("debug")

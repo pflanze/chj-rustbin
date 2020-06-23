@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::io::{stdin,stdout,Stdin,Stdout,BufRead,Write};
 use std::ffi::{OsString,OsStr};
 use std::os::unix::ffi::{OsStringExt,OsStrExt};
+use anyhow::{Context,Result};
+
 
 fn cleanup_target(path: PathBuf) -> PathBuf {
     // remove end slash (but only if it's not the '/' dir), and
@@ -17,14 +19,16 @@ fn cleanup_target(path: PathBuf) -> PathBuf {
 fn dirs_index(debug: bool,
               dirs: &mut dyn Iterator<Item = &str>,
               remove_base: Option<OsString>)
-              -> std::io::Result<HashMap<PathBuf, Vec<OsString>>> {
+              -> Result<HashMap<PathBuf, Vec<OsString>>> {
 
     let mut items_from_target : HashMap<PathBuf, Vec<OsString>>
         = HashMap::new();
 
     for path in dirs {
-        for item in fs::read_dir(path)? {
-            let item = item?;
+        for item in fs::read_dir(path).with_context(
+            || format!("opening directory {:?}", path))? {
+            let item = item.with_context(
+                || format!("reading directory {:?}", path))?;
             let s= item.path().symlink_metadata()?;
             if s.file_type().is_symlink() {
                 let target : PathBuf = item.path().read_link()?;
@@ -67,7 +71,7 @@ fn serve (_debug: bool,
           items_from_target: HashMap<PathBuf, Vec<OsString>>,
           input_separator: u8,
           output_separator: u8)
-          -> std::io::Result<()> {
+          -> Result<()> {
 
     let mut inl = inp.lock();
     let mut outl = outp.lock();
@@ -186,7 +190,7 @@ fn main() {
                 }
             },
             Err(err) => {
-                eprintln!("Error indexing: {:?}", err);
+                eprintln!("Error indexing: {:#}", err);
                 exit(1);
             }
         }

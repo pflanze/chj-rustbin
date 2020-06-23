@@ -242,7 +242,7 @@ fn main() {
             }
         }
     } else {
-        eprintln!("Missing directory-paths. Run with --help for help.");
+        eprintln!("Missing directory-path. Run with --help for help.");
         exit(1);
     }
 }

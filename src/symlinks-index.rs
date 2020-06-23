@@ -1,3 +1,7 @@
+
+// Same functionality as symlinks-index from
+// https://github.com/pflanze/chj-bin/blob/master/symlinks-index
+
 extern crate clap;
 use clap::{Arg, App};
 use std::fs;

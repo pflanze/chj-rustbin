@@ -1,2 +1,4 @@
-Same as [symlinks-index from chj-bin](https://github.com/pflanze/chj-bin/blob/master/symlinks-index) but implemented in Rust instead of Perl.
+# ChJ's Rust bin
+
+Tools similar to the ones in [chj-bin](https://github.com/pflanze/chj-bin) but implemented in Rust instead of Perl or shell.
 

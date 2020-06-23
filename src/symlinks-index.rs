@@ -159,12 +159,12 @@ fn main() {
         // .author("Christian Jaeger") looks messy
         .about(
             "On startup creates an in-memory index of the symlinks \
-                 contained in specified directories, then repeatedly \
-                 reads a target-path from stdin and writes the source-paths \
-                 that link to the target-path to stdout. The end of an answer \
-                 group is indicated by an empty string. Entries are \
-                 terminated by newline characters by default, but see -z \
-                 and -0.",
+             contained in specified directories, then repeatedly \
+             reads a target-path from stdin and writes the source-paths \
+             that link to the target-path to stdout. The end of an answer \
+             group is indicated by an empty string. Entries are \
+             terminated by newline characters by default, but see -z \
+             and -0.",
         )
         .arg(
             Arg::with_name("debug")
@@ -183,7 +183,7 @@ fn main() {
                 .short("0")
                 .help(
                     "use the null byte as record terminator for reading \
-                         and writing",
+                     and writing",
                 ),
         )
         .arg(
@@ -191,13 +191,13 @@ fn main() {
                 .long("remove-base")
                 .help(
                     "remove base from the target paths before putting \
-                         them into the index (simply substring it (for now))",
+                     them into the index (simply substring it (for now))",
                 )
                 .value_name("PATH"),
         )
         .arg(Arg::with_name("directory-path").multiple(true).help(
             "paths to one or more directories to be scanned for symlinks \
-                 to index",
+             to index",
         ));
 
     let args = app.get_matches();

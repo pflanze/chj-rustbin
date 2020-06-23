@@ -220,7 +220,7 @@ fn main() {
     let output_separator = if opt_0 || opt_z { 0 } else { b'\n' };
 
     if let Some(mut dirpaths) = args.values_of("directory-path") {
-        match Do! {
+        (Do! {
             let items_from_target =
                 dirs_index(debug, &mut dirpaths, remove_base)
                     .with_context(|| "indexing")?;
@@ -235,13 +235,11 @@ fn main() {
                   output_separator)
                 .with_context(|| "serving pipe")?;
             Ok(())
-        } {
-            Ok(()) => (),
-            Err(err) => {
-                eprintln!("Error {:#}", err);
-                exit(1);
-            }
-        }
+        })
+        .unwrap_or_else(|err| {
+            eprintln!("Error {:#}", err);
+            exit(1);
+        });
     } else {
         eprintln!("Missing directory-path. Run with --help for help.");
         exit(1);

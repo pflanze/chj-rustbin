@@ -4,7 +4,8 @@ use std::fs;
 use std::process::exit;
 use std::path::PathBuf;
 use std::collections::HashMap;
-use std::io::{stdin,stdout,Stdin,Stdout,BufRead,Write};
+use std::io::{stdin,stdout,Stdin,Stdout,StdoutLock,
+              BufRead,Write};
 use std::ffi::{OsString,OsStr};
 use std::os::unix::ffi::{OsStringExt,OsStrExt};
 use anyhow::{Context,Result};
@@ -76,6 +77,14 @@ fn serve (_debug: bool,
     let mut inl = inp.lock();
     let mut outl = outp.lock();
 
+    let write = |outl : &mut StdoutLock, v| -> Result<()> {
+        outl.write_all(v).with_context(|| "writing to output")
+    };
+    let flush = |outl : &mut StdoutLock| -> Result<()> {
+        outl.flush().with_context(|| "writing to output")
+    };
+    let sep = [output_separator];
+
     let mut item = Vec::new();
     loop {
         if inl.read_until(input_separator, &mut item)? == 0 { break }
@@ -91,17 +100,14 @@ fn serve (_debug: bool,
         match items_from_target.get(&b) {
             Some(vec) => {
                 for item in vec {
-                    outl.write(item.as_os_str().as_bytes())?;
-                    outl.write(&[output_separator])?;
+                    write(&mut outl, item.as_os_str().as_bytes())?;
+                    write(&mut outl, &sep)?;
                 }
             }
             None => ()
         }
-        outl.write(&[output_separator])?;
-        // XX todo: figure out how to disable auto flushing on
-        // '\n'; currently it flushes on that character even in
-        // pipelines.
-        outl.flush()?;
+        write(&mut outl, &sep)?;
+        flush(&mut outl)?;
         item.clear();
     }
 

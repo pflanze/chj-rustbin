@@ -5,7 +5,7 @@ use std::process::exit;
 use std::path::PathBuf;
 use std::collections::HashMap;
 use std::io::{stdin,stdout,Stdin,Stdout,StdoutLock,
-              BufRead,Write};
+              BufRead,Write,BufWriter};
 use std::ffi::{OsString,OsStr};
 use std::os::unix::ffi::{OsStringExt,OsStrExt};
 use anyhow::{Context,Result};
@@ -75,12 +75,12 @@ fn serve (_debug: bool,
           -> Result<()> {
 
     let mut inl = inp.lock();
-    let mut outl = outp.lock();
+    let mut outl = BufWriter::new(outp.lock());
 
-    let write = |outl : &mut StdoutLock, v| -> Result<()> {
+    let write = |outl : &mut BufWriter<StdoutLock>, v| -> Result<()> {
         outl.write_all(v).with_context(|| "writing to output")
     };
-    let flush = |outl : &mut StdoutLock| -> Result<()> {
+    let flush = |outl : &mut BufWriter<StdoutLock>| -> Result<()> {
         outl.flush().with_context(|| "writing to output")
     };
     let sep = [output_separator];

@@ -192,7 +192,7 @@ fn main() {
     let output_separator = if opt.zz || opt.z { 0 } else { b'\n' };
     let dirpaths = opt.directory_paths;
 
-    let r = || {
+    (|| {
         stderrlog::new()
             .module(module_path!())
             .verbosity(if debug == 0 { 0 } else { 5 })
@@ -210,8 +210,7 @@ fn main() {
               input_separator,
               output_separator)
             .with_context(|| "serving pipe")
-    };
-    r().unwrap_or_else(|err| {
+    })().unwrap_or_else(|err| {
         eprintln!("Error {:#}", err);
         exit(1);
     });

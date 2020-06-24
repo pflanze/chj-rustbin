@@ -11,7 +11,7 @@ name = "symlinks-index"
 path = "src/symlinks-index.rs"
 
 [dependencies]
-clap = "2.33.1"
+structopt = "0.3"
 anyhow = "1.0"
 log = "0.4.8"
 stderrlog = "0.4.3 "

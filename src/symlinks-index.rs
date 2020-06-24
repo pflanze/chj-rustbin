@@ -61,12 +61,10 @@ fn dirs_index(
                 let target = cleanup_target(target);
                 let fnam = item.file_name();
                 trace!("target = {:?}, fnam = {:?}", &target, &fnam);
-                match items_from_target.get_mut(&target) {
-                    Some(vec) => vec.push(fnam),
-                    None => {
-                        items_from_target.insert(target, vec![fnam]);
-                        ()
-                    }
+                if let Some(vec) = items_from_target.get_mut(&target) {
+                    vec.push(fnam);
+                } else {
+                    items_from_target.insert(target, vec![fnam]);
                 }
             }
         }

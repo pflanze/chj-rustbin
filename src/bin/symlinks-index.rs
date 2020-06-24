@@ -76,6 +76,7 @@ fn serve(
     input_separator: u8,
     output_separator: u8,
 ) -> Result<()> {
+
     let mut inl = inp.lock();
     let mut outl = BufWriter::new(outp.lock());
 

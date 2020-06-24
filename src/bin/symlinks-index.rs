@@ -88,10 +88,7 @@ fn serve(
     let sep = [output_separator];
 
     let mut item = Vec::new();
-    loop {
-        if inl.read_until(input_separator, &mut item)? == 0 {
-            break;
-        }
+    while inl.read_until(input_separator, &mut item)? > 0 {
         if let Some(&c) = item.last() {
             if c == input_separator {
                 item.pop();

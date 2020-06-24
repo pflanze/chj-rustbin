@@ -150,7 +150,6 @@ impl StartsWith<&OsString> for OsStr {
 
 
 #[derive(StructOpt, Debug)]
-/// 
 /// On startup creates an in-memory index of the symlinks 
 /// contained in specified directories, then repeatedly 
 /// reads a target-path from stdin and writes the source-paths 

@@ -42,19 +42,21 @@ fn dirs_index(
             let s = item.path().symlink_metadata()?;
             if s.file_type().is_symlink() {
                 let target: PathBuf = item.path().read_link()?;
-                let target = if let Some(ref remove_base) = remove_base {
-                    let targetos = target.as_os_str();
-                    if let Some(pos) = targetos.starts_with_to_pos(remove_base)
-                    {
-                        let bs = targetos.as_bytes();
-                        let nbs = Vec::from(&bs[pos..bs.len()]);
-                        let os = OsString::from_vec(nbs);
-                        PathBuf::from(os)
-                    } else {
-                        target
+                let target = match remove_base {
+                    Some(ref remove_base) => {
+                        let targetos = target.as_os_str();
+                        if let Some(pos) =
+                            targetos.starts_with_to_pos(remove_base)
+                        {
+                            let bs = targetos.as_bytes();
+                            let nbs = Vec::from(&bs[pos..bs.len()]);
+                            let os = OsString::from_vec(nbs);
+                            PathBuf::from(os)
+                        } else {
+                            target
+                        }
                     }
-                } else {
-                    target
+                    None => target,
                 };
                 let target = cleanup_target(target);
                 let fnam = item.file_name();

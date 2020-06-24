@@ -5,7 +5,6 @@
 extern crate log;
 extern crate stderrlog;
 
-use structopt::StructOpt;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
@@ -16,7 +15,7 @@ use std::io::{
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::PathBuf;
 use std::process::exit;
-
+use structopt::StructOpt;
 
 fn cleanup_target(path: PathBuf) -> PathBuf {
     // remove end slash (but only if it's not the '/' dir), and
@@ -76,7 +75,6 @@ fn serve(
     input_separator: u8,
     output_separator: u8,
 ) -> Result<()> {
-
     let mut inl = inp.lock();
     let mut outl = BufWriter::new(outp.lock());
 
@@ -143,17 +141,16 @@ impl StartsWith<&OsString> for OsStr {
     }
 }
 
-
 #[derive(StructOpt, Debug)]
-/// On startup creates an in-memory index of the symlinks 
-/// contained in specified directories, then repeatedly 
-/// reads a target-path from stdin and writes the source-paths 
-/// that link to the target-path to stdout. The end of an answer 
-/// group is indicated by an empty string. Entries are 
-/// terminated by newline characters by default, but see -z 
+/// On startup creates an in-memory index of the symlinks
+/// contained in specified directories, then repeatedly
+/// reads a target-path from stdin and writes the source-paths
+/// that link to the target-path to stdout. The end of an answer
+/// group is indicated by an empty string. Entries are
+/// terminated by newline characters by default, but see -z
 /// and -0.
-/// 
-/// See the `coproc` feature in Bash for how to integrate this 
+///
+/// See the `coproc` feature in Bash for how to integrate this
 /// into scripts.
 #[structopt(name = "symlinks-index")]
 struct Opt {
@@ -165,7 +162,7 @@ struct Opt {
     #[structopt(short, long)]
     z: bool,
 
-    /// use the null byte as record terminator for reading 
+    /// use the null byte as record terminator for reading
     /// and writing
     #[structopt(long)]
     zz: bool,
@@ -177,7 +174,7 @@ struct Opt {
 
     /// paths to one or more directories to be scanned for symlinks
     /// to index
-    #[structopt(name= "DIR", parse(from_os_str), required(true))]
+    #[structopt(name = "DIR", parse(from_os_str), required(true))]
     directory_paths: Vec<PathBuf>,
 }
 
@@ -197,18 +194,20 @@ fn main() {
             .init()?;
 
         let items_from_target =
-            dirs_index(&dirpaths, remove_base)
-                .with_context(|| "indexing")?;
+            dirs_index(&dirpaths, remove_base).with_context(|| "indexing")?;
 
         trace!("items_from_target = {:?}", &items_from_target);
 
-        serve(stdin(),
-              stdout(),
-              items_from_target,
-              input_separator,
-              output_separator)
-            .with_context(|| "serving pipe")
-    })().unwrap_or_else(|err| {
+        serve(
+            stdin(),
+            stdout(),
+            items_from_target,
+            input_separator,
+            output_separator,
+        )
+        .with_context(|| "serving pipe")
+    })()
+    .unwrap_or_else(|err| {
         eprintln!("Error {:#}", err);
         exit(1);
     });

@@ -130,7 +130,7 @@ impl StartsWith<&OsString> for OsStr {
                     if a != b {
                         return None;
                     } else {
-                        len = len + 1;
+                        len += 1;
                     }
                 } else {
                     return None;
@@ -187,7 +187,7 @@ fn main() {
     let opt = Opt::from_args();
 
     let debug = opt.debug;
-    let remove_base = opt.remove_base.and_then(|s| Some(OsString::from(s)));
+    let remove_base = opt.remove_base.map(OsString::from);
     let input_separator = if opt.zz { 0 } else { b'\n' };
     let output_separator = if opt.zz || opt.z { 0 } else { b'\n' };
     let dirpaths = opt.directory_paths;

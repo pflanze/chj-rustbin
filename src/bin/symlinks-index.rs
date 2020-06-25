@@ -14,7 +14,6 @@ use std::io::{
 };
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::PathBuf;
-use std::process::exit;
 use structopt::StructOpt;
 
 fn cleanup_target(path: &PathBuf) -> PathBuf {
@@ -178,7 +177,7 @@ struct Opt {
     directory_paths: Vec<PathBuf>,
 }
 
-fn main() {
+fn main() -> Result<()> {
     let opt = Opt::from_args();
 
     let debug = opt.debug;
@@ -187,28 +186,22 @@ fn main() {
     let output_separator = if opt.zz || opt.z { 0 } else { b'\n' };
     let dirpaths = opt.directory_paths;
 
-    (|| {
-        stderrlog::new()
-            .module(module_path!())
-            .verbosity(if debug == 0 { 0 } else { 5 })
-            .init()?;
+    stderrlog::new()
+        .module(module_path!())
+        .verbosity(if debug == 0 { 0 } else { 5 })
+        .init()?;
 
-        let items_from_target =
-            dirs_index(&dirpaths, &remove_base).with_context(|| "indexing")?;
+    let items_from_target =
+        dirs_index(&dirpaths, &remove_base).with_context(|| "indexing")?;
 
-        trace!("items_from_target = {:?}", &items_from_target);
+    trace!("items_from_target = {:?}", &items_from_target);
 
-        serve(
-            &stdin(),
-            &stdout(),
-            &items_from_target,
-            input_separator,
-            output_separator,
-        )
-        .with_context(|| "serving pipe")
-    })()
-    .unwrap_or_else(|err| {
-        eprintln!("Error {:#}", err);
-        exit(1);
-    });
+    serve(
+        &stdin(),
+        &stdout(),
+        &items_from_target,
+        input_separator,
+        output_separator,
+    )
+    .with_context(|| "serving pipe")
 }

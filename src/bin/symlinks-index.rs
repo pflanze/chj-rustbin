@@ -38,7 +38,7 @@ fn dirs_index(
                 let target = match remove_base {
                     Some(ref base) => {
                         let targetos = target.as_os_str();
-                        if let Some(pos) = targetos.starts_with_to_pos(base) {
+                        if let Some(pos) = targetos.starts_with(base) {
                             let bs = targetos.as_bytes();
                             let nbs = Vec::from(&bs[pos..bs.len()]);
                             let os = OsString::from_vec(nbs);
@@ -103,12 +103,11 @@ fn serve(
 }
 
 trait StartsWith<T> {
-    fn starts_with_to_pos(&self, start: T) -> Option<usize>;
-    fn starts_with(&self, start: T) -> bool;
+    fn starts_with(&self, start: T) -> Option<usize>;
 }
 
 impl StartsWith<&OsString> for OsStr {
-    fn starts_with_to_pos(&self, start: &OsString) -> Option<usize> {
+    fn starts_with(&self, start: &OsString) -> Option<usize> {
         let mut ia = self.as_bytes().iter();
         let mut ib = start.as_bytes().iter();
         let mut len: usize = 0;
@@ -127,9 +126,6 @@ impl StartsWith<&OsString> for OsStr {
                 return Some(len);
             }
         }
-    }
-    fn starts_with(&self, start: &OsString) -> bool {
-        self.starts_with_to_pos(start).is_some()
     }
 }
 

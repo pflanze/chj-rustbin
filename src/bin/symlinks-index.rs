@@ -149,7 +149,7 @@ impl StartsWith<&OsString> for OsStr {
 ///
 /// See the `coproc` feature in Bash for how to integrate this
 /// into scripts.
-#[structopt(name = "symlinks-index")]
+#[structopt(name = "chj-rustbin")]
 struct Opt {
     /// show debugging output
     #[structopt(short, long, parse(from_occurrences))]

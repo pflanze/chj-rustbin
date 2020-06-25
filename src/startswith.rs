@@ -1,12 +1,12 @@
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 
 pub trait StartsWith<T> {
     fn starts_with(&self, start: T) -> Option<usize>;
 }
 
-impl StartsWith<&OsString> for OsStr {
-    fn starts_with(&self, start: &OsString) -> Option<usize> {
+impl StartsWith<&OsStr> for OsStr {
+    fn starts_with(&self, start: &OsStr) -> Option<usize> {
         let mut ia = self.as_bytes().iter();
         let mut ib = start.as_bytes().iter();
         let mut len: usize = 0;

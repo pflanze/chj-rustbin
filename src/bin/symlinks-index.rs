@@ -25,7 +25,7 @@ fn cleanup_target(path: &PathBuf) -> PathBuf {
 
 fn dirs_index(
     dirs: &[PathBuf],
-    remove_base: &Option<OsString>,
+    remove_base: Option<&OsStr>,
 ) -> Result<HashMap<PathBuf, Vec<OsString>>> {
     let mut items_from_target: HashMap<PathBuf, Vec<OsString>> = HashMap::new();
 
@@ -155,7 +155,7 @@ fn main() -> Result<()> {
         .init()?;
 
     let items_from_target =
-        dirs_index(&dirpaths, &remove_base).with_context(|| "indexing")?;
+        dirs_index(&dirpaths, remove_base.as_deref()).with_context(|| "indexing")?;
 
     trace!("items_from_target = {:?}", &items_from_target);
 

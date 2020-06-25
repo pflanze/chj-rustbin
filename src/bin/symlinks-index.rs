@@ -65,17 +65,11 @@ fn dirs_index(
 
 fn serve(
     inl: &mut dyn BufRead,
-    mut outl: &mut dyn Write,
+    outl: &mut dyn Write,
     items_from_target: &HashMap<PathBuf, Vec<OsString>>,
     input_separator: u8,
     output_separator: u8,
 ) -> Result<()> {
-    let write = |outl: &mut dyn Write, v| -> Result<()> {
-        outl.write_all(v).with_context(|| "writing to output")
-    };
-    let flush = |outl: &mut dyn Write| -> Result<()> {
-        outl.flush().with_context(|| "writing to output")
-    };
     let sep = [output_separator];
 
     let mut item = Vec::new();
@@ -88,14 +82,20 @@ fn serve(
         let osstr = OsStr::from_bytes(&item);
         let pb = PathBuf::from(osstr);
         let b = cleanup_target(&pb);
+        let mut write = |v| -> Result<()> {
+            outl.write_all(v).with_context(|| "writing to output")
+        };
         if let Some(vec) = items_from_target.get(&b) {
             for item in vec {
-                write(&mut outl, item.as_os_str().as_bytes())?;
-                write(&mut outl, &sep)?;
+                write(item.as_os_str().as_bytes())?;
+                write(&sep)?;
             }
         }
-        write(&mut outl, &sep)?;
-        flush(&mut outl)?;
+        write(&sep)?;
+        let mut flush = || -> Result<()> {
+            outl.flush().with_context(|| "writing to output")
+        };
+        flush()?;
         item.clear();
     }
 

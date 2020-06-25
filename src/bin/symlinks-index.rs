@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{
-    stdin, stdout, BufRead, BufWriter, Stdin, Stdout, StdoutLock, Write,
+    stdin, stdout, BufRead, BufWriter, Write,
 };
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::PathBuf;
@@ -68,19 +68,17 @@ fn dirs_index(
 }
 
 fn serve(
-    inp: &Stdin,   // XX how to generalize?
-    outp: &Stdout, // XX
+    inl: &mut dyn BufRead,
+    mut outl: &mut dyn Write,
     items_from_target: &HashMap<PathBuf, Vec<OsString>>,
     input_separator: u8,
     output_separator: u8,
 ) -> Result<()> {
-    let mut inl = inp.lock();
-    let mut outl = BufWriter::new(outp.lock());
 
-    let write = |outl: &mut BufWriter<StdoutLock>, v| -> Result<()> {
+    let write = |outl: &mut dyn Write, v| -> Result<()> {
         outl.write_all(v).with_context(|| "writing to output")
     };
-    let flush = |outl: &mut BufWriter<StdoutLock>| -> Result<()> {
+    let flush = |outl: &mut dyn Write| -> Result<()> {
         outl.flush().with_context(|| "writing to output")
     };
     let sep = [output_separator];
@@ -196,9 +194,14 @@ fn main() -> Result<()> {
 
     trace!("items_from_target = {:?}", &items_from_target);
 
+    let inp = stdin();
+    let mut inl = inp.lock();
+    let outp = stdout();
+    let mut outl = BufWriter::new(outp.lock());
+
     serve(
-        &stdin(),
-        &stdout(),
+        &mut inl,
+        &mut outl,
         &items_from_target,
         input_separator,
         output_separator,

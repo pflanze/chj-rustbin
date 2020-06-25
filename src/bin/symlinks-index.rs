@@ -41,7 +41,9 @@ fn dirs_index(
                 let target = match remove_base {
                     Some(ref base) => {
                         let targetos = target.as_os_str();
-                        if let Some(pos) = targetos.starts_with(base) {
+                        let mut ia = targetos.as_bytes().iter();
+                        let mut ib = base.as_bytes().iter();
+                        if let Some(pos) = ia.starts_with(&mut ib) {
                             let bs = targetos.as_bytes();
                             let nbs = Vec::from(&bs[pos..bs.len()]);
                             let os = OsString::from_vec(nbs);

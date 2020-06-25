@@ -36,11 +36,9 @@ fn dirs_index(
             if s.file_type().is_symlink() {
                 let target: PathBuf = item.path().read_link()?;
                 let target = match remove_base {
-                    Some(ref remove_base) => {
+                    Some(ref base) => {
                         let targetos = target.as_os_str();
-                        if let Some(pos) =
-                            targetos.starts_with_to_pos(remove_base)
-                        {
+                        if let Some(pos) = targetos.starts_with_to_pos(base) {
                             let bs = targetos.as_bytes();
                             let nbs = Vec::from(&bs[pos..bs.len()]);
                             let os = OsString::from_vec(nbs);

@@ -9,9 +9,7 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::fs;
-use std::io::{
-    stdin, stdout, BufRead, BufWriter, Write,
-};
+use std::io::{stdin, stdout, BufRead, BufWriter, Write};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::PathBuf;
 use structopt::StructOpt;
@@ -74,7 +72,6 @@ fn serve(
     input_separator: u8,
     output_separator: u8,
 ) -> Result<()> {
-
     let write = |outl: &mut dyn Write, v| -> Result<()> {
         outl.write_all(v).with_context(|| "writing to output")
     };

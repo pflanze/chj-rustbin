@@ -151,21 +151,17 @@ struct Opt {
     /// show debugging output
     #[structopt(short, long, parse(from_occurrences))]
     debug: u8,
-
     /// use the null byte as record terminator for writing
     #[structopt(short, long)]
     z: bool,
-
     /// use the null byte as record terminator for reading
     /// and writing
     #[structopt(long)]
     zz: bool,
-
     /// remove base from the target paths before putting
     /// them into the index (simply substring it (for now))
     #[structopt(long, parse(from_os_str))]
     remove_base: Option<PathBuf>,
-
     /// paths to one or more directories to be scanned for symlinks
     /// to index
     #[structopt(name = "DIR", parse(from_os_str), required(true))]

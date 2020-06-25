@@ -4,6 +4,7 @@
 #[macro_use]
 extern crate log;
 extern crate stderrlog;
+#[path = "../startswith.rs"]
 mod startswith;
 
 use anyhow::{Context, Result};

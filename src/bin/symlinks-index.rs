@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::process::exit;
 use structopt::StructOpt;
 
-fn cleanup_target(path: PathBuf) -> PathBuf {
+fn cleanup_target(path: &PathBuf) -> PathBuf {
     // remove end slash (but only if it's not the '/' dir), and
     // slightly canonicalize
     path.components().as_path().to_path_buf()
@@ -25,7 +25,7 @@ fn cleanup_target(path: PathBuf) -> PathBuf {
 
 fn dirs_index(
     dirs: &[PathBuf],
-    remove_base: Option<OsString>,
+    remove_base: &Option<OsString>,
 ) -> Result<HashMap<PathBuf, Vec<OsString>>> {
     let mut items_from_target: HashMap<PathBuf, Vec<OsString>> = HashMap::new();
 
@@ -54,7 +54,7 @@ fn dirs_index(
                     }
                     None => target,
                 };
-                let target = cleanup_target(target);
+                let target = cleanup_target(&target);
                 let fnam = item.file_name();
                 trace!("target = {:?}, fnam = {:?}", &target, &fnam);
                 if let Some(vec) = items_from_target.get_mut(&target) {
@@ -69,9 +69,9 @@ fn dirs_index(
 }
 
 fn serve(
-    inp: Stdin,   // XX how to generalize?
-    outp: Stdout, // XX
-    items_from_target: HashMap<PathBuf, Vec<OsString>>,
+    inp: &Stdin,   // XX how to generalize?
+    outp: &Stdout, // XX
+    items_from_target: &HashMap<PathBuf, Vec<OsString>>,
     input_separator: u8,
     output_separator: u8,
 ) -> Result<()> {
@@ -95,7 +95,7 @@ fn serve(
         }
         let osstr = OsStr::from_bytes(&item);
         let pb = PathBuf::from(osstr);
-        let b = cleanup_target(pb);
+        let b = cleanup_target(&pb);
         if let Some(vec) = items_from_target.get(&b) {
             for item in vec {
                 write(&mut outl, item.as_os_str().as_bytes())?;
@@ -194,14 +194,14 @@ fn main() {
             .init()?;
 
         let items_from_target =
-            dirs_index(&dirpaths, remove_base).with_context(|| "indexing")?;
+            dirs_index(&dirpaths, &remove_base).with_context(|| "indexing")?;
 
         trace!("items_from_target = {:?}", &items_from_target);
 
         serve(
-            stdin(),
-            stdout(),
-            items_from_target,
+            &stdin(),
+            &stdout(),
+            &items_from_target,
             input_separator,
             output_separator,
         )

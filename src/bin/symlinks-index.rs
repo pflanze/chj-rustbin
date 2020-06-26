@@ -154,8 +154,8 @@ fn main() -> Result<()> {
         .verbosity(if debug == 0 { 0 } else { 5 })
         .init()?;
 
-    let items_from_target =
-        dirs_index(&dirpaths, remove_base.as_deref()).with_context(|| "indexing")?;
+    let items_from_target = dirs_index(&dirpaths, remove_base.as_deref())
+        .with_context(|| "indexing")?;
 
     trace!("items_from_target = {:?}", &items_from_target);
 

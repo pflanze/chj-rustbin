@@ -17,6 +17,39 @@ use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::PathBuf;
 use structopt::StructOpt;
 
+#[derive(StructOpt, Debug)]
+/// On startup creates an in-memory index of the symlinks
+/// contained in specified directories, then repeatedly
+/// reads a target-path from stdin and writes the source-paths
+/// that link to the target-path to stdout. The end of an answer
+/// group is indicated by an empty string. Entries are
+/// terminated by newline characters by default, but see -z
+/// and -0.
+///
+/// See the `coproc` feature in Bash for how to integrate this
+/// into scripts.
+#[structopt(name = "symlinks-index from chj-rustbin")]
+struct Opt {
+    /// show debugging output
+    #[structopt(short, long, parse(from_occurrences))]
+    debug: u8,
+    /// use the null byte as record terminator for writing
+    #[structopt(short, long)]
+    z: bool,
+    /// use the null byte as record terminator for reading
+    /// and writing
+    #[structopt(long)]
+    zz: bool,
+    /// remove base from the target paths before putting
+    /// them into the index (simply substring it (for now))
+    #[structopt(long, parse(from_os_str))]
+    remove_base: Option<PathBuf>,
+    /// paths to one or more directories to be scanned for symlinks
+    /// to index
+    #[structopt(name = "DIR", parse(from_os_str), required(true))]
+    directory_paths: Vec<PathBuf>,
+}
+
 fn cleanup_target(path: &PathBuf) -> PathBuf {
     // remove end slash (but only if it's not the '/' dir), and
     // slightly canonicalize
@@ -105,39 +138,6 @@ fn serve(
     }
 
     Ok(())
-}
-
-#[derive(StructOpt, Debug)]
-/// On startup creates an in-memory index of the symlinks
-/// contained in specified directories, then repeatedly
-/// reads a target-path from stdin and writes the source-paths
-/// that link to the target-path to stdout. The end of an answer
-/// group is indicated by an empty string. Entries are
-/// terminated by newline characters by default, but see -z
-/// and -0.
-///
-/// See the `coproc` feature in Bash for how to integrate this
-/// into scripts.
-#[structopt(name = "symlinks-index from chj-rustbin")]
-struct Opt {
-    /// show debugging output
-    #[structopt(short, long, parse(from_occurrences))]
-    debug: u8,
-    /// use the null byte as record terminator for writing
-    #[structopt(short, long)]
-    z: bool,
-    /// use the null byte as record terminator for reading
-    /// and writing
-    #[structopt(long)]
-    zz: bool,
-    /// remove base from the target paths before putting
-    /// them into the index (simply substring it (for now))
-    #[structopt(long, parse(from_os_str))]
-    remove_base: Option<PathBuf>,
-    /// paths to one or more directories to be scanned for symlinks
-    /// to index
-    #[structopt(name = "DIR", parse(from_os_str), required(true))]
-    directory_paths: Vec<PathBuf>,
 }
 
 fn main() -> Result<()> {

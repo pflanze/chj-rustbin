@@ -27,7 +27,7 @@ fn dirs_index(
     dirs: &[PathBuf],
     remove_base: Option<&OsStr>,
 ) -> Result<HashMap<PathBuf, Vec<OsString>>> {
-    let mut items_from_target: HashMap<PathBuf, Vec<OsString>> = HashMap::new();
+    let mut target_to_items: HashMap<PathBuf, Vec<OsString>> = HashMap::new();
 
     for path in dirs {
         for item in fs::read_dir(path)
@@ -57,21 +57,21 @@ fn dirs_index(
                 let target = cleanup_target(&target);
                 let fnam = item.file_name();
                 trace!("target = {:?}, fnam = {:?}", &target, &fnam);
-                if let Some(vec) = items_from_target.get_mut(&target) {
+                if let Some(vec) = target_to_items.get_mut(&target) {
                     vec.push(fnam);
                 } else {
-                    items_from_target.insert(target, vec![fnam]);
+                    target_to_items.insert(target, vec![fnam]);
                 }
             }
         }
     }
-    Ok(items_from_target)
+    Ok(target_to_items)
 }
 
 fn serve(
     inl: &mut dyn BufRead,
     outl: &mut dyn Write,
-    items_from_target: &HashMap<PathBuf, Vec<OsString>>,
+    target_to_items: &HashMap<PathBuf, Vec<OsString>>,
     input_separator: u8,
     output_separator: u8,
 ) -> Result<()> {
@@ -90,7 +90,7 @@ fn serve(
         let mut write = |v| -> Result<()> {
             outl.write_all(v).with_context(|| "writing to output")
         };
-        if let Some(vec) = items_from_target.get(&b) {
+        if let Some(vec) = target_to_items.get(&b) {
             for item in vec {
                 write(item.as_os_str().as_bytes())?;
                 write(&sep)?;
@@ -154,10 +154,10 @@ fn main() -> Result<()> {
         .verbosity(if debug == 0 { 0 } else { 5 })
         .init()?;
 
-    let items_from_target = dirs_index(&dirpaths, remove_base.as_deref())
+    let target_to_items = dirs_index(&dirpaths, remove_base.as_deref())
         .with_context(|| "indexing")?;
 
-    trace!("items_from_target = {:?}", &items_from_target);
+    trace!("target_to_items = {:?}", &target_to_items);
 
     let inp = stdin();
     let mut inl = inp.lock();
@@ -167,7 +167,7 @@ fn main() -> Result<()> {
     serve(
         &mut inl,
         &mut outl,
-        &items_from_target,
+        &target_to_items,
         input_separator,
         output_separator,
     )

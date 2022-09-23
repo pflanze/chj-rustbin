@@ -5,6 +5,8 @@ use anyhow::{Result, bail, anyhow};
 use std::fs;
 use std::io;
 use std::env;
+use std::path::Path;
+use std::ffi::OsString;
 use std::io::Write;
 use std::time::SystemTime;
 use std::path::PathBuf;
@@ -39,10 +41,14 @@ fn main() -> Result<()> {
     let mut opt = Opt::from_args();
 
     if !opt.files && !opt.dirs {
-        let exepath = env::current_exe()?;
-        let exename = exepath.file_name().ok_or(
-            anyhow!("can't extract file_name from executable path")
+        let arg0 = env::args_os().next();
+        let exepath = arg0.ok_or(
+            anyhow!("can't get executable path from args_os")
         )?;
+        let exename = <OsString as AsRef<Path>>::as_ref(&exepath).file_name()
+            .ok_or(
+                anyhow!("can't extract file_name from executable path")
+            )?;
 
         if exename == "lastitem" {
             opt.files = true;

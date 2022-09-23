@@ -71,8 +71,9 @@ fn main() -> Result<()> {
 
         let mut keep_if_newer = |itempath| -> () {
             match newest_item {
-                Some(Item { path: _, mtime: oldmtime }) =>
-                    if oldmtime < mtime {
+                Some(Item { path: ref oldpath, mtime: oldmtime }) =>
+                    if (oldmtime < mtime)
+                    || ((oldmtime == mtime) && (*oldpath < itempath)) {
                         newest_item = Some(
                             Item { path: itempath, mtime: mtime }
                         )

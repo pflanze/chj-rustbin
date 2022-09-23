@@ -73,7 +73,7 @@ fn main() -> Result<()> {
             match newest_item {
                 Some(Item { path: ref oldpath, mtime: oldmtime }) =>
                     if (oldmtime < mtime)
-                    || ((oldmtime == mtime) && (*oldpath < itempath)) {
+                    || ((oldmtime == mtime) && (*oldpath > itempath)) {
                         newest_item = Some(
                             Item { path: itempath, mtime: mtime }
                         )

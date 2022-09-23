@@ -63,37 +63,44 @@ fn main() -> Result<()> {
         }
     }
 
-    let mut newest_item : Option<Item> = None;
-    for entry in fs::read_dir(opt.directory_path)? {
-        let itempath = entry?.path();
-        let md = fs::symlink_metadata(&itempath)?;
-        let mtime = md.modified()?;
+    let newest_item =
+        fs::read_dir(&opt.directory_path)?.try_fold(
+            None, // : Option<Item>,
+            |newest_item: Option<Item>, entry| {
+                let itempath = entry?.path();
+                let md = fs::symlink_metadata(&itempath)?;
+                let mtime = md.modified()?;
 
-        let mut keep_if_newer = |itempath| -> () {
-            match newest_item {
-                Some(Item { path: ref oldpath, mtime: oldmtime }) =>
-                    if (oldmtime < mtime)
-                    || ((oldmtime == mtime) && (*oldpath > itempath)) {
-                        newest_item = Some(
-                            Item { path: itempath, mtime: mtime }
-                        )
-                    }
-                None =>
-                    newest_item = Some(
-                        Item { path: itempath, mtime: mtime }
-                    )
-            }
-        };
-        
-        if md.is_dir() && opt.dirs {
-            keep_if_newer(itempath)
-        } else if md.is_file() && opt.files {
-            keep_if_newer(itempath)
-        } else {
-            trace!("ignoring path '{:?}' (type {:?})",
-                   &itempath, md.file_type());
-        }
-    }
+                let keep_if_newer =
+                    |itempath, newest_item| -> Result<Option<Item>> {
+                        match newest_item {
+                            Some(Item { path: ref oldpath, mtime: oldmtime }) =>
+                                if (oldmtime < mtime)
+                                || ((oldmtime == mtime) &&
+                                    (*oldpath > itempath)) {
+                                    Ok(Some(
+                                        Item { path: itempath, mtime: mtime }
+                                    ))
+                                } else {
+                                    Ok(newest_item)
+                                }
+                            None =>
+                                Ok(Some(
+                                    Item { path: itempath, mtime: mtime }
+                                ))
+                        }
+                    };
+
+                if md.is_dir() && opt.dirs {
+                    keep_if_newer(itempath, newest_item)
+                } else if md.is_file() && opt.files {
+                    keep_if_newer(itempath, newest_item)
+                } else {
+                    trace!("ignoring path '{:?}' (type {:?})",
+                           &itempath, md.file_type());
+                    Ok(newest_item)
+                }
+            })?;
 
     match newest_item {
         Some(Item { path, mtime: _ }) => {

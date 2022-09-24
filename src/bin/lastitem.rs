@@ -37,6 +37,27 @@ struct Item {
     mtime: SystemTime,
 }
 
+fn item_merge(old_item: Option<Item>, new_item: Option<Item>)
+              -> Option<Item> {
+    match new_item {
+        Some(Item { path: ref new_path, mtime: new_mtime }) =>
+            match old_item {
+                Some(Item { path: ref old_path, mtime: old_mtime }) =>
+                    if (old_mtime < new_mtime)
+                    || ((old_mtime == new_mtime) &&
+                        (*old_path > *new_path)) {
+                        new_item
+                    } else {
+                        old_item
+                    }
+                None =>
+                    new_item
+            },
+        None =>
+            old_item
+    }
+}
+
 fn main() -> Result<()> {
     let mut opt = Opt::from_args();
 
@@ -75,22 +96,9 @@ fn main() -> Result<()> {
 
                 let keep_if_newer =
                     |itempath, newest_item| -> Result<Option<Item>> {
-                        match newest_item {
-                            Some(Item { path: ref oldpath, mtime: oldmtime }) =>
-                                if (oldmtime < mtime)
-                                || ((oldmtime == mtime) &&
-                                    (*oldpath > itempath)) {
-                                    Ok(Some(
-                                        Item { path: itempath, mtime: mtime }
-                                    ))
-                                } else {
-                                    Ok(newest_item)
-                                }
-                            None =>
-                                Ok(Some(
-                                    Item { path: itempath, mtime: mtime }
-                                ))
-                        }
+                        Ok(item_merge(
+                            newest_item,
+                            Some(Item { path: itempath, mtime: mtime })))
                     };
 
                 if md.is_dir() && opt.dirs {

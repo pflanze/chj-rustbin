@@ -63,8 +63,10 @@ fn main() -> Result<()> {
         }
     }
 
+    let items: Vec<Result<fs::DirEntry, std::io::Error>> =
+        fs::read_dir(&opt.directory_path)?.collect();
     let newest_item =
-        fs::read_dir(&opt.directory_path)?.try_fold(
+        items.into_iter().try_fold(
             None, // : Option<Item>,
             |newest_item: Option<Item>, entry| {
                 let itempath = entry?.path();

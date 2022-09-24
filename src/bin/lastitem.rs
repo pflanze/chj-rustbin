@@ -11,6 +11,9 @@ use std::io::Write;
 use std::time::SystemTime;
 use std::path::PathBuf;
 use structopt::StructOpt;
+use rayon::iter::ParallelIterator;
+use rayon::iter::IntoParallelIterator;
+
 
 #[derive(StructOpt, Debug)]
 /// Show the newest (with regards to mtime) item in a directory. If
@@ -87,9 +90,9 @@ fn main() -> Result<()> {
     let items: Vec<fs::DirEntry> =
         fs::read_dir(&opt.directory_path)?.collect::<Result<_,_>>()?;
     let newest_item =
-        items.iter().try_fold(
-            None, // : Option<Item>,
-            |newest_item: Option<Item>, entry| {
+        items.into_par_iter().try_fold(
+            || None, // : Option<Item>,
+            |newest_item: Option<Item>, entry: fs::DirEntry| {
                 let itempath = entry.path();
                 let md = fs::symlink_metadata(&itempath)?;
                 let mtime = md.modified()?;
@@ -110,7 +113,9 @@ fn main() -> Result<()> {
                            &itempath, md.file_type());
                     Ok(newest_item)
                 }
-            })?;
+            }).try_reduce(
+            || None,
+            |a, b| Ok(item_merge(a, b)))?;
 
     match newest_item {
         Some(Item { path, mtime: _ }) => {

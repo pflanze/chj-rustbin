@@ -63,13 +63,14 @@ fn main() -> Result<()> {
         }
     }
 
-    let items: Vec<Result<fs::DirEntry, std::io::Error>> =
+    let items_r: Result<Vec<fs::DirEntry>, _> =
         fs::read_dir(&opt.directory_path)?.collect();
+    let items = items_r?;
     let newest_item =
         items.into_iter().try_fold(
             None, // : Option<Item>,
             |newest_item: Option<Item>, entry| {
-                let itempath = entry?.path();
+                let itempath = entry.path();
                 let md = fs::symlink_metadata(&itempath)?;
                 let mtime = md.modified()?;
 

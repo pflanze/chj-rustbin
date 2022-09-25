@@ -124,7 +124,7 @@ fn main() -> Result<()> {
         .collect::<Result<_,_>>()?;
     let newest_item =
         items.into_par_iter().try_fold(
-            || None, // : Option<Item>,
+            || None,
             |newest_item: Option<Item>, itempath: PathBuf|
                                  -> Result<Option<Item>, std::io::Error> {
                 let md = fs::symlink_metadata(&itempath)?;
@@ -132,7 +132,8 @@ fn main() -> Result<()> {
                 Ok(item_merge(
                     newest_item,
                     Some(Item { path: itempath, mtime: mtime })))
-            }).try_reduce(
+            })
+        .try_reduce(
             || None,
             |a, b| Ok(item_merge(a, b)))?;
 

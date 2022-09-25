@@ -106,13 +106,11 @@ fn main() -> Result<()> {
                 match entry_result {
                     Ok(entry) => {
                         let ft = entry.file_type().unwrap();
-                        let path = entry.path();
-                        let filename = path.file_name()
-                            .expect("should never see .. as file_name");
+                        let filename = entry.file_name();
                         if ft.is_dir() && opt.dirs ||
                             ft.is_file() && opt.files
                         {
-                            Some(Ok(filename.to_os_string()))
+                            Some(Ok(filename))
                         } else {
                             trace!("ignoring item '{:?}' (type {:?})",
                                    filename, ft);

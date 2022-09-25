@@ -5,6 +5,7 @@ use anyhow::{Result, bail, anyhow};
 use std::fs;
 use std::io;
 use std::env;
+use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::ffi::OsString;
 use std::io::Write;
@@ -25,11 +26,14 @@ use rayon::iter::IntoParallelIterator;
 #[structopt(name = "lastitem from chj-rustbin")]
 struct Opt {
     /// consider dirs
-    #[structopt(short, long)]
+    #[structopt(long)]
     dirs: bool,
     /// consider files
-    #[structopt(short, long)]
+    #[structopt(long)]
     files: bool,
+    /// show the full path instead of just the filename
+    #[structopt(short, long)]
+    fullpath: bool,
     /// the directory to find the item in
     #[structopt(parse(from_os_str), default_value = ".")]
     directory_path: PathBuf,
@@ -119,7 +123,15 @@ fn main() -> Result<()> {
 
     match newest_item {
         Some(Item { path, mtime: _ }) => {
-            write!(io::stdout(), "{}\n", path.display())
+            io::stdout().write_all(
+                if opt.fullpath {
+                    path.as_os_str()
+                } else {
+                    path.file_name()
+                        .expect("should never see .. as file_name")
+                }.as_bytes())?;
+            io::stdout().write_all(
+                "\n".as_bytes())
         }
         None =>
             bail!("No {} found in given directory",

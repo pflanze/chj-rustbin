@@ -43,19 +43,19 @@ struct Opt {
 }
 
 struct Item {
-    path: PathBuf,
+    filename: OsString,
     mtime: SystemTime,
 }
 
 fn item_merge(old_item: Option<Item>, new_item: Option<Item>)
               -> Option<Item> {
     match new_item {
-        Some(Item { path: ref new_path, mtime: new_mtime }) =>
+        Some(Item { filename: ref new_filename, mtime: new_mtime }) =>
             match old_item {
-                Some(Item { path: ref old_path, mtime: old_mtime }) =>
+                Some(Item { filename: ref old_filename, mtime: old_mtime }) =>
                     if (old_mtime < new_mtime)
                     || ((old_mtime == new_mtime) &&
-                        (*old_path > *new_path)) {
+                        (*old_filename > *new_filename)) {
                         new_item
                     } else {
                         old_item
@@ -96,24 +96,26 @@ fn main() -> Result<()> {
 
     env::set_current_dir(&opt.directory_path)?;
 
-    let items: Vec<PathBuf> =
+    let items: Vec<OsString> =
         fs::read_dir(".").with_context(
             || "can't open directory '.'")?
         .filter_map(
             |entry_result: Result<fs::DirEntry, std::io::Error>|
-                                  -> Option<Result<PathBuf,
+                                  -> Option<Result<OsString,
                                                    std::io::Error>> {
                 match entry_result {
                     Ok(entry) => {
                         let ft = entry.file_type().unwrap();
-                        let itempath = entry.path();
+                        let path = entry.path();
+                        let filename = path.file_name()
+                            .expect("should never see .. as file_name");
                         if ft.is_dir() && opt.dirs ||
                             ft.is_file() && opt.files
                         {
-                            Some(Ok(itempath))
+                            Some(Ok(filename.to_os_string()))
                         } else {
-                            trace!("ignoring path '{:?}' (type {:?})",
-                                   &itempath, ft);
+                            trace!("ignoring item '{:?}' (type {:?})",
+                                   filename, ft);
                             None
                         }
                     },
@@ -125,26 +127,28 @@ fn main() -> Result<()> {
     let newest_item =
         items.into_par_iter().try_fold(
             || None,
-            |newest_item: Option<Item>, itempath: PathBuf|
+            |newest_item: Option<Item>, filename: OsString|
                                  -> Result<Option<Item>, std::io::Error> {
-                let md = fs::symlink_metadata(&itempath)?;
+                let md = fs::symlink_metadata(&filename)?;
                 let mtime = md.modified()?;
                 Ok(item_merge(
                     newest_item,
-                    Some(Item { path: itempath, mtime: mtime })))
+                    Some(Item { filename: filename, mtime: mtime })))
             })
         .try_reduce(
             || None,
             |a, b| Ok(item_merge(a, b)))?;
 
     match newest_item {
-        Some(Item { path, mtime: _ }) => {
+        Some(Item { filename, mtime: _ }) => {
             io::stdout().write_all(
                 if opt.fullpath {
-                    path.as_os_str()
+                    let mut p = PathBuf::new();
+                    p.push(&opt.directory_path);
+                    p.push(filename);
+                    p.into_os_string()
                 } else {
-                    path.file_name()
-                        .expect("should never see .. as file_name")
+                    filename
                 }.as_bytes())?;
             io::stdout().write_all(
                 "\n".as_bytes())

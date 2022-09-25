@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate log; // `tracing` crate, huh?
 
-use anyhow::{Result, bail, anyhow};
+use anyhow::{Context, Result, bail, anyhow};
 use std::fs;
 use std::io;
 use std::env;
@@ -94,32 +94,44 @@ fn main() -> Result<()> {
         }
     }
 
-    let items: Vec<fs::DirEntry> =
-        fs::read_dir(&opt.directory_path)?.collect::<Result<_,_>>()?;
+    env::set_current_dir(&opt.directory_path)?;
+
+    let items: Vec<PathBuf> =
+        fs::read_dir(".").with_context(
+            || "can't open directory '.'")?
+        .filter_map(
+            |entry_result: Result<fs::DirEntry, std::io::Error>|
+                                  -> Option<Result<PathBuf,
+                                                   std::io::Error>> {
+                match entry_result {
+                    Ok(entry) => {
+                        let ft = entry.file_type().unwrap();
+                        let itempath = entry.path();
+                        if ft.is_dir() && opt.dirs ||
+                            ft.is_file() && opt.files
+                        {
+                            Some(Ok(itempath))
+                        } else {
+                            trace!("ignoring path '{:?}' (type {:?})",
+                                   &itempath, ft);
+                            None
+                        }
+                    },
+                    Err(e) =>
+                        Some(Err(e))
+                }
+            })
+        .collect::<Result<_,_>>()?;
     let newest_item =
         items.into_par_iter().try_fold(
             || None, // : Option<Item>,
-            |newest_item: Option<Item>, entry: fs::DirEntry| {
-                let itempath = entry.path();
+            |newest_item: Option<Item>, itempath: PathBuf|
+                                 -> Result<Option<Item>, std::io::Error> {
                 let md = fs::symlink_metadata(&itempath)?;
                 let mtime = md.modified()?;
-
-                let keep_if_newer =
-                    |itempath, newest_item| -> Result<Option<Item>> {
-                        Ok(item_merge(
-                            newest_item,
-                            Some(Item { path: itempath, mtime: mtime })))
-                    };
-
-                if md.is_dir() && opt.dirs {
-                    keep_if_newer(itempath, newest_item)
-                } else if md.is_file() && opt.files {
-                    keep_if_newer(itempath, newest_item)
-                } else {
-                    trace!("ignoring path '{:?}' (type {:?})",
-                           &itempath, md.file_type());
-                    Ok(newest_item)
-                }
+                Ok(item_merge(
+                    newest_item,
+                    Some(Item { path: itempath, mtime: mtime })))
             }).try_reduce(
             || None,
             |a, b| Ok(item_merge(a, b)))?;

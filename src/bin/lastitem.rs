@@ -28,12 +28,15 @@ struct Opt {
     /// consider dirs
     #[structopt(long)]
     dirs: bool,
+
     /// consider files
     #[structopt(long)]
     files: bool,
+
     /// show the full path instead of just the filename
     #[structopt(short, long)]
     fullpath: bool,
+
     /// the directory to find the item in
     #[structopt(parse(from_os_str), default_value = ".")]
     directory_path: PathBuf,

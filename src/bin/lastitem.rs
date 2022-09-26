@@ -149,8 +149,7 @@ fn main() -> Result<()> {
                 } else {
                     filename
                 }.as_bytes())?;
-            io::stdout().write_all(
-                "\n".as_bytes())
+            io::stdout().write_all(b"\n")
         }
         None =>
             bail!("No {} found in given directory",

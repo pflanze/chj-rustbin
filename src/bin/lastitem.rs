@@ -94,18 +94,21 @@ fn main() -> Result<()> {
         }
     }
 
-    env::set_current_dir(&opt.directory_path)?;
+    env::set_current_dir(&opt.directory_path)
+        .with_context(
+            || "can't chdir into the base directory")?;
 
     let items: Vec<OsString> =
         fs::read_dir(".").with_context(
-            || "can't open directory '.'")?
+            || "can't open the base directory for reading")?
         .filter_map(
             |entry_result: Result<fs::DirEntry, std::io::Error>|
                                   -> Option<Result<OsString,
                                                    std::io::Error>> {
                 match entry_result {
                     Ok(entry) => {
-                        let ft = entry.file_type().unwrap();
+                        let ft = entry.file_type()
+                            .expect("when does this fail, when needing stat?");
                         let filename = entry.file_name();
                         if ft.is_dir() && opt.dirs ||
                             ft.is_file() && opt.files

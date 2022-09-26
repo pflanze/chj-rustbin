@@ -71,12 +71,12 @@ fn main() -> Result<()> {
 
     if !opt.files && !opt.dirs {
         let arg0 = env::args_os().next();
-        let exepath = arg0.ok_or(
-            anyhow!("can't get executable path from args_os")
+        let exepath = arg0.ok_or_else(
+            || anyhow!("can't get executable path from args_os")
         )?;
         let exename = Path::new(&exepath).file_name()
-            .ok_or(
-                anyhow!("can't extract file_name from executable path")
+            .ok_or_else(
+                || anyhow!("can't extract file_name from executable path")
             )?;
 
         if exename == "lastitem" {

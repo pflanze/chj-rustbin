@@ -144,10 +144,8 @@ fn main() -> Result<()> {
         Some(Item { filename, mtime: _ }) => {
             io::stdout().write_all(
                 if opt.fullpath {
-                    let mut p = PathBuf::new();
-                    p.push(&opt.directory_path);
-                    p.push(filename);
-                    p.into_os_string()
+                    opt.directory_path.join(filename)
+                        .into_os_string()
                 } else {
                     filename
                 }.as_bytes())?;

@@ -47,9 +47,10 @@ struct Item {
     mtime: SystemTime,
 }
 
-fn item_merge(old_item: Option<Item>, new_item: Item) -> Item {
+fn item_merge(old_item: Option<Item>, new_item: Option<Item>)
+              -> Option<Item> {
     match new_item {
-        Item { filename: ref new_filename, mtime: new_mtime } =>
+        Some(Item { filename: ref new_filename, mtime: new_mtime }) =>
             match old_item {
                 Some(Item { filename: ref old_filename, mtime: old_mtime }) =>
                     if (old_mtime < new_mtime)
@@ -57,11 +58,13 @@ fn item_merge(old_item: Option<Item>, new_item: Item) -> Item {
                         (*old_filename > *new_filename)) {
                         new_item
                     } else {
-                        old_item.unwrap()
+                        old_item
                     }
                 None =>
                     new_item
             },
+        None =>
+            old_item
     }
 }
 
@@ -129,14 +132,13 @@ fn main() -> Result<()> {
                                  -> Result<Option<Item>, std::io::Error> {
                 let md = fs::symlink_metadata(&filename)?;
                 let mtime = md.modified()?;
-                Ok(Some(item_merge(
+                Ok(item_merge(
                     newest_item,
-                    Item { filename: filename, mtime: mtime })))
+                    Some(Item { filename: filename, mtime: mtime })))
             })
         .try_reduce(
             || None,
-            |a, b| Ok(Some(
-                item_merge(a, b.expect("should always be Some?")))))?;
+            |a, b| Ok(item_merge(a, b)))?;
 
     match newest_item {
         Some(Item { filename, mtime: _ }) => {

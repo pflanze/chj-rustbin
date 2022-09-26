@@ -139,14 +139,14 @@ fn main() -> Result<()> {
 
     match newest_item {
         Some(Item { filename, mtime: _ }) => {
-            let mut p = PathBuf::new();
             io::stdout().write_all(
                 if opt.fullpath {
+                    let mut p = PathBuf::new();
                     p.push(&opt.directory_path);
                     p.push(filename);
-                    p.as_os_str()
+                    p.into_os_string()
                 } else {
-                    &filename
+                    filename
                 }.as_bytes())?;
             io::stdout().write_all(
                 "\n".as_bytes())

@@ -74,7 +74,7 @@ fn main() -> Result<()> {
         let exepath = arg0.ok_or(
             anyhow!("can't get executable path from args_os")
         )?;
-        let exename = <OsString as AsRef<Path>>::as_ref(&exepath).file_name()
+        let exename = Path::new(&exepath).file_name()
             .ok_or(
                 anyhow!("can't extract file_name from executable path")
             )?;

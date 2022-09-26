@@ -49,22 +49,20 @@ struct Item {
 
 fn item_merge(old_item: Option<Item>, new_item: Option<Item>)
               -> Option<Item> {
-    match new_item {
-        Some(Item { filename: ref new_filename, mtime: new_mtime }) =>
-            match old_item {
-                Some(Item { filename: ref old_filename, mtime: old_mtime }) =>
-                    if (old_mtime < new_mtime)
-                    || ((old_mtime == new_mtime) &&
-                        (*old_filename > *new_filename)) {
-                        new_item
-                    } else {
-                        old_item
-                    }
-                None =>
-                    new_item
+    match (&old_item, &new_item) {
+        (&Some(Item { filename: ref old_filename, mtime: old_mtime }),
+         &Some(Item { filename: ref new_filename, mtime: new_mtime })) =>
+            if (old_mtime < new_mtime)
+            || ((old_mtime == new_mtime) &&
+                (*old_filename > *new_filename)) {
+                new_item
+            } else {
+                old_item
             },
-        None =>
-            old_item
+        (_, None) =>
+            old_item,
+        (None, _) =>
+            new_item
     }
 }
 

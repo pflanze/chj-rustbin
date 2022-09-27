@@ -72,12 +72,9 @@ fn main() -> Result<()> {
     if !opt.files && !opt.dirs {
         let arg0 = env::args_os().next();
         let exepath = arg0.ok_or_else(
-            || anyhow!("can't get executable path from args_os")
-        )?;
-        let exename = Path::new(&exepath).file_name()
-            .ok_or_else(
-                || anyhow!("can't extract file_name from executable path")
-            )?;
+            || anyhow!("can't get executable path from args_os"))?;
+        let exename = Path::new(&exepath).file_name().ok_or_else(
+            || anyhow!("can't extract file_name from executable path"))?;
 
         if exename == "lastitem" {
             opt.files = true;
@@ -92,9 +89,8 @@ fn main() -> Result<()> {
         }
     }
 
-    env::set_current_dir(&opt.directory_path)
-        .with_context(
-            || "can't chdir into the base directory")?;
+    env::set_current_dir(&opt.directory_path).with_context(
+        || "can't chdir to the base directory")?;
 
     let items: Vec<OsString> =
         fs::read_dir(".").with_context(
@@ -106,7 +102,7 @@ fn main() -> Result<()> {
                 match entry_result {
                     Ok(entry) => {
                         let ft = entry.file_type()
-                            .expect("when does this fail, when needing stat?");
+                            .expect("does this fail on OSes needing stat?");
                         let filename = entry.file_name();
                         if ft.is_dir() && opt.dirs ||
                             ft.is_file() && opt.files
@@ -123,6 +119,7 @@ fn main() -> Result<()> {
                 }
             })
         .collect::<Result<_,_>>()?;
+
     let newest_item =
         items.into_par_iter().try_fold(
             || None,

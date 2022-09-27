@@ -14,7 +14,7 @@ use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{stdin, stdout, BufRead, BufWriter, Write};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
@@ -50,7 +50,7 @@ struct Opt {
     directory_paths: Vec<PathBuf>,
 }
 
-fn cleanup_target(path: &PathBuf) -> PathBuf {
+fn cleanup_target(path: &Path) -> PathBuf {
     // remove end slash (but only if it's not the '/' dir), and
     // slightly canonicalize
     path.components().as_path().to_path_buf()
@@ -72,7 +72,7 @@ fn dirs_index(
             if s.file_type().is_symlink() {
                 let target: PathBuf = item.path().read_link()?;
                 let target = match remove_base {
-                    Some(ref base) => {
+                    Some(base) => {
                         let targetos = target.as_os_str();
                         let mut ia = targetos.as_bytes().iter();
                         let mut ib = base.as_bytes().iter();

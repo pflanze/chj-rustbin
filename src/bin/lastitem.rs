@@ -129,7 +129,7 @@ fn main() -> Result<()> {
                 let mtime = md.modified()?;
                 Ok(item_merge(
                     newest_item,
-                    Some(Item { filename: filename, mtime: mtime })))
+                    Some(Item { filename, mtime })))
             })
         .try_reduce(
             || None,

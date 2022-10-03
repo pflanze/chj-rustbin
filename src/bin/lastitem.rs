@@ -11,7 +11,7 @@ use std::io;
 use std::env;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
-use std::ffi::OsString;
+use std::ffi::{OsString, OsStr};
 use std::io::Write;
 use std::time::SystemTime;
 use std::path::PathBuf;
@@ -21,7 +21,7 @@ use rayon::iter::IntoParallelIterator;
 use std::collections::hash_set::HashSet;
 use std::convert::From;
 
-
+#[derive(Clone)]
 struct Excludes {
     files: HashSet<OsString>,
     dirs: HashSet<OsString>
@@ -78,9 +78,21 @@ struct Opt {
     #[structopt(long)]
     no_ignore: bool,
 
-    /// if a directory has no files after filtering, continue
-    /// without showing a result (the default is to stop with
-    /// an error)
+    /// ignore files with the given name(s); these are in addition to
+    /// the default ignores, use --no-ignore to drop those. XX Due to
+    /// not knowing how to get StructOpt or Clap to allow multiple
+    /// calls to this option, it can only be used once; multiple files
+    /// can be given by separating them with a \n newline character
+    #[structopt(long)]
+    ignore_files: Option<OsString>,
+
+    /// ignore dirs with the given names(s); the same comments apply
+    /// as for --ignore-files
+    #[structopt(long)]
+    ignore_dirs: Option<OsString>,
+
+    /// if a directory has no files after filtering, succeed without
+    /// showing a result (the default is to report an error)
     #[structopt(long)]
     allow_empty: bool,
 
@@ -92,6 +104,15 @@ struct Opt {
     #[structopt(parse(from_os_str), default_value = ".")]
     directory_path: PathBuf,
 }
+
+
+fn insert_lines(hashset: &mut HashSet<OsString>, s: &OsString) {
+    let parts = s.as_bytes().split(|c| *c == b'\n');
+    for p in parts {
+        hashset.insert(OsString::from(OsStr::from_bytes(p)));
+    }
+}
+
 
 struct Item {
     filename: OsString,
@@ -141,11 +162,23 @@ fn main() -> Result<()> {
         }
     }
 
-    let excludes = if opt.no_ignore {
-        empty_excludes()
-    } else {
-        default_excludes()
-    };
+    let mut excludes = (
+        if opt.no_ignore {
+            empty_excludes()
+        } else {
+            default_excludes()
+        }
+    ).clone();
+
+    match opt.ignore_files {
+        Some(ref s) => insert_lines(&mut excludes.files, s),
+        None => ()
+    }
+
+    match opt.ignore_dirs {
+        Some(ref s) => insert_lines(&mut excludes.dirs, s),
+        None => ()
+    }
 
     env::set_current_dir(&opt.directory_path).with_context(
         || "can't chdir to the base directory")?;

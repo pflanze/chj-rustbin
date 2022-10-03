@@ -1,6 +1,10 @@
 #[macro_use]
 extern crate log; // `tracing` crate, huh?
 
+#[path = "../naturallanguagejoin.rs" ]
+mod naturallanguagejoin;
+use naturallanguagejoin::NaturalLanguageJoin;
+
 use anyhow::{Context, Result, bail, anyhow};
 use std::fs;
 use std::io;
@@ -48,10 +52,9 @@ fn generic_ignore_filename(filename: &OsString) -> bool {
 #[derive(StructOpt, Debug)]
 /// Show the newest (with regards to mtime) item in a directory. If
 /// called via a symlink as `lastfile`, shows the last file, if called
-/// as `lastdir`, the last dir, if called as `lastitem`, either file
-/// or dir. Alternatively, if the --dirs or --files option is given,
-/// that takes precedence. Always ignores device, pipe and socket
-/// files.
+/// as `lastdir`, the last dir, if called as `lastitem`, any kind of
+/// filesystem entry. Alternatively, if the --dirs or --files option
+/// is given, that takes precedence.
 #[structopt(name = "lastitem from chj-rustbin")]
 struct Opt {
     /// consider dirs
@@ -61,6 +64,10 @@ struct Opt {
     /// consider files
     #[structopt(long)]
     files: bool,
+
+    /// consider other items (symlinks, pipes, sockets, device files)
+    #[structopt(long)]
+    other: bool,
 
     /// do not ignore dot and Emacs backup (ending in '~') files
     #[structopt(short, long)]
@@ -113,7 +120,7 @@ fn item_merge(old_item: Option<Item>, new_item: Option<Item>)
 fn main() -> Result<()> {
     let mut opt = Opt::from_args();
 
-    if !opt.files && !opt.dirs {
+    if !opt.files && !opt.dirs && !opt.other {
         let arg0 = env::args_os().next();
         let exepath = arg0.ok_or_else(
             || anyhow!("can't get executable path from args_os"))?;
@@ -123,6 +130,7 @@ fn main() -> Result<()> {
         if exename == "lastitem" {
             opt.files = true;
             opt.dirs = true;
+            opt.other = true;
         } else if exename == "lastfile" {
             opt.files = true;
         } else if exename == "lastdir" {
@@ -159,7 +167,9 @@ fn main() -> Result<()> {
                                 && opt.dirs && !excludes.dirs.contains(&filename);
                             let handle_as_file = ft.is_file()
                                 && opt.files && !excludes.files.contains(&filename);
-                            if handle_as_dir || handle_as_file {
+                            let handle_as_other = opt.other &&
+                                (!ft.is_dir() && !ft.is_file());
+                            if handle_as_dir || handle_as_file || handle_as_other {
                                 Some(Ok(filename))
                             } else {
                                 trace!(
@@ -207,16 +217,17 @@ fn main() -> Result<()> {
                 Ok(())
             } else {
                 bail!("No {} found in given directory",
-                      if opt.dirs {
-                          if opt.files {
-                              "directory or file"
-                          } else {
-                              "directory"
-                          }
-                      } else if opt.files {
-                          "file"
+                      if opt.dirs && opt.files && opt.other {
+                          String::from("items")
                       } else {
-                          panic!("neither option is set")
+                          let mut which = Vec::new();
+                          if opt.files { which.push("files") }
+                          if opt.dirs { which.push("dirs") }
+                          if opt.other { which.push("non-file-or-dir items") }
+                          if which.is_empty() {
+                              panic!("no option is set")
+                          }
+                          which.natural_language_join()
                       })
             }
     }?;

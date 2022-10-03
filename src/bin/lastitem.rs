@@ -197,12 +197,15 @@ fn main() -> Result<()> {
                         let filename = entry.file_name();
                         if opt.all || ! generic_ignore_filename(&filename) {
                             let handle_as_dir = ft.is_dir()
-                                && opt.dirs && !excludes.dirs.contains(&filename);
+                                && opt.dirs
+                                && !excludes.dirs.contains(&filename);
                             let handle_as_file = ft.is_file()
-                                && opt.files && !excludes.files.contains(&filename);
+                                && opt.files
+                                && !excludes.files.contains(&filename);
                             let handle_as_other = opt.other &&
                                 (!ft.is_dir() && !ft.is_file());
-                            if handle_as_dir || handle_as_file || handle_as_other {
+                            if handle_as_dir || (
+                                handle_as_file || handle_as_other) {
                                 Some(Ok(filename))
                             } else {
                                 trace!(

@@ -14,6 +14,28 @@ use std::path::PathBuf;
 use structopt::StructOpt;
 use rayon::iter::ParallelIterator;
 use rayon::iter::IntoParallelIterator;
+use std::collections::hash_set::HashSet;
+
+
+struct Excludes {
+    files: HashSet<OsString>,
+    dirs: HashSet<OsString>
+}
+
+fn default_excludes() -> Excludes {
+    Excludes {
+        files: to_osstring_hashset(vec!["HEUTE", "CALENDAR"]),
+        dirs: to_osstring_hashset(vec![".git", ".METADATA-v2"])
+    }
+}
+
+
+fn to_osstring_hashset(v: Vec<&'static str>) -> HashSet<OsString> {
+    let mut s = HashSet::<OsString>::new();
+    v.into_iter().for_each(
+        |v| { s.insert(OsString::from(v)); });
+    s
+}
 
 
 #[derive(StructOpt, Debug)]
@@ -89,6 +111,8 @@ fn main() -> Result<()> {
         }
     }
 
+    let excludes = default_excludes();
+
     env::set_current_dir(&opt.directory_path).with_context(
         || "can't chdir to the base directory")?;
 
@@ -104,9 +128,11 @@ fn main() -> Result<()> {
                         let ft = entry.file_type()
                             .expect("does this fail on OSes needing stat?");
                         let filename = entry.file_name();
-                        if ft.is_dir() && opt.dirs ||
-                            ft.is_file() && opt.files
-                        {
+                        let handle_as_dir = ft.is_dir()
+                            && opt.dirs && !excludes.dirs.contains(&filename);
+                        let handle_as_file = ft.is_file()
+                            && opt.files && !excludes.files.contains(&filename);
+                        if handle_as_dir || handle_as_file {
                             Some(Ok(filename))
                         } else {
                             trace!(

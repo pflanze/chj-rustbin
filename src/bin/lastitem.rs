@@ -58,6 +58,12 @@ struct Opt {
     #[structopt(long)]
     no_ignore: bool,
 
+    /// if a directory has no files after filtering, continue
+    /// without showing a result (the default is to stop with
+    /// an error)
+    #[structopt(long)]
+    allow_empty: bool,
+
     /// show the full path instead of just the filename
     #[structopt(short, long)]
     fullpath: bool,
@@ -180,18 +186,22 @@ fn main() -> Result<()> {
             io::stdout().write_all(b"\n")
         }
         None =>
-            bail!("No {} found in given directory",
-                  if opt.dirs {
-                      if opt.files {
-                          "directory or file"
+            if opt.allow_empty {
+                Ok(())
+            } else {
+                bail!("No {} found in given directory",
+                      if opt.dirs {
+                          if opt.files {
+                              "directory or file"
+                          } else {
+                              "directory"
+                          }
+                      } else if opt.files {
+                          "file"
                       } else {
-                          "directory"
-                      }
-                  } else if opt.files {
-                      "file"
-                  } else {
-                      panic!("neither option is set")
-                  })
+                          panic!("neither option is set")
+                      })
+            }
     }?;
 
     Ok(())

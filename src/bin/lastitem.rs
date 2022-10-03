@@ -37,6 +37,14 @@ fn empty_excludes() -> Excludes {
     }
 }
 
+fn generic_ignore_filename(filename: &OsString) -> bool {
+    let bs = filename.as_bytes();
+    let len = bs.len();
+    len >= 1 && (bs[0] == b'.') ||
+    len >= 2 && (bs[len-1] == b'~')
+}
+
+
 #[derive(StructOpt, Debug)]
 /// Show the newest (with regards to mtime) item in a directory. If
 /// called via a symlink as `lastfile`, shows the last file, if called
@@ -54,7 +62,12 @@ struct Opt {
     #[structopt(long)]
     files: bool,
 
-    /// do not ignore files and dirs that are ignored by default, like .git
+    /// do not ignore dot and Emacs backup (ending in '~') files
+    #[structopt(short, long)]
+    all: bool,
+
+    /// do not ignore special file and dir names that are ignored by
+    /// default, like .git
     #[structopt(long)]
     no_ignore: bool,
 
@@ -141,15 +154,19 @@ fn main() -> Result<()> {
                         let ft = entry.file_type()
                             .expect("does this fail on OSes needing stat?");
                         let filename = entry.file_name();
-                        let handle_as_dir = ft.is_dir()
-                            && opt.dirs && !excludes.dirs.contains(&filename);
-                        let handle_as_file = ft.is_file()
-                            && opt.files && !excludes.files.contains(&filename);
-                        if handle_as_dir || handle_as_file {
-                            Some(Ok(filename))
+                        if opt.all || ! generic_ignore_filename(&filename) {
+                            let handle_as_dir = ft.is_dir()
+                                && opt.dirs && !excludes.dirs.contains(&filename);
+                            let handle_as_file = ft.is_file()
+                                && opt.files && !excludes.files.contains(&filename);
+                            if handle_as_dir || handle_as_file {
+                                Some(Ok(filename))
+                            } else {
+                                trace!(
+                                    "ignoring item '{filename:?}' (type {ft:?})");
+                                None
+                            }
                         } else {
-                            trace!(
-                                "ignoring item '{filename:?}' (type {ft:?})");
                             None
                         }
                     },

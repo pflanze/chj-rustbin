@@ -15,6 +15,7 @@ use structopt::StructOpt;
 use rayon::iter::ParallelIterator;
 use rayon::iter::IntoParallelIterator;
 use std::collections::hash_set::HashSet;
+use std::convert::From;
 
 
 struct Excludes {
@@ -24,17 +25,9 @@ struct Excludes {
 
 fn default_excludes() -> Excludes {
     Excludes {
-        files: to_osstring_hashset(vec!["HEUTE", "CALENDAR"]),
-        dirs: to_osstring_hashset(vec![".git", ".METADATA-v2"])
+        files: HashSet::from(["HEUTE", "CALENDAR"].map(From::from)),
+        dirs: HashSet::from([".git", ".METADATA-v2"].map(From::from))
     }
-}
-
-
-fn to_osstring_hashset(v: Vec<&'static str>) -> HashSet<OsString> {
-    let mut s = HashSet::<OsString>::new();
-    v.into_iter().for_each(
-        |v| { s.insert(OsString::from(v)); });
-    s
 }
 
 

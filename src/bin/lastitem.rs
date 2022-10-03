@@ -30,6 +30,12 @@ fn default_excludes() -> Excludes {
     }
 }
 
+fn empty_excludes() -> Excludes {
+    Excludes {
+        files: HashSet::new(),
+        dirs: HashSet::new(),
+    }
+}
 
 #[derive(StructOpt, Debug)]
 /// Show the newest (with regards to mtime) item in a directory. If
@@ -47,6 +53,10 @@ struct Opt {
     /// consider files
     #[structopt(long)]
     files: bool,
+
+    /// do not ignore files and dirs that are ignored by default, like .git
+    #[structopt(long)]
+    no_ignore: bool,
 
     /// show the full path instead of just the filename
     #[structopt(short, long)]
@@ -104,7 +114,11 @@ fn main() -> Result<()> {
         }
     }
 
-    let excludes = default_excludes();
+    let excludes = if opt.no_ignore {
+        empty_excludes()
+    } else {
+        default_excludes()
+    };
 
     env::set_current_dir(&opt.directory_path).with_context(
         || "can't chdir to the base directory")?;

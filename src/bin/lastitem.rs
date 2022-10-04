@@ -21,7 +21,7 @@ use rayon::iter::IntoParallelIterator;
 use std::collections::hash_set::HashSet;
 use std::convert::From;
 
-#[derive(Clone)]
+
 struct Excludes {
     files: HashSet<OsString>,
     dirs: HashSet<OsString>
@@ -162,13 +162,12 @@ fn main() -> Result<()> {
         }
     }
 
-    let mut excludes = (
+    let mut excludes =
         if opt.no_ignore {
             empty_excludes()
         } else {
             default_excludes()
-        }
-    ).clone();
+        };
 
     match opt.ignore_files {
         Some(ref s) => insert_lines(&mut excludes.files, s),

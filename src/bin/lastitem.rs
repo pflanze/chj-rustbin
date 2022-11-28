@@ -27,10 +27,18 @@ struct Excludes {
     dirs: HashSet<OsString>
 }
 
+fn hashset_from(strs: &[&str]) -> HashSet<OsString> {
+    let mut h : HashSet<OsString> = HashSet::new();
+    for s in strs {
+        h.insert(OsString::from(s));
+    }
+    h
+}
+
 fn default_excludes() -> Excludes {
     Excludes {
-        files: HashSet::from(["HEUTE", "CALENDAR"].map(From::from)),
-        dirs: HashSet::from([".git", ".METADATA-v2"].map(From::from))
+        files: hashset_from(&["HEUTE", "CALENDAR"]),
+        dirs: hashset_from(&[".git", ".METADATA-v2"])
     }
 }
 

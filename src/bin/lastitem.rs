@@ -208,7 +208,8 @@ fn main() -> Result<()> {
                                 Some(Ok(filename))
                             } else {
                                 trace!(
-                                    "ignoring item '{filename:?}' (type {ft:?})");
+                                    "ignoring item '{:?}' (type {:?})",
+                                    filename, ft);
                                 None
                             }
                         } else {

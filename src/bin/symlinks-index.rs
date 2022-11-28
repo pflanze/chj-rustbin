@@ -3,7 +3,6 @@
 
 #[macro_use]
 extern crate log;
-extern crate stderrlog;
 #[path = "../startswith.rs"]
 mod startswith;
 
@@ -143,16 +142,10 @@ fn serve(
 fn main() -> Result<()> {
     let opt = Opt::from_args();
 
-    let debug = opt.debug;
     let remove_base = opt.remove_base.map(OsString::from);
     let input_separator = if opt.zz { 0 } else { b'\n' };
     let output_separator = if opt.zz || opt.z { 0 } else { b'\n' };
     let dirpaths = opt.directory_paths;
-
-    stderrlog::new()
-        .module(module_path!())
-        .verbosity(if debug == 0 { 0 } else { 5 })
-        .init()?;
 
     let target_to_items = dirs_index(&dirpaths, remove_base.as_deref())
         .with_context(|| "indexing")?;

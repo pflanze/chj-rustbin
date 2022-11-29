@@ -6,6 +6,7 @@ extern crate log;
 #[path = "../startswith.rs"]
 mod startswith;
 
+use std::env;
 use anyhow::{Context, Result};
 use startswith::StartsWith;
 use std::collections::HashMap;
@@ -146,6 +147,12 @@ fn main() -> Result<()> {
     let input_separator = if opt.zz { 0 } else { b'\n' };
     let output_separator = if opt.zz || opt.z { 0 } else { b'\n' };
     let dirpaths = opt.directory_paths;
+
+    let debug = opt.debug;
+    if debug > 0 {
+        env::set_var("RUST_LOG", "trace");
+    }
+    env_logger::init();
 
     let target_to_items = dirs_index(&dirpaths, remove_base.as_deref())
         .with_context(|| "indexing")?;

@@ -1,5 +1,5 @@
 // Same functionality as symlinks-index from
-// https://github.com/pflanze/chj-bin/blob/master/symlinks-index
+// https://github.com/pflanze/chj-scripts
 
 #[macro_use]
 extern crate log;

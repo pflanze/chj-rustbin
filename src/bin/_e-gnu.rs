@@ -228,8 +228,12 @@ fn main() -> Result<()> {
             };
             let mut buf = Vec::new();
             write!(&mut buf, "{}", exitcode)?;
-            write_all(sigw, &buf)?;
-            close(sigw)?;
+            // Ignore PIPE errors (in case the front process was
+            // killed by user; the Perl version was simply killed by
+            // SIGPIPE before it had a chance to print the error
+            // message):
+            let _ = write_all(sigw, &buf);
+            let _ = close(sigw);
             unsafe { _exit(0) };
         } else {
 	    close(streamr)?;

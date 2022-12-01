@@ -104,6 +104,13 @@ fn xeasy_waitpid(pid: Pid) -> Result<()> {
 
 // Don't make it overly complicated, please. The original API is
 // simple enough. If a Pid is given, it's the parent.
+//
+// Swallow the unsafe as long as this is in the same file: it should
+// be safe even with allocation in the child as:
+//  - we should not be using threading in this program (libs, though?)
+//  - isn't libc's malloc safe anyway with fork?
+//  - and we're not (consciously) touching any other mutexes in the children.
+//
 fn easy_fork() -> Result<Option<Pid>> {
     match unsafe { fork()? } {
         ForkResult::Parent { child, .. } => Ok(Some(child)),

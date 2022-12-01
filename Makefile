@@ -1,3 +1,6 @@
+all:
+	cargo build --release
+
 
 target/release/lastitem: src/bin/lastitem.rs
 	cargo build --release

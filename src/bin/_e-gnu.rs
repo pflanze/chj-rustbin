@@ -145,25 +145,13 @@ fn main() -> Result<()> {
         .unwrap_or(OsString::from(""));
     // println!("alternate_editor={:?}", alternate_editor);
 
-    let cmd = {
-        let mut c = OsString::from("--alternate-editor=");
-        c.push(alternate_editor);
-        let mut argv = vec!(
-            CString::new("emacsclient")?,
-            CString::new("-c")?,
-            CString::new(c.into_vec())?);
-        argv.append(&mut cstrings_from_osstrings(
-            env::args_os().skip(1).collect())?);
-        argv
-    };
-
     let logpath = {
         let mut home = env::var_os("HOME").ok_or_else(
             || anyhow!("missing HOME var"))?;
         home.push("/._e-gnu_rs.log");
         home
     };
-    
+
     let (sigr, sigw) = pipe()?;
 
     if let Some(daemonizerpid) = easy_fork()? {
@@ -250,6 +238,18 @@ fn main() -> Result<()> {
 	    dup2(streamw, 1)?;
 	    dup2(streamw, 2)?;
             close(streamw)?;
+
+            let cmd = {
+                let mut c = OsString::from("--alternate-editor=");
+                c.push(alternate_editor);
+                let mut argv = vec!(
+                    CString::new("emacsclient")?,
+                    CString::new("-c")?,
+                    CString::new(c.into_vec())?);
+                argv.append(&mut cstrings_from_osstrings(
+                    env::args_os().skip(1).collect())?);
+                argv
+            };
 	    execvp(&cmd[0], &cmd)?;
         }
     }

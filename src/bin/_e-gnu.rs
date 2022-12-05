@@ -202,6 +202,7 @@ fn main() -> Result<()> {
                     mode_from_bits(0o600)?)?;
                 let reader = BufReader::new(
                     unsafe { RawFdReader::from_raw_fd(streamr) });
+                let mut have_written = false;
                 for line in reader.lines() {
                     let line = line?;
                     let line = string_remove_start(
@@ -211,6 +212,10 @@ fn main() -> Result<()> {
                         writeln!(&mut buf, "{}\t({})\t{}",
                                  time()?, getpid(), line)?;
                         write_all(log, &buf)?;
+                        if !have_written {
+                            eprintln!("starting Emacs instance");
+                            have_written = true;
+                        }
                     }
                 }
 	        close(streamr)?;

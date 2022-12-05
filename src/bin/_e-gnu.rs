@@ -204,7 +204,8 @@ fn main() -> Result<()> {
                     unsafe { RawFdReader::from_raw_fd(streamr) });
                 for line in reader.lines() {
                     let line = line?;
-                    let line = string_remove_start(&line, "Waiting for Emacs...");
+                    let line = string_remove_start(
+                        &line, "Waiting for Emacs...");
                     if line.len() > 0 {
                         let mut buf = Vec::new();
                         writeln!(&mut buf, "{}\t({})\t{}",

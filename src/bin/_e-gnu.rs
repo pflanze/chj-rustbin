@@ -61,7 +61,7 @@ fn string_matches_start(s: &str, pat: &str) -> bool {
 
 fn string_remove_start<'ts>(s: &'ts str, pat: &str) -> &'ts str {
     if string_matches_start(s, pat) {
-        &s[pat.len()..s.len()]
+        &s[pat.len()..]
     } else {
         s
     }

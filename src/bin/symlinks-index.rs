@@ -78,7 +78,7 @@ fn dirs_index(
                         let mut ib = base.as_bytes().iter();
                         if let Some(pos) = ia.starts_with(&mut ib) {
                             let bs = targetos.as_bytes();
-                            let nbs = Vec::from(&bs[pos..bs.len()]);
+                            let nbs = Vec::from(&bs[pos..]);
                             let os = OsString::from_vec(nbs);
                             PathBuf::from(os)
                         } else {

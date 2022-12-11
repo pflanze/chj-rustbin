@@ -56,7 +56,7 @@ fn write_all(out: RawFd, s: &[u8]) -> Result<()> {
 }
 
 fn string_matches_start(s: &str, pat: &str) -> bool {
-    pat.len() <= s.len() && &s.as_bytes()[0..pat.len()] == pat.as_bytes()
+    pat.len() <= s.len() && pat.as_bytes() == &s.as_bytes()[0..pat.len()]
 }
 
 fn string_remove_start<'ts>(s: &'ts str, pat: &str) -> &'ts str {

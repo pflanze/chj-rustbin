@@ -23,8 +23,6 @@ use std::os::unix::io::{FromRawFd, RawFd};
 use std::ffi::{CString, OsString}; //CStr, OsStr, 
 use std::os::unix::ffi::{OsStringExt}; //OsStrExt, 
 use nix::sys::signal::Signal;
-//use std::clone::Clone;
-//use std::io::Read;
 use bstr_parse::*; //XX
 use nix::errno::Errno;
 use thiserror::Error;
@@ -73,8 +71,9 @@ fn time() -> Result<time_t> {
 }
 
 
-// Really wait until the given process has ended, and return a
-// simpler enum.
+// easy_waitpid: really wait until the given process has ended, and
+// return a simpler enum.
+
 enum Status { Normalexit(i32), Signalexit(Signal) }
 
 //fn easy_waitpid<P: Into<Option<Pid>>>(pid: P) -> Result<Status> {

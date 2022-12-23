@@ -105,14 +105,14 @@ fn xwaitpid_until_gone(pid: Pid) -> Result<()> {
 // Don't make it overly complicated, please. The original API is
 // simple enough. If a Pid is given, it's the parent.
 //
-// Swallow the unsafe as long as this is in the same file: it should
-// be safe even with allocation in the child as:
+// Do not swallow the unsafe. Fork should be safe in our usage
+// though: it should be safe even with allocation in the child as:
 //  - we should not be using threading in this program (libs, though?)
 //  - isn't libc's malloc safe anyway with fork?
 //  - and we're not (consciously) touching any other mutexes in the children.
 //
-fn easy_fork() -> Result<Option<Pid>> {
-    match unsafe { fork()? } {
+unsafe fn easy_fork() -> Result<Option<Pid>> {
+    match fork()? {
         ForkResult::Parent { child, .. } => Ok(Some(child)),
         ForkResult::Child => Ok(None)
     }
@@ -154,7 +154,7 @@ fn main() -> Result<()> {
 
     let (sigr, sigw) = pipe()?;
 
-    if let Some(daemonizerpid) = easy_fork()? {
+    if let Some(daemonizerpid) = unsafe { easy_fork() }? {
         // println!("in parent, child={}", child);
         xwaitpid_until_gone(daemonizerpid)?;
         close(sigw)?;
@@ -190,7 +190,7 @@ fn main() -> Result<()> {
         close(sigr)?;
         setsid()?; // prevent signals from crossing over (stop ctl-c)
         let (streamr, streamw) = pipe()?;
-        if let Some(pid) = easy_fork()? {
+        if let Some(pid) = unsafe { easy_fork() }? {
             close(streamw)?;
             {
                 // XX does RawFd have a drop that closes? Should it?

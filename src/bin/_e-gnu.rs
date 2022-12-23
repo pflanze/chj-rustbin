@@ -71,13 +71,13 @@ fn time() -> Result<time_t> {
 }
 
 
-// easy_waitpid: really wait until the given process has ended, and
-// return a simpler enum.
+// waitpid_until_gone: really wait until the given process has ended,
+// and return a simpler enum.
 
 enum Status { Normalexit(i32), Signalexit(Signal) }
 
-//fn easy_waitpid<P: Into<Option<Pid>>>(pid: P) -> Result<Status> {
-fn easy_waitpid(pid: Pid) -> Result<Status> {
+//fn waitpid_until_gone<P: Into<Option<Pid>>>(pid: P) -> Result<Status> {
+fn waitpid_until_gone(pid: Pid) -> Result<Status> {
     loop {
         let st = waitpid(pid, None)?;
         match st {
@@ -91,8 +91,8 @@ fn easy_waitpid(pid: Pid) -> Result<Status> {
 }
 
 // Treat non-exit(0) cases as errors.
-fn xeasy_waitpid(pid: Pid) -> Result<()> {
-    match easy_waitpid(pid)? {
+fn xwaitpid_until_gone(pid: Pid) -> Result<()> {
+    match waitpid_until_gone(pid)? {
         Status::Normalexit(0) =>
             Ok(()),
         Status::Normalexit(exitcode) =>
@@ -156,7 +156,7 @@ fn main() -> Result<()> {
 
     if let Some(daemonizerpid) = easy_fork()? {
         // println!("in parent, child={}", child);
-        xeasy_waitpid(daemonizerpid)?;
+        xwaitpid_until_gone(daemonizerpid)?;
         close(sigw)?;
         // block until buffer is closed, or more precisely, emacsclient is
         // finished, and receive its status:
@@ -222,7 +222,7 @@ fn main() -> Result<()> {
                 close(log)?;
             }
             
-            let status = easy_waitpid(pid)?;
+            let status = waitpid_until_gone(pid)?;
             // What's the best exit code to report a signal?
             let exitcode = if let Status::Normalexit(code) = status {
                 code

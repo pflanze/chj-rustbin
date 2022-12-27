@@ -7,7 +7,7 @@
 #[path = "../rawfdreader.rs"]
 mod rawfdreader;
 use rawfdreader::RawFdReader;
-use anyhow::{Result, anyhow, bail, Context}; 
+use anyhow::{Result, anyhow, bail}; 
 use std::{env, writeln};
 use std::io::{Write, BufReader, BufRead}; //Read, 
 //use nix::NixPath;
@@ -124,18 +124,18 @@ enum Slurp256ParseError {
     Io(Errno),
     #[error("input is too large")]
     InputTooLarge,
-    #[error("parse error: {0}")]
-    Pie(ParseIntError)
+    #[error("parse error: {0} for input: {1:?}")]
+    Pie(ParseIntError, Vec<u8>)
 }
 
-fn slurp256_parse<T: FromBStr<Err = Slurp256ParseError>>
-    (fd: RawFd) -> Result<T, Slurp256ParseError> {
+fn slurp256_parse(fd: RawFd) -> Result<i32, Slurp256ParseError> {
     let mut buf : [u8; 257] = [0; 257];
     let len = read(fd, &mut buf).map_err(Slurp256ParseError::Io)?;
     if len == 257 {
         Err(Slurp256ParseError::InputTooLarge)
     } else {
-        buf[0..len].parse()
+        buf[0..len].parse().or_else(
+            |e| Err(Slurp256ParseError::Pie(e, Vec::from(&buf[0..len]))))
     }
 }
 
@@ -161,19 +161,7 @@ fn main() -> Result<()> {
         // block until buffer is closed, or more precisely, emacsclient is
         // finished, and receive its status:
 
-        // let exitcode : i32 = slurp256_parse(sigr)?;
-        // inline, XX figure out how to make this^ work.
-        let exitcode = {
-            let fd = sigr;
-            let mut buf : [u8; 257] = [0; 257];
-            let len = read(fd, &mut buf).map_err(Slurp256ParseError::Io)?;
-            if len == 257 {
-                bail!("input too large")
-            }
-            let exitcode = buf[0..len].parse()
-                .with_context(|| format!("input: `{:?}`", &buf[0..len]))?;
-            exitcode
-        };
+        let exitcode : i32 = slurp256_parse(sigr)?;
         
         // my $statuscode= $1+0;
         // my $exitcode= $statuscode >> 8;

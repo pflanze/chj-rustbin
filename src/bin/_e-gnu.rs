@@ -2,15 +2,12 @@
 /// https://github.com/pflanze/chj-scripts, and is internal
 /// functionality called from the `e` script from the same place.
 
-// #[macro_use]
-// extern crate log;
 #[path = "../rawfdreader.rs"]
 mod rawfdreader;
 use rawfdreader::RawFdReader;
 use anyhow::{Result, anyhow, bail}; 
 use std::{env, writeln};
-use std::io::{Write, BufReader, BufRead}; //Read, 
-//use nix::NixPath;
+use std::io::{Write, BufReader, BufRead};
 use libc::_exit;
 use nix::unistd::{getpid, pipe, fork, ForkResult,
                   close, setsid, dup2, execvp, read, write};
@@ -20,10 +17,10 @@ use nix::fcntl::{open, OFlag};
 use nix::sys::stat::{mode_t, Mode};
 use nix::sys::wait::{waitpid, WaitStatus};
 use std::os::unix::io::{FromRawFd, RawFd};
-use std::ffi::{CString, OsString}; //CStr, OsStr, 
-use std::os::unix::ffi::{OsStringExt}; //OsStrExt, 
+use std::ffi::{CString, OsString};
+use std::os::unix::ffi::{OsStringExt};
 use nix::sys::signal::Signal;
-use bstr_parse::*; //XX
+use bstr_parse::{BStrParse, ParseIntError};
 use nix::errno::Errno;
 use thiserror::Error;
 use nix::unistd::Pid;
@@ -222,7 +219,7 @@ fn main() -> Result<()> {
             // Ignore PIPE errors (in case the front process was
             // killed by user; the Perl version was simply killed by
             // SIGPIPE before it had a chance to print the error
-            // message):
+            // message about not being able to print to sigw):
             let _ = write_all(sigw, &buf);
             let _ = close(sigw);
             unsafe { _exit(0) };
@@ -236,13 +233,13 @@ fn main() -> Result<()> {
             let cmd = {
                 let mut c = OsString::from("--alternate-editor=");
                 c.push(alternate_editor);
-                let mut argv = vec!(
+                let mut cmd = vec!(
                     CString::new("emacsclient")?,
                     CString::new("-c")?,
                     CString::new(c.into_vec())?);
-                argv.append(&mut cstrings_from_osstrings(
+                cmd.append(&mut cstrings_from_osstrings(
                     env::args_os().skip(1).collect())?);
-                argv
+                cmd
             };
 	    execvp(&cmd[0], &cmd)?;
         }

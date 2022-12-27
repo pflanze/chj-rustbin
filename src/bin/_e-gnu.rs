@@ -27,7 +27,8 @@ use nix::unistd::Pid;
 
 
 // There's no try_map, so:
-fn cstrings_from_osstrings(osstrs: Vec<OsString>) -> Result<Vec<CString>> {
+fn cstrings_from_osstrings(osstrs: &mut dyn Iterator<Item = OsString>)
+                           -> Result<Vec<CString>> {
     let mut v : Vec<CString> = Vec::new();
     for s in osstrs {
         v.push(CString::new(s.into_vec())?);
@@ -238,7 +239,7 @@ fn main() -> Result<()> {
                     CString::new("-c")?,
                     CString::new(c.into_vec())?);
                 cmd.append(&mut cstrings_from_osstrings(
-                    env::args_os().skip(1).collect())?);
+                    &mut env::args_os().skip(1))?);
                 cmd
             };
 	    execvp(&cmd[0], &cmd)?;

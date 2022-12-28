@@ -192,6 +192,9 @@ fn main() -> Result<()> {
                 for line in reader.lines() {
                     let line = line?;
                     let line = string_remove_start(
+                        // emacsclient *always* prints this (to
+                        // indicate that the buffer needs to be
+                        // closed)
                         &line, "Waiting for Emacs...");
                     if line.len() > 0 {
                         let mut buf = Vec::new();
@@ -232,6 +235,10 @@ fn main() -> Result<()> {
             close(streamw)?;
 
             let cmd = {
+                // The `--alternate-editor=` option is required for
+                // starting a new instance (if alternate_editor is
+                // empty, emacsclient uses "emacs --daemon" according
+                // to its docs).
                 let mut c = OsString::from("--alternate-editor=");
                 c.push(alternate_editor);
                 let mut cmd = vec!(

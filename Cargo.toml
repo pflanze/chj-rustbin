@@ -7,7 +7,7 @@ authors = ["Christian Jaeger <ch@christianjaeger.ch>"]
 edition = "2018"
 
 [profile.release]
-opt-level = "s"
+opt-level = "z"
 
 [dependencies]
 structopt = "0.3"

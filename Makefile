@@ -18,12 +18,12 @@ target/release/symlinks-index: src/startswith.rs src/bin/symlinks-index.rs
 	install target/release/symlinks-index /usr/local/bin/symlinks-index
 
 
-target/release/_e-gnu: src/bin/_e-gnu.rs src/rawfdreader.rs
+target/release/_e: src/bin/_e.rs src/rawfdreader.rs
 	cargo build --release
 
-/usr/local/bin/_e-gnu: target/release/_e-gnu
-	install target/release/_e-gnu /usr/local/bin/_e-gnu
+/usr/local/bin/_e: target/release/_e
+	install target/release/_e /usr/local/bin/_e
 
 
-install: /usr/local/bin/lastitem /usr/local/bin/symlinks-index /usr/local/bin/_e-gnu
+install: /usr/local/bin/lastitem /usr/local/bin/symlinks-index /usr/local/bin/_e
 

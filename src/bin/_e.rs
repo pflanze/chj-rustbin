@@ -241,6 +241,7 @@ fn backtick<T: 'static + Send + Sync + std::fmt::Debug + std::fmt::Display
             + FromBStr<Err = bstr_parse::ParseIntError>>(
     cmd: &Vec<CString>,
     do_chomp: bool,
+    do_redir_stderr: bool,
 ) -> Result<T> {
     let (streamr, streamw) = pipe()?;
     if let Some(pid) = unsafe { easy_fork() }? {
@@ -251,7 +252,9 @@ fn backtick<T: 'static + Send + Sync + std::fmt::Debug + std::fmt::Display
     } else {
         close(streamr)?;
         dup2(streamw, 1)?;
-        // dup2(streamw, 2)?;
+        if do_redir_stderr {
+            dup2(streamw, 2)?;
+        }
         close(streamw)?;
 
         execvp(&cmd[0], &cmd)?;
@@ -407,6 +410,7 @@ fn main() -> Result<()> {
             &vec!(CString::new("emacsclient")?,
                   CString::new("-e")?,
                   CString::new("(+ 3 2)")?),
+            true,
             true);
         // println!("res= {:?}", res);
         match res {

@@ -1,7 +1,6 @@
-/// This is a re-implementation and combination of `_e`,
-/// `_e-gnu-multiarg` and `_e-gnu` from
-/// https://github.com/pflanze/chj-scripts, and is called from the `e`
-/// script from the same place.
+/// This is a re-implementation and combination of `_e`, and `_e-gnu`
+/// from https://github.com/pflanze/chj-scripts, and is called from
+/// the `e` script from the same place.
 
 #[path = "../rawfdreader.rs"]
 mod rawfdreader;

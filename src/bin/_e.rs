@@ -126,19 +126,19 @@ unsafe fn easy_fork() -> Result<Option<Pid>> {
 }
 
 // The return value of proc is the desired exitcode.
-unsafe fn fork_proc(proc: impl FnOnce() -> Result<i32>) -> Result<Pid> {
-    if let Some(pid) = easy_fork()? {
+fn fork_proc(proc: impl FnOnce() -> Result<i32>) -> Result<Pid> {
+    if let Some(pid) = unsafe { easy_fork() }? {
         Ok(pid)
     } else {
         match proc() {
             Ok(exitcode) => {
-                _exit(exitcode)
+                unsafe { _exit(exitcode) }
             },
             Err(err) => {
                 let _ = stderr().write(
                     format!("fork_proc: error in child {}: {}\n",
                             getpid(), err).as_bytes());
-                _exit(1)
+                unsafe { _exit(1) }
             }
         }
     }
@@ -146,7 +146,7 @@ unsafe fn fork_proc(proc: impl FnOnce() -> Result<i32>) -> Result<Pid> {
 
 // Fork proc in a new session (calls `setsid` in the child), to
 // prevent signals from crossing over (stop ctl-c).
-unsafe fn fork_session_proc(
+fn fork_session_proc(
     proc: impl FnOnce() -> Result<i32>
 ) -> Result<Pid> {
     fork_proc(|| {
@@ -158,7 +158,7 @@ unsafe fn fork_session_proc(
 // Run proc in a new session (a child process that calls `setsid`
 // before doing work), to prevent signals from crossing over (stop
 // ctl-c).
-unsafe fn run_session_proc(
+fn run_session_proc(
     proc: impl FnOnce() -> Result<i32>
 ) -> Result<Status> {
     let pid = fork_session_proc(proc)?;
@@ -357,7 +357,7 @@ fn main() -> Result<()> {
         );
         cmd.append(&mut args.clone());
 
-        xcheck_status(unsafe { run_session_proc(|| run_cmd_with_log(&cmd, &logpath)) },
+        xcheck_status(run_session_proc(|| run_cmd_with_log(&cmd, &logpath)),
                       &cmd)
 
     } else {
@@ -380,9 +380,9 @@ fn main() -> Result<()> {
             let cmd = vec!(CString::new("emacs")?,
                            CString::new("--daemon")?);
             xcheck_status(
-                unsafe { run_session_proc(|| {
+                run_session_proc(|| {
                     run_cmd_with_log(&cmd, &logpath)
-                }) },
+                }),
                 &cmd)?;
             Ok(())
         };
@@ -414,10 +414,10 @@ fn main() -> Result<()> {
                 CString::new("emacsclient")?,
                 CString::new("-c")?,
                 file);
-            let pid = unsafe { fork_session_proc(|| {
+            let pid = fork_session_proc(|| {
                 run_cmd_with_log(&cmd, &logpath)?;
                 Ok(0)
-            }) }?;
+            })?;
             pids.push((pid, cmd));
         }
         // Collecting them out of their exit order. Only

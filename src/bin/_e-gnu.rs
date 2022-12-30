@@ -7,7 +7,7 @@ mod rawfdreader;
 use rawfdreader::RawFdReader;
 use anyhow::{Result, anyhow, bail}; 
 use std::{env, writeln};
-use std::io::{stdin, Write, BufReader, BufRead};
+use std::io::{stdin, stderr, Write, BufReader, BufRead};
 use libc::_exit;
 use nix::unistd::{getpid, pipe, fork, ForkResult,
                   close, setsid, dup2, execvp, read, write};
@@ -118,13 +118,22 @@ unsafe fn easy_fork() -> Result<Option<Pid>> {
     }
 }
 
-// XX replace with vfork/exec or rather posix_spawnp
-unsafe fn fork_cmd(cmd: &[CString]) -> Result<Pid> {
+// The return value of proc is the desired exitcode.
+unsafe fn fork_proc(proc: impl FnOnce() -> Result<i32>) -> Result<Pid> {
     if let Some(pid) = easy_fork()? {
         Ok(pid)
     } else {
-        execvp(&cmd[0], &cmd)?;
-        Ok(Pid::from_raw(0)) // never reached, satisfy type system
+        match proc() {
+            Ok(exitcode) => {
+                _exit(exitcode)
+            },
+            Err(err) => {
+                let _ = stderr().write(
+                    format!("fork_proc: error in child {}: {}\n",
+                            getpid(), err).as_bytes());
+                _exit(1)
+            }
+        }
     }
 }
 
@@ -387,7 +396,10 @@ fn main() -> Result<()> {
                         CString::new("emacsclient")?,
                         CString::new("-c")?,
                         file);
-                    let pid = unsafe { fork_cmd(&cmd) }?;
+                    let pid = unsafe { fork_proc(|| {
+                        run_cmd_with_log(&cmd, &logpath)?;
+                        Ok(0)
+                    }) }?;
                     pids.push(pid);
                 }
                 // Collecting them out of their exit order. Only

@@ -15,7 +15,7 @@ use nix::time::{clock_gettime, ClockId};
 use nix::sys::time::time_t;
 use nix::fcntl::{open, OFlag};
 use nix::sys::stat::{mode_t, Mode};
-use nix::sys::wait::{waitpid, WaitStatus};
+use nix::sys::wait::{wait, waitpid, WaitStatus};
 use std::os::unix::io::{FromRawFd, RawFd};
 use std::ffi::{CString, OsString, OsStr};
 use std::os::unix::ffi::{OsStringExt};
@@ -24,6 +24,7 @@ use bstr_parse::{BStrParse, ParseIntError, FromBStr};
 use nix::errno::Errno;
 use thiserror::Error;
 use nix::unistd::Pid;
+use std::collections::HashMap;
 
 
 // There's no try_map, so:
@@ -88,8 +89,23 @@ fn waitpid_until_gone(pid: Pid) -> Result<Status> {
     }
 }
 
-fn xcheck_status(res: Result<Status>, cmd: &[CString]) -> Result<()> {
-    let status = res?;
+fn wait_until_gone() -> Result<(Pid, Status)> {
+    loop {
+        let st = wait()?;
+        match st {
+            WaitStatus::Exited(pid, exitcode)
+                => return Ok((pid, Status::Normalexit(exitcode))),
+            WaitStatus::Signaled(pid, signal, _bool)
+                => return Ok((pid, Status::Signalexit(signal))),
+            _ => {} // retry
+        }
+    }
+}
+
+
+
+
+fn xcheck_status(status: Status, cmd: &[CString]) -> Result<()> {
     match status {
         Status::Normalexit(exitcode) =>
             if exitcode == 0 {
@@ -106,7 +122,7 @@ fn xcheck_status(res: Result<Status>, cmd: &[CString]) -> Result<()> {
 
 // Treat non-exit(0) cases as errors.
 fn xwaitpid_until_gone(pid: Pid, cmd: &[CString]) -> Result<()> {
-    xcheck_status(waitpid_until_gone(pid), cmd)
+    xcheck_status(waitpid_until_gone(pid)?, cmd)
 }
 
 // Don't make it overly complicated, please. The original API is
@@ -357,7 +373,7 @@ fn main() -> Result<()> {
         );
         cmd.append(&mut args.clone());
 
-        xcheck_status(run_session_proc(|| run_cmd_with_log(&cmd, &logpath)),
+        xcheck_status(run_session_proc(|| run_cmd_with_log(&cmd, &logpath))?,
                       &cmd)
 
     } else {
@@ -382,7 +398,7 @@ fn main() -> Result<()> {
             xcheck_status(
                 run_session_proc(|| {
                     run_cmd_with_log(&cmd, &logpath)
-                }),
+                })?,
                 &cmd)?;
             Ok(())
         };
@@ -408,7 +424,7 @@ fn main() -> Result<()> {
 
         // Open each file separately, collecting the pids that
         // we then wait on.
-        let mut pids = Vec::new();
+        let mut pids : HashMap<Pid, Vec<CString>> = HashMap::new();
         for file in files {
             let cmd = vec!(
                 CString::new("emacsclient")?,
@@ -418,13 +434,18 @@ fn main() -> Result<()> {
                 run_cmd_with_log(&cmd, &logpath)?;
                 Ok(0)
             })?;
-            pids.push((pid, cmd));
+            if let Some(oldcmd) = pids.insert(pid, cmd) {
+                bail!("bug?: got same pid again, previously cmd {:?}",
+                      oldcmd)
+            }
         }
-        // Collecting them out of their exit order. Only
-        // matters for early termination in case of errors
-        // (and to avoid zombies). Does anyone care?
-        for (pid, cmd) in pids {
-            xwaitpid_until_gone(pid, &cmd)?;
+        while pids.len() > 0 {
+            let (pid, status) = wait_until_gone()?;
+            if let Some(cmd) = pids.remove(&pid) {
+                xcheck_status(status, &cmd)?;
+            } else {
+                println!("bug?: ignoring unknown pid {}", pid);
+            }
         }
         Ok(())
     }

@@ -24,8 +24,6 @@ use bstr_parse::{BStrParse, ParseIntError, FromBStr};
 use nix::errno::Errno;
 use thiserror::Error;
 use nix::unistd::Pid;
-//use nix::sys::wait::Id::Pid;
-use std::process::exit;
 
 
 // There's no try_map, so:
@@ -75,18 +73,6 @@ fn time() -> Result<time_t> {
 // and return a simpler enum.
 
 enum Status { Normalexit(i32), Signalexit(Signal) }
-
-impl Status {
-    // Produce an overloaded exit code value where signals are
-    // reported as code 99 (NOTE: this is ambiguous! It's a
-    // hack!)
-    fn exitcode_hack(&self) -> i32  {
-        match self {
-            Status::Normalexit(exitcode) => *exitcode,
-            Status::Signalexit(_) => 99
-        }
-    }
-}
 
 //fn waitpid_until_gone<P: Into<Option<Pid>>>(pid: P) -> Result<Status> {
 fn waitpid_until_gone(pid: Pid) -> Result<Status> {
@@ -378,8 +364,8 @@ fn main() -> Result<()> {
         );
         cmd.append(&mut args.clone());
 
-        exit(unsafe { run_session_proc(|| run_cmd_with_log(&cmd, &logpath)) }?
-             .exitcode_hack())
+        xcheck_status(unsafe { run_session_proc(|| run_cmd_with_log(&cmd, &logpath)) },
+                      &cmd)
 
     } else {
         let files = args;

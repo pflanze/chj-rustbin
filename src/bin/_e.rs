@@ -76,6 +76,18 @@ fn time() -> Result<time_t> {
 
 enum Status { Normalexit(i32), Signalexit(Signal) }
 
+impl Status {
+    // Produce an overloaded exit code value where signals are
+    // reported as code 99 (NOTE: this is ambiguous! It's a
+    // hack!)
+    fn exitcode_hack(&self) -> i32  {
+        match self {
+            Status::Normalexit(exitcode) => *exitcode,
+            Status::Signalexit(_) => 99
+        }
+    }
+}
+
 //fn waitpid_until_gone<P: Into<Option<Pid>>>(pid: P) -> Result<Status> {
 fn waitpid_until_gone(pid: Pid) -> Result<Status> {
     loop {
@@ -137,14 +149,40 @@ unsafe fn fork_proc(proc: impl FnOnce() -> Result<i32>) -> Result<Pid> {
     }
 }
 
+// Fork proc in a new session (calls `setsid` in the child), to
+// prevent signals from crossing over (stop ctl-c).
+unsafe fn fork_session_proc(
+    proc: impl FnOnce() -> Result<i32>
+) -> Result<Pid> {
+    fork_proc(|| {
+        setsid()?;
+        proc()
+    })
+}
 
-fn xcheck_exit_success(res: Result<i32>, cmd: &[CString]) -> Result<()> {
-    let exitcode = res?;
-    if exitcode == 0 {
-        Ok(())
-    } else {
-        bail!("command ended with error exit code {}: {:?}",
-              exitcode, cmd)
+// Run proc in a new session (a child process that calls `setsid`
+// before doing work), to prevent signals from crossing over (stop
+// ctl-c).
+unsafe fn run_session_proc(
+    proc: impl FnOnce() -> Result<i32>
+) -> Result<Status> {
+    let pid = fork_session_proc(proc)?;
+    waitpid_until_gone(pid)
+}
+
+fn xcheck_status(res: Result<Status>, cmd: &[CString]) -> Result<()> {
+    let status = res?;
+    match status {
+        Status::Normalexit(exitcode) =>
+            if exitcode == 0 {
+                Ok(())
+            } else {
+                bail!("command ended with error exit code {}: {:?}",
+                      exitcode, cmd)
+            },
+        Status::Signalexit(signal) =>
+            bail!("command ended with signal {}: {:?}",
+                  signal, cmd)
     }
 }
 
@@ -320,139 +358,95 @@ fn main() -> Result<()> {
         home
     };
 
-    let daemonwork : Box<dyn FnOnce(&OsStr) -> Result<i32>> =
-        if !args_is_all_files || args.len() == 1 {
-            // Let emacsclient start the daemon on its own if
-            // necessary. That way we need to run just one command.
+    if !args_is_all_files || args.len() == 1 {
+        // Let emacsclient start the daemon on its own if
+        // necessary. That way we need to run just one command.
 
-            // XX What do we do with this env var?:
-            // let alternate_editor = env::var_os("ALTERNATE_EDITOR")
-            //     .unwrap_or(OsString::from(""));
-            // println!("alternate_editor={:?}", alternate_editor);
+        // XX What do we do with this env var?:
+        // let alternate_editor = env::var_os("ALTERNATE_EDITOR")
+        //     .unwrap_or(OsString::from(""));
+        // println!("alternate_editor={:?}", alternate_editor);
 
-            let mut cmd = vec!(
-                CString::new("emacsclient")?,
-                CString::new("-c")?,
-                {
-                    let alt = OsString::from("--alternate-editor=");
-                    // alt.push(alternate_editor);
-                    CString::new(alt.into_vec())?
-                }
-            );
-            cmd.append(&mut args.clone());
-
-            Box::new(move |logpath| run_cmd_with_log(&cmd, logpath))
-
-        } else {
-            let files = args;
-            if files.len() > 8 {
-                if ! ask_yn(&format!("got {} arguments, do you really want to open so many windows?",
-                                     files.len()))? {
-                    println!("cancelling");
-                    return Ok(());
-                }
+        let mut cmd = vec!(
+            CString::new("emacsclient")?,
+            CString::new("-c")?,
+            {
+                let alt = OsString::from("--alternate-editor=");
+                // alt.push(alternate_editor);
+                CString::new(alt.into_vec())?
             }
+        );
+        cmd.append(&mut args.clone());
 
-            Box::new(|logpath| {
-                // Check if emacs daemon is up, if not, start it. Then
-                // open each file (args is just files here) with a
-                // separate emacsclient call, so that each is opened in a
-                // separate frame.
+        exit(unsafe { run_session_proc(|| run_cmd_with_log(&cmd, &logpath)) }?
+             .exitcode_hack())
 
-                let start_emacs = || -> Result<()> {
-                    let cmd = vec!(CString::new("emacs")?,
-                                   CString::new("--daemon")?);
-                    xcheck_exit_success(
-                        run_cmd_with_log(&cmd,
-                                         logpath),
-                        &cmd)?;
-                    Ok(())
-                };
+    } else {
+        let files = args;
+        if files.len() > 8 {
+            if ! ask_yn(&format!("got {} arguments, do you really want to open \
+                                  so many windows?",
+                                 files.len()))? {
+                println!("cancelling");
+                return Ok(());
+            }
+        }
 
-                let res : Result<i32> = backtick(
-                    &vec!(CString::new("emacsclient")?,
-                          CString::new("-e")?,
-                          CString::new("(+ 3 2)")?),
-                    true);
-                // println!("res= {:?}", res);
-                match res {
-                    Err(_) => {
-                        start_emacs()?
-                    },
-                    Ok(val) => {
-                        if val == 5 {
-                            // Emacs is already up
-                        } else {
-                            start_emacs()?
-                        }
-                    }
-                }
+        // Check if emacs daemon is up, if not, start it. Then
+        // open each file (args is just files here) with a
+        // separate emacsclient call, so that each is opened in a
+        // separate frame.
 
-                // Open each file separately, collecting the pids that
-                // we then wait on.
-                let mut pids = Vec::new();
-                for file in files {
-                    let cmd = vec!(
-                        CString::new("emacsclient")?,
-                        CString::new("-c")?,
-                        file);
-                    let pid = unsafe { fork_proc(|| {
-                        run_cmd_with_log(&cmd, &logpath)?;
-                        Ok(0)
-                    }) }?;
-                    pids.push(pid);
-                }
-                // Collecting them out of their exit order. Only
-                // matters for early termination in case of errors
-                // (and to avoid zombies). Does anyone care?
-                for pid in pids {
-                    xwaitpid_until_gone(pid)?;
-                }
-                Ok(0)
-            })
+        let start_emacs = || -> Result<()> {
+            let cmd = vec!(CString::new("emacs")?,
+                           CString::new("--daemon")?);
+            xcheck_status(
+                unsafe { run_session_proc(|| {
+                    run_cmd_with_log(&cmd, &logpath)
+                }) },
+                &cmd)?;
+            Ok(())
         };
 
+        let res : Result<i32> = backtick(
+            &vec!(CString::new("emacsclient")?,
+                  CString::new("-e")?,
+                  CString::new("(+ 3 2)")?),
+            true);
+        // println!("res= {:?}", res);
+        match res {
+            Err(_) => {
+                start_emacs()?
+            },
+            Ok(val) => {
+                if val == 5 {
+                    // Emacs is already up
+                } else {
+                    start_emacs()?
+                }
+            }
+        }
 
-    // Run the emacs interfacing code in a child that's protected from
-    // ctl-c ("daemon").
-
-    let (sigr, sigw) = pipe()?;
-
-    if let Some(daemonizerpid) = unsafe { easy_fork() }? {
-        // println!("in parent, child={}", child);
-        xwaitpid_until_gone(daemonizerpid)?;
-        close(sigw)?;
-        // block until buffer is closed, or more precisely, emacsclient is
-        // finished, and receive its status:
-
-        let exitcode : i32 = slurp256_parse(sigr, false)?;
-        
-        // my $statuscode= $1+0;
-        // my $exitcode= $statuscode >> 8;
-        // my $signal= $statuscode & 255;
-        // # print "exited with exitcode=$exitcode and signal=$signal\n";
-        // if ($signal) {
-        //     kill $signal, $$;
-        //     exit 99; # whatever, just in case we're not being terminated
-        // } else {
-        //     exit $exitcode;
-        // }
-        exit(exitcode);
-    } else {
-        close(sigr)?;
-        setsid()?; // prevent signals from crossing over (stop ctl-c)
-
-        let exitcode = daemonwork(&logpath)?;
-
-        let mut buf = Vec::new();
-        write!(&mut buf, "{}", exitcode)?;
-        // Ignore PIPE errors (in case the front process was
-        // killed by user; the Perl version was simply killed by
-        // SIGPIPE before it had a chance to print the error
-        // message about not being able to print to sigw):
-        let _ = write_all(sigw, &buf);
-        let _ = close(sigw);
-
-        unsafe { _exit(0) };
+        // Open each file separately, collecting the pids that
+        // we then wait on.
+        let mut pids = Vec::new();
+        for file in files {
+            let cmd = vec!(
+                CString::new("emacsclient")?,
+                CString::new("-c")?,
+                file);
+            let pid = unsafe { fork_session_proc(|| {
+                run_cmd_with_log(&cmd, &logpath)?;
+                Ok(0)
+            }) }?;
+            pids.push(pid);
+        }
+        // Collecting them out of their exit order. Only
+        // matters for early termination in case of errors
+        // (and to avoid zombies). Does anyone care?
+        for pid in pids {
+            xwaitpid_until_gone(pid)?;
+        }
+        Ok(())
     }
 }

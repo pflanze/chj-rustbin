@@ -88,16 +88,25 @@ fn waitpid_until_gone(pid: Pid) -> Result<Status> {
     }
 }
 
-// Treat non-exit(0) cases as errors.
-fn xwaitpid_until_gone(pid: Pid) -> Result<()> {
-    match waitpid_until_gone(pid)? {
-        Status::Normalexit(0) =>
-            Ok(()),
+fn xcheck_status(res: Result<Status>, cmd: &[CString]) -> Result<()> {
+    let status = res?;
+    match status {
         Status::Normalexit(exitcode) =>
-            bail!("process exited with error code {}", exitcode),
+            if exitcode == 0 {
+                Ok(())
+            } else {
+                bail!("command ended with error exit code {}: {:?}",
+                      exitcode, cmd)
+            },
         Status::Signalexit(signal) =>
-            bail!("process exited via signal {}", signal)
+            bail!("command ended with signal {}: {:?}",
+                  signal, cmd)
     }
+}
+
+// Treat non-exit(0) cases as errors.
+fn xwaitpid_until_gone(pid: Pid, cmd: &[CString]) -> Result<()> {
+    xcheck_status(waitpid_until_gone(pid), cmd)
 }
 
 // Don't make it overly complicated, please. The original API is
@@ -154,22 +163,6 @@ unsafe fn run_session_proc(
 ) -> Result<Status> {
     let pid = fork_session_proc(proc)?;
     waitpid_until_gone(pid)
-}
-
-fn xcheck_status(res: Result<Status>, cmd: &[CString]) -> Result<()> {
-    let status = res?;
-    match status {
-        Status::Normalexit(exitcode) =>
-            if exitcode == 0 {
-                Ok(())
-            } else {
-                bail!("command ended with error exit code {}: {:?}",
-                      exitcode, cmd)
-            },
-        Status::Signalexit(signal) =>
-            bail!("command ended with signal {}: {:?}",
-                  signal, cmd)
-    }
 }
 
 fn ask_yn(question: &str) -> Result<bool> {
@@ -237,7 +230,7 @@ fn backtick<T: 'static + Send + Sync + std::fmt::Debug + std::fmt::Display
     if let Some(pid) = unsafe { easy_fork() }? {
         close(streamw)?;
         let x = slurp256_parse(streamr, do_chomp)?;
-        xwaitpid_until_gone(pid)?;
+        xwaitpid_until_gone(pid, cmd)?;
         Ok(x)
     } else {
         close(streamr)?;
@@ -425,13 +418,13 @@ fn main() -> Result<()> {
                 run_cmd_with_log(&cmd, &logpath)?;
                 Ok(0)
             }) }?;
-            pids.push(pid);
+            pids.push((pid, cmd));
         }
         // Collecting them out of their exit order. Only
         // matters for early termination in case of errors
         // (and to avoid zombies). Does anyone care?
-        for pid in pids {
-            xwaitpid_until_gone(pid)?;
+        for (pid, cmd) in pids {
+            xwaitpid_until_gone(pid, &cmd)?;
         }
         Ok(())
     }

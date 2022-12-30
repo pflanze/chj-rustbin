@@ -26,6 +26,9 @@ use thiserror::Error;
 use nix::unistd::Pid;
 use std::collections::HashMap;
 
+fn do_debug() -> bool {
+    false
+}
 
 // There's no try_map, so:
 fn cstrings_from_osstrings(osstrs: &mut dyn Iterator<Item = OsString>)
@@ -250,6 +253,9 @@ fn backtick<T: 'static + Send + Sync + std::fmt::Debug + std::fmt::Display
         Ok(x)
     } else {
         close(streamr)?;
+
+        if do_debug() { println!("backtick child {} {:?}", getpid(), cmd) }
+
         dup2(streamw, 1)?;
         if do_redir_stderr {
             dup2(streamw, 2)?;
@@ -399,6 +405,7 @@ fn main() -> Result<()> {
                            CString::new("--daemon")?);
             xcheck_status(
                 run_session_proc(|| {
+                    if do_debug() { println!("child {} {:?}", getpid(), cmd) }
                     run_cmd_with_log(&cmd, &logpath)
                 })?,
                 &cmd)?;
@@ -434,6 +441,7 @@ fn main() -> Result<()> {
                 CString::new("-c")?,
                 file);
             let pid = fork_session_proc(|| {
+                if do_debug() { println!("child {} {:?}", getpid(), cmd) }
                 run_cmd_with_log(&cmd, &logpath)?;
                 Ok(0)
             })?;

@@ -248,9 +248,9 @@ fn backtick<T: 'static + Send + Sync + std::fmt::Debug + std::fmt::Display
     let (streamr, streamw) = pipe()?;
     if let Some(pid) = unsafe { easy_fork() }? {
         close(streamw)?;
-        let x = slurp256_parse(streamr, do_chomp)?;
+        let pres = slurp256_parse(streamr, do_chomp);
         xwaitpid_until_gone(pid, cmd)?;
-        Ok(x)
+        Ok(pres?)
     } else {
         close(streamr)?;
 

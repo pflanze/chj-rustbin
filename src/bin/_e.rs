@@ -177,8 +177,7 @@ fn fork_session_proc(
 fn run_session_proc(
     proc: impl FnOnce() -> Result<i32>
 ) -> Result<Status> {
-    let pid = fork_session_proc(proc)?;
-    waitpid_until_gone(pid)
+    waitpid_until_gone(fork_session_proc(proc)?)
 }
 
 fn ask_yn(question: &str) -> Result<bool> {

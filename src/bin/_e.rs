@@ -297,7 +297,9 @@ fn run_cmd_with_log(cmd: &Vec<CString>, logpath: &OsStr) -> Result<i32> {
                              time()?, getpid(), line)?;
                     write_all(log, &buf)?;
                     if !have_written {
-                        if line.contains("have you started the server?") {
+                        if line.contains("have you started the server?") ||
+                            line.contains("due to a long standing Gtk+ bug")
+                        {
                             eprintln!("starting Emacs instance");
                         } else {
                             pass_through = true;

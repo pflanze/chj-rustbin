@@ -1,6 +1,5 @@
-/// This is a re-implementation and combination of `_e`, and `_e-gnu`
-/// from https://github.com/pflanze/chj-scripts, and is called from
-/// the `e` script from the same place.
+/// This is a re-implementation and combination of the `e`, `r`, `_e`,
+/// and `_e-gnu` scripts from https://github.com/pflanze/chj-scripts
 
 #[path = "../rawfdreader.rs"]
 mod rawfdreader;
@@ -360,6 +359,9 @@ fn main() -> Result<()> {
                            back to single emacsclient call (not opening \
                            a separate frame per file)");
                 return Ok((args, false))
+            } else if a.ends_with(b"~") {
+                // Simply always ignore (for now? I'm not sure I've
+                // ever opened backup files via `e`)
             } else {
                 files.push(arg.clone());
             }

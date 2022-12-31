@@ -332,12 +332,13 @@ fn main() -> Result<()> {
     let (args, args_is_all_files) = (|| -> Result<(Vec<CString>, bool)> {
         let args = cstrings_from_osstrings(&mut env::args_os().skip(1))?;
         let mut files : Vec<CString> = Vec::new();
-        let mut seen_boundary = false; // seen "--"
-        for arg in &args {
+        let mut iargs = args.clone().into_iter();
+        for arg in &mut iargs {
             let a = arg.to_bytes();
             if a == b"--" {
-                seen_boundary = true;
-            } else if ! seen_boundary && a.starts_with(b"-") {
+                files.extend(&mut iargs);
+                return Ok((files, true))
+            } else if a.starts_with(b"-") {
                 println!("can't currently deal with options, falling \
                           back to single emacsclient call (not opening \
                           a separate frame per file)");
@@ -377,8 +378,11 @@ fn main() -> Result<()> {
                 let alt = OsString::from("--alternate-editor=");
                 // alt.push(alternate_editor);
                 CString::new(alt.into_vec())?
-            }
+            },
         );
+        if args_is_all_files {
+            cmd.push(CString::new("--")?);
+        }
         cmd.append(&mut args.clone());
 
         xcheck_status(run_session_proc(|| run_cmd_with_log(&cmd, &logpath))?,
@@ -439,6 +443,7 @@ fn main() -> Result<()> {
             let cmd = vec!(
                 CString::new("emacsclient")?,
                 CString::new("-c")?,
+                CString::new("--")?,
                 file);
             let pid = fork_session_proc(|| {
                 if do_debug() { println!("child {} {:?}", getpid(), cmd) }

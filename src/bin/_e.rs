@@ -254,7 +254,7 @@ fn backtick<T: 'static + Send + Sync + std::fmt::Debug + std::fmt::Display
     } else {
         close(streamr)?;
 
-        if do_debug() { println!("backtick child {} {:?}", getpid(), cmd) }
+        if do_debug() { eprintln!("backtick child {} {:?}", getpid(), cmd) }
 
         dup2(streamw, 1)?;
         if do_redir_stderr {
@@ -283,6 +283,7 @@ fn run_cmd_with_log(cmd: &Vec<CString>, logpath: &OsStr) -> Result<i32> {
             let reader = BufReader::new(
                 unsafe { RawFdReader::from_raw_fd(streamr) });
             let mut have_written = false;
+            let mut pass_through = false; // print message to stdout
             for line in reader.lines() {
                 let line = line?;
                 let line = string_remove_start(
@@ -296,8 +297,17 @@ fn run_cmd_with_log(cmd: &Vec<CString>, logpath: &OsStr) -> Result<i32> {
                              time()?, getpid(), line)?;
                     write_all(log, &buf)?;
                     if !have_written {
-                        eprintln!("starting Emacs instance");
+                        if line.contains("have you started the server?") {
+                            eprintln!("starting Emacs instance");
+                        } else {
+                            pass_through = true;
+                        }
                         have_written = true;
+                    }
+                    if pass_through {
+                        buf.clear();
+                        writeln!(&mut buf, "{}", line)?;
+                        stderr().write_all(&buf)?;
                     }
                 }
             }
@@ -339,14 +349,14 @@ fn main() -> Result<()> {
                 files.extend(&mut iargs);
                 return Ok((files, true))
             } else if a.starts_with(b"-") {
-                println!("can't currently deal with options, falling \
-                          back to single emacsclient call (not opening \
-                          a separate frame per file)");
+                eprintln!("can't currently deal with options, falling \
+                           back to single emacsclient call (not opening \
+                           a separate frame per file)");
                 return Ok((args, false))
             } else if a.starts_with(b"+") {
-                println!("can't currently deal with positions, falling \
-                          back to single emacsclient call (not opening \
-                          a separate frame per file)");
+                eprintln!("can't currently deal with positions, falling \
+                           back to single emacsclient call (not opening \
+                           a separate frame per file)");
                 return Ok((args, false))
             } else {
                 files.push(arg.clone());
@@ -394,7 +404,7 @@ fn main() -> Result<()> {
             if ! ask_yn(&format!("got {} arguments, do you really want to open \
                                   so many windows?",
                                  files.len()))? {
-                println!("cancelling");
+                eprintln!("cancelling");
                 return Ok(());
             }
         }
@@ -409,7 +419,7 @@ fn main() -> Result<()> {
                            CString::new("--daemon")?);
             xcheck_status(
                 run_session_proc(|| {
-                    if do_debug() { println!("child {} {:?}", getpid(), cmd) }
+                    if do_debug() { eprintln!("child {} {:?}", getpid(), cmd) }
                     run_cmd_with_log(&cmd, &logpath)
                 })?,
                 &cmd)?;
@@ -422,7 +432,7 @@ fn main() -> Result<()> {
                   CString::new("(+ 3 2)")?),
             true,
             true);
-        // println!("res= {:?}", res);
+        // eprintln!("res= {:?}", res);
         match res {
             Err(_) => {
                 start_emacs()?
@@ -446,7 +456,7 @@ fn main() -> Result<()> {
                 CString::new("--")?,
                 file);
             let pid = fork_session_proc(|| {
-                if do_debug() { println!("child {} {:?}", getpid(), cmd) }
+                if do_debug() { eprintln!("child {} {:?}", getpid(), cmd) }
                 run_cmd_with_log(&cmd, &logpath)?;
                 Ok(0)
             })?;
@@ -460,7 +470,7 @@ fn main() -> Result<()> {
             if let Some(cmd) = pids.remove(&pid) {
                 xcheck_status(status, &cmd)?;
             } else {
-                println!("bug?: ignoring unknown pid {}", pid);
+                eprintln!("bug?: ignoring unknown pid {}", pid);
             }
         }
         Ok(())

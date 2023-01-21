@@ -297,7 +297,12 @@ fn run_cmd_with_log(cmd: &Vec<CString>, logpath: &OsStr) -> Result<i32> {
                     write_all(log, &buf)?;
                     if !have_written {
                         if line.contains("have you started the server?") ||
-                            line.contains("due to a long standing Gtk+ bug")
+                            line.contains("due to a long standing Gtk+ bug") ||
+                        /* for some reason, sometimes it says this
+                         * first instead (when the previous instance
+                         * was killed by way of Xorg being
+                         * killed?): */
+                            line.contains("emacsclient: connect: Connection refused")
                         {
                             eprintln!("starting Emacs instance");
                         } else {

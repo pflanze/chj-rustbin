@@ -376,7 +376,7 @@ fn main() -> Result<()> {
     
     let logpath = {
         let mut home = env::var_os("HOME").ok_or_else(
-            || anyhow!("missing HOME var"))?;
+            || anyhow!("missing HOME env var"))?;
         home.push("/._e-gnu_rs.log");
         home
     };

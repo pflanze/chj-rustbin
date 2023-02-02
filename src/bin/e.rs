@@ -296,13 +296,15 @@ fn run_cmd_with_log(cmd: &Vec<CString>, logpath: &OsStr) -> Result<i32> {
                              time()?, getpid(), line)?;
                     write_all(log, &buf)?;
                     if !have_written {
-                        if line.contains("have you started the server?") ||
-                            line.contains("due to a long standing Gtk+ bug") ||
+                        if line.contains("have you started the server?")
+                            || line.contains("due to a long standing Gtk+ bug")
                         /* for some reason, sometimes it says this
                          * first instead (when the previous instance
                          * was killed by way of Xorg being
                          * killed?): */
-                            line.contains("emacsclient: connect: Connection refused")
+                            || line.contains("emacsclient: connect: Connection refused")
+                        /* this is new as of Feb 2023 */
+                            || line.contains("Should XDG_RUNTIME_DIR=")
                         {
                             eprintln!("starting Emacs instance");
                         } else {

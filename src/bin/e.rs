@@ -9,7 +9,7 @@ use std::{env, writeln};
 use std::io::{stdin, stderr, Write, BufReader, BufRead};
 use libc::_exit;
 use nix::unistd::{getpid, pipe, fork, ForkResult,
-                  close, setsid, dup2, execvp, read, write};
+                  close, setsid, dup2, execvp, read, write, getuid };
 use nix::time::{clock_gettime, ClockId};
 use nix::sys::time::time_t;
 use nix::fcntl::{open, OFlag};
@@ -266,6 +266,24 @@ fn backtick<T: 'static + Send + Sync + std::fmt::Debug + std::fmt::Display
     }
 }
 
+// Verify that env vars aren't anything unexpected
+fn verify_env() -> Result<()> {
+    // Emacs warns about that one, so verify it before ignoring its
+    // warning:
+    if let Some(got) = env::var_os("XDG_RUNTIME_DIR") {
+        let uid = getuid().as_raw();
+        let expected = OsString::from(format!("/run/user/{}", uid));
+        if got == expected {
+            Ok(())
+        } else {
+            bail!("expected XDG_RUNTIME_DIR env var, if set, to be {:?}, but got {:?}",
+                  expected, got)
+        }
+    } else {
+        Ok(())
+    }
+}
+
 // Run cmd, waiting for its exit and logging its output.
 fn run_cmd_with_log(cmd: &Vec<CString>, logpath: &OsStr) -> Result<i32> {
     let (streamr, streamw) = pipe()?;
@@ -375,6 +393,8 @@ fn main() -> Result<()> {
         }
         Ok((files, true))
     })()?;
+
+    verify_env()?;
     
     let logpath = {
         let mut home = env::var_os("HOME").ok_or_else(

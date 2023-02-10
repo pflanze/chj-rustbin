@@ -188,7 +188,7 @@ fn main() -> Result<()> {
     }
 
     env::set_current_dir(&opt.directory_path).with_context(
-        || "can't chdir to the base directory")?;
+        || format!("can't chdir to {:?}", opt.directory_path))?;
 
     let items: Vec<OsString> =
         fs::read_dir(".").with_context(

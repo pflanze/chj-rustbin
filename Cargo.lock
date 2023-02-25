@@ -20,7 +20,7 @@ dependencies = [
  "alsa-sys",
  "bitflags",
  "libc",
- "nix 0.24.3",
+ "nix",
 ]
 
 [[package]]
@@ -93,7 +93,7 @@ dependencies = [
  "env_logger",
  "libc",
  "log",
- "nix 0.25.0",
+ "nix",
  "rayon",
  "structopt",
  "thiserror",
@@ -247,20 +247,7 @@ dependencies = [
  "bitflags",
  "cfg-if",
  "libc",
-]
-
-[[package]]
-name = "nix"
-version = "0.25.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e322c04a9e3440c327fca7b6c8a63e6890a32fa2ad689db972425f07e0d22abb"
-dependencies = [
- "autocfg",
- "bitflags",
- "cfg-if",
- "libc",
  "memoffset",
- "pin-utils",
 ]
 
 [[package]]
@@ -284,12 +271,6 @@ name = "once_cell"
 version = "1.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13bd41f508810a131401606d54ac32a467c97172d74ba7662562ebba5ad07fa0"
-
-[[package]]
-name = "pin-utils"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
 name = "pkg-config"

@@ -32,7 +32,7 @@ use rand;
 
 use std::f64::consts::PI;
 
-fn set_start_threshold(pcm: PCM) -> Result<()> {
+fn set_start_threshold(pcm: &PCM) -> Result<()> {
     // Make sure we don't start the stream too early
     let hwp = pcm.hw_params_current()?;
     let swp = pcm.sw_params_current()?;
@@ -73,12 +73,15 @@ pub fn main() -> Result<()> {
         Ok(outp)
     })().with_context(|| "preparing audio output")?;
 
-    set_start_threshold(inp)?;
-    
+    set_start_threshold(&inp)?; //  ?
+    set_start_threshold(&outp)?;
+
+    let i = inp.io_i16()?;
     let o = outp.io_i16()?;
 
     const SAMPLES_PER_BUF : usize = 256; // per channel
-    let mut buf = [0i16; SAMPLES_PER_BUF * 2];
+    let mut inbuf = [0i16; SAMPLES_PER_BUF];
+    let mut outbuf = [0i16; SAMPLES_PER_BUF * 2];
     let mut t : f64 = 0.0;
     let d = 2.0 * PI;
 
@@ -86,28 +89,30 @@ pub fn main() -> Result<()> {
     let n = 600;
     for _ in 0..n*48000/SAMPLES_PER_BUF {
 
+        assert_eq!(i.readi(&mut inbuf)?, SAMPLES_PER_BUF);
+        
         for i in 0..SAMPLES_PER_BUF {
             // left
-            buf[i*2 + 1] = (
+            outbuf[i*2 + 1] = ((
                 ((t / 200.000123 + (t / 301000.438).sin() * 400.).sin()
-                 * (t / 200.0).sin() + rand::random::<f64>()
-                ) * 4000.0
-            ) as i16;
+                 * (t / 200.0).sin()
+                ) * 1000.0
+            ) as i16 + inbuf[i]) / 2;
 
             // right
-            buf[i*2] = (
+            outbuf[i*2] = ((
                 ((t / 201.000123 + (t / 300000.).sin() * 400.).sin()
-                 * (t / 201.0).sin() + rand::random::<f64>()
-                ) * 4000.0
-            ) as i16;
+                 * (t / 201.0).sin()
+                ) * 1000.0
+            ) as i16 + inbuf[i]) / 2;
 
             t = t + d;
         }
 
-        assert_eq!(o.writei(&buf)?, SAMPLES_PER_BUF); // not values in buf because stereo
+        assert_eq!(o.writei(&outbuf)?, SAMPLES_PER_BUF);
     }
 
-    // In case the buffer was larger than 2 seconds, start the stream manually.
+    // In case the buffer was larger than the playing duration, start the stream manually.
     if outp.state() != State::Running { outp.start()? };
     // Wait for the stream to finish playback.
     outp.drain()?;

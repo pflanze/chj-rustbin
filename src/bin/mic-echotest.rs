@@ -1,34 +1,8 @@
-use anyhow::{Context, Result, anyhow, bail}; 
-use std::{env, writeln};
-use std::io::{stdin, stderr, Write, BufReader, BufRead};
-use libc::{_exit, srand};
-use nix::unistd::{getpid, pipe, fork, ForkResult,
-                  close, setsid, dup2, execvp, read, write, getuid };
-use nix::time::{clock_gettime, ClockId};
-use nix::sys::time::time_t;
-use nix::fcntl::{open, OFlag};
-use nix::sys::stat::{mode_t, Mode};
-use nix::sys::wait::{wait, waitpid, WaitStatus};
-use std::os::unix::io::{FromRawFd, RawFd};
-use std::ffi::{CString, OsString, OsStr};
-use std::os::unix::ffi::{OsStringExt};
-use nix::sys::signal::Signal;
-use bstr_parse::{BStrParse, ParseIntError, FromBStr};
-use nix::errno::Errno;
-use thiserror::Error;
-use nix::unistd::Pid;
-use std::collections::HashMap;
+use anyhow::{Context, Result}; 
 
-use alsa::card::{Iter, Card};
-use alsa::hctl::HCtl;
-use alsa::rawmidi::Rawmidi;
-use alsa::poll::Descriptors as PollDescriptors;
-use alsa::mixer::Mixer;
-use alsa::seq::Seq;
-
-use alsa::{Direction, ValueOr};
+use alsa::card::Iter;
+use alsa::ValueOr;
 use alsa::pcm::{PCM, HwParams, Format, Access, State};
-use rand;
 
 use std::f64::consts::PI;
 

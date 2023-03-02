@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, anyhow, bail}; 
 use std::{env, writeln};
 use std::io::{stdin, stderr, Write, BufReader, BufRead};
-use libc::_exit;
+use libc::{_exit, srand};
 use nix::unistd::{getpid, pipe, fork, ForkResult,
                   close, setsid, dup2, execvp, read, write, getuid };
 use nix::time::{clock_gettime, ClockId};
@@ -28,6 +28,7 @@ use alsa::seq::Seq;
 
 use alsa::{Direction, ValueOr};
 use alsa::pcm::{PCM, HwParams, Format, Access, State};
+use rand;
 
 use std::f64::consts::PI;
 
@@ -89,14 +90,14 @@ pub fn main() -> Result<()> {
             // left
             buf[i*2 + 1] = (
                 ((t / 200.000123 + (t / 301000.438).sin() * 400.).sin()
-                 * (t / 200.0).sin()
+                 * (t / 200.0).sin() + rand::random::<f64>()
                 ) * 4000.0
             ) as i16;
 
             // right
             buf[i*2] = (
                 ((t / 201.000123 + (t / 300000.).sin() * 400.).sin()
-                 * (t / 201.0).sin()
+                 * (t / 201.0).sin() + rand::random::<f64>()
                 ) * 4000.0
             ) as i16;
 

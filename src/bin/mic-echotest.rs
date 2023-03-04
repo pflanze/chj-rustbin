@@ -73,16 +73,16 @@ pub fn main() -> Result<()> {
         
         for i in 0..SAMPLES_PER_BUF {
             // left
-            outbuf[i*2 + 1] = ((
-                ((t / 200.000123 + (t / 301000.438).sin() * 400.).sin()
-                 * (t / 200.0).sin()
+            outbuf[i*2] = ((
+                ((t / 201.000123 + (t / 300000.).sin() * 400.).sin()
+                 * (t / 201.0).sin()
                 ) * 1000.0
             ) as i16 + inbuf[i]) / 2;
 
             // right
-            outbuf[i*2] = ((
-                ((t / 201.000123 + (t / 300000.).sin() * 400.).sin()
-                 * (t / 201.0).sin()
+            outbuf[i*2 + 1] = ((
+                ((t / 200.000123 + (t / 301000.438).sin() * 400.).sin()
+                 * (t / 200.0).sin()
                 ) * 1000.0
             ) as i16 + inbuf[i]) / 2;
 

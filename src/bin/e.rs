@@ -430,15 +430,16 @@ fn main() -> Result<()> {
         home
     };
 
+    if None == env::var_os("ALTERNATE_EDITOR") {
+        // Make sure emacsclient will not try to exec the file
+        // argument (from PATH)! (Genuine bug?)
+        env::set_var("ALTERNATE_EDITOR", "/usr/bin/false");
+    }
+
     if !args_is_all_files || args.len() == 1 || is_running_in_terminal() {
         // Let emacsclient start the daemon on its own if
         // necessary. That way we need to run just one command.
 
-        if None == env::var_os("ALTERNATE_EDITOR") {
-            // Make sure emacsclient will not try to exec the file
-            // argument (from PATH)! (Genuine bug?)
-            env::set_var("ALTERNATE_EDITOR", "/usr/bin/false");
-        }
         let mut cmd = vec!(
             CString::new("emacsclient")?,
             CString::new("-c")?,

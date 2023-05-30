@@ -186,28 +186,6 @@ fn is_running_in_terminal() -> bool {
     env::var_os("DISPLAY").is_none()
 }
 
-// Run proc in a new session via run_session_proc iff we're in an X
-// session; otherwise assume we're in a terminal and run proc
-// directly, since emacsclient (nowadays?) refuses to work or can't
-// work in a daemon (can't get the terminal), and we don't need
-// protection against ctl-c anyway since we're using the -c option to
-// emacsclient, meaning the terminal is controlled by emacs as long as
-// it's active, thus no chance to ctl-c it.
-fn conditional_run_session_proc(
-    proc: impl FnOnce() -> Result<i32>,
-    cmd: &[CString],
-) -> Result<()> {
-    if is_running_in_terminal() {
-        xcheck_status(
-            Status::Normalexit(proc()?),
-            cmd)
-    } else {
-        xcheck_status(
-            run_session_proc(proc)?,
-            cmd)
-    }
-}
-
 
 fn ask_yn(question: &str) -> Result<bool> {
     for n in (1..5).rev() {
@@ -436,79 +414,57 @@ fn main() -> Result<()> {
         env::set_var("ALTERNATE_EDITOR", "/usr/bin/false");
     }
 
-    if !args_is_all_files || args.len() == 1 || is_running_in_terminal() {
-        // Let emacsclient start the daemon on its own if
-        // necessary. That way we need to run just one command.
-
-        let mut cmd = vec!(
-            CString::new("emacsclient")?,
-            CString::new("-c")?,
-        );
-        if args_is_all_files {
-            cmd.push(CString::new("--")?);
+    if args.len() > 8 {
+        if ! ask_yn(&format!("got {} arguments, do you really want to open \
+                              so many windows?",
+                             args.len()))? {
+            eprintln!("cancelling");
+            return Ok(());
         }
-        cmd.append(&mut args.clone());
+    }
+    
+    // Check if emacs daemon is up, if not, start it. Then
+    // open each file (args is just files here) with a
+    // separate emacsclient call, so that each is opened in a
+    // separate frame.
 
-        if is_running_in_terminal() {
-            // Need to run direcly, can't redirect log
-            execvp(&cmd[0], &cmd)?;
-            unsafe { _exit(123) }; // never reached, to satisfy type system
-        } else {
-            conditional_run_session_proc(
-                || run_cmd_with_log(&cmd, &logpath),
-                &cmd)
-        }
-    } else {
-        let files = args;
-        if files.len() > 8 {
-            if ! ask_yn(&format!("got {} arguments, do you really want to open \
-                                  so many windows?",
-                                 files.len()))? {
-                eprintln!("cancelling");
-                return Ok(());
-            }
-        }
-
-        // Check if emacs daemon is up, if not, start it. Then
-        // open each file (args is just files here) with a
-        // separate emacsclient call, so that each is opened in a
-        // separate frame.
-
-        let start_emacs = || -> Result<()> {
-            let cmd = vec!(CString::new("emacs")?,
-                           CString::new("--daemon")?);
-            conditional_run_session_proc(
+    let start_emacs = || -> Result<()> {
+        let cmd = vec!(CString::new("emacs")?,
+                       CString::new("--daemon")?);
+        xcheck_status(
+            run_session_proc(
                 || {
                     if do_debug() { eprintln!("child {} {:?}", getpid(), cmd) }
                     run_cmd_with_log(&cmd, &logpath)
-                },
-                &cmd)
-        };
-
-        let res : Result<i32> = backtick(
-            &vec!(CString::new("emacsclient")?,
-                  CString::new("-e")?,
-                  CString::new("(+ 3 2)")?),
-            true,
-            true);
-        // eprintln!("res= {:?}", res);
-        match res {
-            Err(_) => {
+                })?,
+            &cmd)
+    };
+    
+    let res : Result<i32> = backtick(
+        &vec!(CString::new("emacsclient")?,
+              CString::new("-e")?,
+              CString::new("(+ 3 2)")?),
+        true,
+        true);
+    // eprintln!("res= {:?}", res);
+    match res {
+        Err(_) => {
+            start_emacs()?
+        },
+        Ok(val) => {
+            if val == 5 {
+                // Emacs is already up
+            } else {
                 start_emacs()?
-            },
-            Ok(val) => {
-                if val == 5 {
-                    // Emacs is already up
-                } else {
-                    start_emacs()?
-                }
             }
         }
+    }
 
+    if args_is_all_files && !is_running_in_terminal() {
         // Open each file separately, collecting the pids that
         // we then wait on.
         let mut pids : HashMap<Pid, Vec<CString>> = HashMap::new();
-        for file in files {
+        for file in args {
             let cmd = vec!(
                 CString::new("emacsclient")?,
                 CString::new("-c")?,
@@ -532,6 +488,23 @@ fn main() -> Result<()> {
                 eprintln!("bug?: ignoring unknown pid {}", pid);
             }
         }
-        Ok(())
+    } else {
+        let mut cmd = vec!(
+            CString::new("emacsclient")?,
+            CString::new("-c")?,
+        );
+        cmd.append(&mut args.clone());
+
+        if is_running_in_terminal() {
+            // Need to run direcly, can't redirect log
+            execvp(&cmd[0], &cmd)?;
+            unsafe { _exit(123) }; // never reached, to satisfy type system
+        } else {
+            xcheck_status(
+                run_session_proc(
+                    || run_cmd_with_log(&cmd, &logpath))?,
+                &cmd)?;
+        }
     }
+    Ok(())
 }

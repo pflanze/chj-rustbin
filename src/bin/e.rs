@@ -182,6 +182,33 @@ fn run_session_proc(
     waitpid_until_gone(fork_session_proc(proc)?)
 }
 
+fn is_running_in_terminal() -> bool {
+    env::var_os("DISPLAY").is_none()
+}
+
+// Run proc in a new session via run_session_proc iff we're in an X
+// session; otherwise assume we're in a terminal and run proc
+// directly, since emacsclient (nowadays?) refuses to work or can't
+// work in a daemon (can't get the terminal), and we don't need
+// protection against ctl-c anyway since we're using the -c option to
+// emacsclient, meaning the terminal is controlled by emacs as long as
+// it's active, thus no chance to ctl-c it.
+fn conditional_run_session_proc(
+    proc: impl FnOnce() -> Result<i32>,
+    cmd: &[CString],
+) -> Result<()> {
+    if is_running_in_terminal() {
+        xcheck_status(
+            Status::Normalexit(proc()?),
+            cmd)
+    } else {
+        xcheck_status(
+            run_session_proc(proc)?,
+            cmd)
+    }
+}
+
+
 fn ask_yn(question: &str) -> Result<bool> {
     for n in (1..5).rev() {
         println!("{} (y/n)", question);
@@ -403,7 +430,7 @@ fn main() -> Result<()> {
         home
     };
 
-    if !args_is_all_files || args.len() == 1 {
+    if !args_is_all_files || args.len() == 1 || is_running_in_terminal() {
         // Let emacsclient start the daemon on its own if
         // necessary. That way we need to run just one command.
 
@@ -426,8 +453,9 @@ fn main() -> Result<()> {
         }
         cmd.append(&mut args.clone());
 
-        xcheck_status(run_session_proc(|| run_cmd_with_log(&cmd, &logpath))?,
-                      &cmd)
+        conditional_run_session_proc(
+            || run_cmd_with_log(&cmd, &logpath),
+            &cmd)
 
     } else {
         let files = args;
@@ -448,13 +476,12 @@ fn main() -> Result<()> {
         let start_emacs = || -> Result<()> {
             let cmd = vec!(CString::new("emacs")?,
                            CString::new("--daemon")?);
-            xcheck_status(
-                run_session_proc(|| {
+            conditional_run_session_proc(
+                || {
                     if do_debug() { eprintln!("child {} {:?}", getpid(), cmd) }
                     run_cmd_with_log(&cmd, &logpath)
-                })?,
-                &cmd)?;
-            Ok(())
+                },
+                &cmd)
         };
 
         let res : Result<i32> = backtick(

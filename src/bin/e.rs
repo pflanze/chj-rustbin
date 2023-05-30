@@ -453,10 +453,15 @@ fn main() -> Result<()> {
         }
         cmd.append(&mut args.clone());
 
-        conditional_run_session_proc(
-            || run_cmd_with_log(&cmd, &logpath),
-            &cmd)
-
+        if is_running_in_terminal() {
+            // Need to run direcly, can't redirect log
+            execvp(&cmd[0], &cmd)?;
+            unsafe { _exit(123) }; // never reached, to satisfy type system
+        } else {
+            conditional_run_session_proc(
+                || run_cmd_with_log(&cmd, &logpath),
+                &cmd)
+        }
     } else {
         let files = args;
         if files.len() > 8 {

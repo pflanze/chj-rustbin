@@ -434,19 +434,12 @@ fn main() -> Result<()> {
         // Let emacsclient start the daemon on its own if
         // necessary. That way we need to run just one command.
 
-        // XX What do we do with this env var?:
-        // let alternate_editor = env::var_os("ALTERNATE_EDITOR")
-        //     .unwrap_or(OsString::from(""));
-        // println!("alternate_editor={:?}", alternate_editor);
-
+        if None == env::var_os("ALTERNATE_EDITOR") {
+            env::set_var("ALTERNATE_EDITOR", "");
+        }
         let mut cmd = vec!(
             CString::new("emacsclient")?,
             CString::new("-c")?,
-            {
-                let alt = OsString::from("--alternate-editor=");
-                // alt.push(alternate_editor);
-                CString::new(alt.into_vec())?
-            },
         );
         if args_is_all_files {
             cmd.push(CString::new("--")?);

@@ -435,7 +435,9 @@ fn main() -> Result<()> {
         // necessary. That way we need to run just one command.
 
         if None == env::var_os("ALTERNATE_EDITOR") {
-            env::set_var("ALTERNATE_EDITOR", "");
+            // Make sure emacsclient will not try to exec the file
+            // argument (from PATH)! (Genuine bug?)
+            env::set_var("ALTERNATE_EDITOR", "/usr/bin/false");
         }
         let mut cmd = vec!(
             CString::new("emacsclient")?,

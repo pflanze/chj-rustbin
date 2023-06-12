@@ -19,7 +19,3 @@ nix = "^0.24.3"
 libc = "0.2.133"
 bstr_parse = "0.1.0"
 thiserror = "1.0.37"
-alsa = "0.5.0"
-rand = "0.8.5"
-pipewire = "^0"
-

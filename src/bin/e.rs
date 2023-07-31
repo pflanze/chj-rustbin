@@ -195,7 +195,7 @@ fn ask_yn(question: &str) -> Result<bool> {
     let mut inp = BufReader::new(opn()?);
     let mut outp = opn()?;
     for n in (1..5).rev() {
-        writeln!(outp, "{} (y/n)", question)?;
+        write!(outp, "{} (y/n) ", question)?;
         let mut ans = String::new();
         inp.read_line(&mut ans)?;
         if ans.len() > 1 && ans.starts_with("y") {

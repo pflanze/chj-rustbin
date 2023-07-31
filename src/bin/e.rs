@@ -5,8 +5,9 @@
 mod rawfdreader;
 use rawfdreader::RawFdReader;
 use anyhow::{Result, anyhow, bail}; 
+use std::fs::OpenOptions;
 use std::{env, writeln};
-use std::io::{stdin, stderr, Write, BufReader, BufRead};
+use std::io::{stderr, Write, BufReader, BufRead};
 use libc::_exit;
 use nix::unistd::{getpid, pipe, fork, ForkResult,
                   close, setsid, dup2, execvp, read, write, getuid };
@@ -17,7 +18,7 @@ use nix::sys::stat::{mode_t, Mode};
 use nix::sys::wait::{wait, waitpid, WaitStatus};
 use std::os::unix::io::{FromRawFd, RawFd};
 use std::ffi::{CString, OsString, OsStr};
-use std::os::unix::ffi::{OsStringExt};
+use std::os::unix::ffi::OsStringExt;
 use nix::sys::signal::Signal;
 use bstr_parse::{BStrParse, ParseIntError, FromBStr};
 use nix::errno::Errno;
@@ -188,16 +189,21 @@ fn is_running_in_terminal() -> bool {
 
 
 fn ask_yn(question: &str) -> Result<bool> {
+    let mut opts = OpenOptions::new();
+    opts.read(true).write(true).create(false);
+    let opn = || opts.open("/dev/tty");
+    let mut inp = BufReader::new(opn()?);
+    let mut outp = opn()?;
     for n in (1..5).rev() {
-        println!("{} (y/n)", question);
+        writeln!(outp, "{} (y/n)", question)?;
         let mut ans = String::new();
-        stdin().read_line(&mut ans)?;
+        inp.read_line(&mut ans)?;
         if ans.len() > 1 && ans.starts_with("y") {
             return Ok(true)
         } else if ans.len() > 1 && ans.starts_with("n") {
             return Ok(false)
         }
-        println!("please answer with y or n, {} tries left", n);
+        writeln!(outp, "please answer with y or n, {} tries left", n)?;
     }
     bail!("could not get an answer to the question {:?}",
           question)

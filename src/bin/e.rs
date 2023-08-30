@@ -155,7 +155,7 @@ fn fork_proc(proc: impl FnOnce() -> Result<i32>) -> Result<Pid> {
             },
             Err(err) => {
                 let _ = stderr().write(
-                    format!("fork_proc: error in child {}: {}\n",
+                    format!("e: fork_proc: error in child {}: {}\n",
                             getpid(), err).as_bytes());
                 unsafe { _exit(1) }
             }
@@ -203,9 +203,9 @@ fn ask_yn(question: &str) -> Result<bool> {
         } else if ans.len() > 1 && ans.starts_with("n") {
             return Ok(false)
         }
-        writeln!(outp, "please answer with y or n, {} tries left", n)?;
+        writeln!(outp, "Please answer with y or n, {} tries left", n)?;
     }
-    bail!("could not get an answer to the question {:?}",
+    bail!("Could not get an answer to the question {:?}",
           question)
 }
 
@@ -264,7 +264,7 @@ fn backtick<T: 'static + Send + Sync + std::fmt::Debug + std::fmt::Display
     } else {
         close(streamr)?;
 
-        if do_debug() { eprintln!("backtick child {} {:?}", getpid(), cmd) }
+        if do_debug() { eprintln!("e: backtick child {} {:?}", getpid(), cmd) }
 
         dup2(streamw, 1)?;
         if do_redir_stderr {
@@ -335,7 +335,7 @@ fn run_cmd_with_log(cmd: &Vec<CString>, logpath: &OsStr) -> Result<i32> {
                         /* this is new as of Feb 2023 */
                             || line.contains("Should XDG_RUNTIME_DIR=")
                         {
-                            eprintln!("starting Emacs instance");
+                            eprintln!("e: starting Emacs instance");
                         } else {
                             pass_through = true;
                         }
@@ -386,12 +386,12 @@ fn main() -> Result<()> {
                 files.extend(&mut iargs);
                 return Ok((files, true))
             } else if a.starts_with(b"-") {
-                eprintln!("can't currently deal with options, falling \
+                eprintln!("e: can't currently deal with options, falling \
                            back to single emacsclient call (not opening \
                            a separate frame per file)");
                 return Ok((args, false))
             } else if a.starts_with(b"+") {
-                eprintln!("can't currently deal with positions, falling \
+                eprintln!("e: can't currently deal with positions, falling \
                            back to single emacsclient call (not opening \
                            a separate frame per file)");
                 return Ok((args, false))
@@ -421,10 +421,10 @@ fn main() -> Result<()> {
     }
 
     if args.len() > 8 {
-        if ! ask_yn(&format!("got {} arguments, do you really want to open \
+        if ! ask_yn(&format!("e: got {} arguments, do you really want to open \
                               so many windows?",
                              args.len()))? {
-            eprintln!("cancelling");
+            eprintln!("e: cancelled.");
             return Ok(());
         }
     }
@@ -440,7 +440,7 @@ fn main() -> Result<()> {
         xcheck_status(
             run_session_proc(
                 || {
-                    if do_debug() { eprintln!("child {} {:?}", getpid(), cmd) }
+                    if do_debug() { eprintln!("e: child {} {:?}", getpid(), cmd) }
                     run_cmd_with_log(&cmd, &logpath)
                 })?,
             &cmd)
@@ -477,7 +477,7 @@ fn main() -> Result<()> {
                 CString::new("--")?,
                 file);
             let pid = fork_session_proc(|| {
-                if do_debug() { eprintln!("child {} {:?}", getpid(), cmd) }
+                if do_debug() { eprintln!("e: child {} {:?}", getpid(), cmd) }
                 run_cmd_with_log(&cmd, &logpath)?;
                 Ok(0)
             })?;
@@ -491,7 +491,7 @@ fn main() -> Result<()> {
             if let Some(cmd) = pids.remove(&pid) {
                 xcheck_status(status, &cmd)?;
             } else {
-                eprintln!("bug?: ignoring unknown pid {}", pid);
+                eprintln!("e: bug?: ignoring unknown pid {}", pid);
             }
         }
     } else {

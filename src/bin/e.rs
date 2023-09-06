@@ -7,7 +7,7 @@ use rawfdreader::RawFdReader;
 use anyhow::{Result, anyhow, bail}; 
 use std::fs::OpenOptions;
 use std::{env, writeln};
-use std::io::{stderr, Write, BufReader, BufRead, Read};
+use std::io::{stderr, Write, BufReader, BufRead};
 use libc::_exit;
 use nix::unistd::{getpid, pipe, fork, ForkResult,
                   close, setsid, dup2, execvp, read, write, getuid };
@@ -25,7 +25,6 @@ use nix::errno::Errno;
 use thiserror::Error;
 use nix::unistd::Pid;
 use std::collections::HashMap;
-use std::process::{Command, Stdio};
 
 fn do_debug() -> bool {
     false
@@ -188,58 +187,6 @@ fn is_running_in_terminal() -> bool {
     env::var_os("DISPLAY").is_none()
 }
 
-// ------------------------------------------------------------------
-
-// Get display dimensions to set the
-// `chj-rustbin:x-display-dimensions` variable in a newly started
-// emacs daemon, so that elisp code can calculate the desired frame
-// size for subsequent `emacsclient -c` calls before Emacs retrieves
-// the display size itself.
-
-// Do this by shelling out to xrandr; reading
-// /sys/kernel/debug/dri/0/framebuffer doesn't work in a chroot,
-// xrandr does.
-
-trait IsSomeAnd<T> {
-    fn is_some_and(self, f: impl FnOnce(T) -> bool) -> bool;
-}
-impl<T> IsSomeAnd<T> for Option<T> {
-    fn is_some_and(self, f: impl FnOnce(T) -> bool) -> bool {
-        match self {
-            None => false,
-            Some(x) => f(x),
-        }
-    }
-}
-
-fn get_x_display_size() -> Result<(usize, usize)> {
-    let mut s = String::new();
-    Command::new("xrandr").stdout(Stdio::piped()).spawn()?.stdout
-        .expect("?? why is this an Option?")
-        .take(10000).read_to_string(&mut s)?;
-    // Screen 0: minimum 320 x 200, current 1920 x 1080, maximum 16384 x 16384
-    let (line, _) = s.split_once("\n").ok_or_else(
-        || anyhow!("need at least one line, got {:?}", &s))?;
-    let (_, vals) = line.split_once(": ").ok_or_else(
-        || anyhow!("missing ': ' in {:?}", &line))?;
-    let parts = vals.split(", ")
-        .map(|s| s.split_once(" "))
-        .filter(|maybe| IsSomeAnd::is_some_and(*maybe, |(n, _)| n == "current"))
-        .map(|maybe| maybe.unwrap().1)
-        .collect::<Vec<&str>>();
-    match parts.len() {
-        0 => bail!("Missing 'current' part in xrandr output: {:?}", line),
-        1 => {
-            let ps = parts[0].split_once(" x ").ok_or_else(
-                || anyhow!("missing ' x ' in {:?}", parts[0]))?;
-            Ok((ps.0.parse()?,
-                ps.1.parse()?))
-        }
-        _ => bail!("More than one 'current' part in xrandr output: {:?}", line),
-    }
-}
-
-// ------------------------------------------------------------------
 
 fn ask_yn(question: &str) -> Result<bool> {
     let mut opts = OpenOptions::new();
@@ -493,46 +440,10 @@ fn main() -> Result<()> {
         xcheck_status(
             run_session_proc(
                 || {
-                    if do_debug() {
-                        eprintln!("e: child {} {:?}", getpid(), cmd)
-                    }
+                    if do_debug() { eprintln!("e: child {} {:?}", getpid(), cmd) }
                     run_cmd_with_log(&cmd, &logpath)
                 })?,
-            &cmd)?;
-        if ! is_running_in_terminal() {
-            match get_x_display_size() {
-                Err(e) => {
-                    eprintln!("Note: could not get dimensions by running \
-                               xrandr: {:?}",
-                              e);
-                    Ok(())
-                },
-                Ok(dimensions) => {
-                    // Set variable in Emacs to the dimensions; see
-                    // get_x_display_size() docs for more info.
-                    let code = format!(
-                        // end with nil to avoid emacsclient printing to output
-                        "(progn \
-                         (set 'chj-rustbin:x-display-dimensions (cons {} {})) \
-                         nil)",
-                        dimensions.0, dimensions.1);
-                    let exitcode =  run_cmd_with_log(
-                        &vec!(CString::new("emacsclient")?,
-                              CString::new("-e")?,
-                              CString::new(code)?),
-                        &logpath)?;
-                    if exitcode == 0 {
-                        Ok(())
-                    } else {
-                        bail!("emacsclient exited with code {} when sending \
-                               code after startup",
-                              exitcode)
-                    }
-                }
-            }
-        } else {
-            Ok(())
-        }
+            &cmd)
     };
     
     let res : Result<i32> = backtick(

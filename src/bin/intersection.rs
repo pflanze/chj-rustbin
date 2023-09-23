@@ -3,7 +3,7 @@ use structopt::StructOpt;
 use std::fs::File;
 use std::io::{BufReader, BufRead, stdout, Write};
 use std::path::PathBuf;
-use std::collections::{VecDeque, HashMap};
+use std::collections::{VecDeque, HashSet};
 
 #[derive(StructOpt, Debug)]
 /// Print the lines that occur in all input files. Currently, reads
@@ -42,15 +42,14 @@ fn main() -> Result<()> {
             bail!("Need at least 2 input files in default mode");
         }
     }
-    let mut set = HashMap::new(); // line => bool, true == seen in other file too
-    let mut to_delete = Vec::new(); // temporary for marking removals (sigh)
+    let mut set = HashSet::new();
 
     let first_path = paths.pop_front().unwrap();
     {
         let path = first_path;
         let inp = BufReader::new(File::open(path)?);
         for line in inp.lines() {
-            set.insert(line?, false);
+            set.insert(line?);
         }
     }
 
@@ -58,25 +57,18 @@ fn main() -> Result<()> {
     
     for path in paths {
         let inp = BufReader::new(File::open(path)?);
+        let mut newset = HashSet::new();
         for line in inp.lines() {
             let line = line?;
-            if let Some(b) = set.get_mut(&line) {
-                *b = true;
+            if set.contains(&line) {
+                newset.insert(line);
             }
         }
-        for (key, seen) in set.iter_mut() {
-            if !*seen {
-                to_delete.push(key.clone());
-            }
-        }
-        for key in to_delete.iter() {
-            set.remove(key);
-        }
-        to_delete.clear();
+        set = newset;
     }
 
     if opt.set {
-        let mut v: Vec<String> = set.into_keys().collect();
+        let mut v: Vec<String> = set.into_iter().collect();
         v.sort();
         for line in v {
             println_stdout(line)?;
@@ -86,7 +78,7 @@ fn main() -> Result<()> {
         let inp = BufReader::new(File::open(path)?);
         for line in inp.lines() {
             let line = line?;
-            if set.contains_key(&line) {
+            if set.contains(&line) {
                 println_stdout(line)?;
             }
         }

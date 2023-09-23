@@ -52,6 +52,8 @@ fn main() -> Result<()> {
     let mut set: HashSet<KString> = HashSet::new();
     let mut tmpline = String::new();
 
+    let last_path = if opt.set { None } else { Some(paths.pop_back().unwrap()) };
+
     let first_path = paths.pop_front().unwrap();
     {
         let path = first_path;
@@ -63,8 +65,6 @@ fn main() -> Result<()> {
         }
     }
 
-    let last_path = if opt.set { None } else { Some(paths.pop_back().unwrap()) };
-    
     for path in paths {
         let mut inp = BufReader::new(File::open(path)?);
         let mut newset = HashSet::new();

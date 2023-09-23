@@ -82,6 +82,9 @@ fn main() -> Result<()> {
     }
 
     for (path, _) in paths_meta {
+        if set.is_empty() {
+            break
+        }
         let mut inp = open_file(&path)?;
         let mut newset = HashSet::new();
         while inp.read_line(&mut tmpline)? != 0  {

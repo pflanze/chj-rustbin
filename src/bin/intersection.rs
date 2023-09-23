@@ -1,9 +1,9 @@
-use anyhow::{Result, bail};
+use anyhow::{Result, bail, Context};
 use structopt::StructOpt;
 use std::fs::File;
 use std::io::{BufReader, BufRead, stdout, Write};
 use std::os::unix::prelude::MetadataExt;
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 use std::collections::{VecDeque, HashSet};
 use kstring::KString;
 
@@ -38,6 +38,11 @@ fn trim(line: &mut String) {
     }
 }
 
+fn open_file(path: &Path) -> Result<BufReader<File>> {
+    Ok(BufReader::new(File::open(path).with_context(
+        || format!("opening file {:?}", path))?))
+}
+
 fn main() -> Result<()> {
     let opt : Opt = Opt::from_args();
     let mut paths: VecDeque<PathBuf> = opt.file_paths.into();
@@ -58,7 +63,8 @@ fn main() -> Result<()> {
     let mut paths_meta: VecDeque<(PathBuf, u64)> =
         paths.into_iter().map(
             |path| {
-                let s = path.metadata()?.size();
+                let s = path.metadata().with_context(
+                    || format!("stat on file {:?}", path))?.size();
                 Ok((path, s))}
         )
         .collect::<Result<_>>()?;
@@ -67,7 +73,7 @@ fn main() -> Result<()> {
     let first_path = paths_meta.pop_front().unwrap().0;
     {
         let path = first_path;
-        let mut inp = BufReader::new(File::open(path)?);
+        let mut inp = open_file(&path)?;
         while inp.read_line(&mut tmpline)? != 0  {
             trim(&mut tmpline);
             set.insert(KString::from(&tmpline));
@@ -76,7 +82,7 @@ fn main() -> Result<()> {
     }
 
     for (path, _) in paths_meta {
-        let mut inp = BufReader::new(File::open(path)?);
+        let mut inp = open_file(&path)?;
         let mut newset = HashSet::new();
         while inp.read_line(&mut tmpline)? != 0  {
             trim(&mut tmpline);
@@ -99,7 +105,7 @@ fn main() -> Result<()> {
         }
     } else {
         let path = last_path.unwrap();
-        let mut inp = BufReader::new(File::open(path)?);
+        let mut inp = open_file(&path)?;
         while inp.read_line(&mut tmpline)? != 0  {
             trim(&mut tmpline);
             if set.contains(&KString::from(&tmpline)) {

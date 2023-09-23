@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::{BufReader, BufRead, stdout, Write, BufWriter};
 use std::os::unix::prelude::MetadataExt;
 use std::path::{PathBuf, Path};
-use std::collections::{VecDeque, HashSet};
+use std::collections::{VecDeque, BTreeSet};
 use kstring::KString;
 
 #[derive(StructOpt, Debug)]
@@ -55,7 +55,7 @@ fn main() -> Result<()> {
             bail!("Need at least 2 input files in default mode");
         }
     }
-    let mut set: HashSet<KString> = HashSet::new();
+    let mut set: BTreeSet<KString> = BTreeSet::new();
     let mut tmpline = String::new();
 
     let last_path = if opt.set { None } else { Some(paths.pop_back().unwrap()) };
@@ -86,7 +86,7 @@ fn main() -> Result<()> {
             break
         }
         let mut inp = open_file(&path)?;
-        let mut newset = HashSet::new();
+        let mut newset = BTreeSet::new();
         while inp.read_line(&mut tmpline)? != 0  {
             trim(&mut tmpline);
             let line = KString::from(&tmpline);

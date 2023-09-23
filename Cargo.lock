@@ -68,6 +68,7 @@ dependencies = [
  "anyhow",
  "bstr_parse",
  "env_logger",
+ "kstring",
  "libc",
  "log",
  "nix",
@@ -178,6 +179,12 @@ name = "humantime"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
+
+[[package]]
+name = "kstring"
+version = "1.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b310ccceade8121d7d77fee406160e457c2f4e7c7982d589da3499bc7ea4526"
 
 [[package]]
 name = "lazy_static"

@@ -4,6 +4,7 @@ use std::fs::File;
 use std::io::{BufReader, BufRead, stdout, Write};
 use std::path::PathBuf;
 use std::collections::{VecDeque, HashSet};
+use kstring::KString;
 
 #[derive(StructOpt, Debug)]
 /// Print the lines that occur in all input files. Currently, reads
@@ -24,10 +25,16 @@ struct Opt {
     file_paths: Vec<PathBuf>,
 }
 
-fn println_stdout(mut line: String) -> Result<()> {
+fn println_stdout(line: &mut String) -> Result<()> {
     line.push_str("\n");
     stdout().write_all(line.as_bytes())?;
     Ok(())
+}
+
+fn trim(line: &mut String) {
+    if line.ends_with("\n") {
+        line.pop().unwrap();
+    }
 }
 
 fn main() -> Result<()> {
@@ -42,45 +49,52 @@ fn main() -> Result<()> {
             bail!("Need at least 2 input files in default mode");
         }
     }
-    let mut set = HashSet::new();
+    let mut set: HashSet<KString> = HashSet::new();
+    let mut tmpline = String::new();
 
     let first_path = paths.pop_front().unwrap();
     {
         let path = first_path;
-        let inp = BufReader::new(File::open(path)?);
-        for line in inp.lines() {
-            set.insert(line?);
+        let mut inp = BufReader::new(File::open(path)?);
+        while inp.read_line(&mut tmpline)? != 0  {
+            trim(&mut tmpline);
+            set.insert(KString::from(&tmpline));
+            tmpline.clear();
         }
     }
 
     let last_path = if opt.set { None } else { Some(paths.pop_back().unwrap()) };
     
     for path in paths {
-        let inp = BufReader::new(File::open(path)?);
+        let mut inp = BufReader::new(File::open(path)?);
         let mut newset = HashSet::new();
-        for line in inp.lines() {
-            let line = line?;
+        while inp.read_line(&mut tmpline)? != 0  {
+            trim(&mut tmpline);
+            let line = KString::from(&tmpline);
             if set.contains(&line) {
                 newset.insert(line);
             }
+            tmpline.clear();
         }
         set = newset;
     }
 
     if opt.set {
-        let mut v: Vec<String> = set.into_iter().collect();
+        let mut v: Vec<KString> = set.into_iter().collect();
         v.sort();
         for line in v {
-            println_stdout(line)?;
+            // (XX optim: could we fill tmpline from a KString?)
+            println_stdout(&mut line.to_string())?;
         }
     } else {
         let path = last_path.unwrap();
-        let inp = BufReader::new(File::open(path)?);
-        for line in inp.lines() {
-            let line = line?;
-            if set.contains(&line) {
-                println_stdout(line)?;
+        let mut inp = BufReader::new(File::open(path)?);
+        while inp.read_line(&mut tmpline)? != 0  {
+            trim(&mut tmpline);
+            if set.contains(&KString::from(&tmpline)) {
+                println_stdout(&mut tmpline)?;
             }
+            tmpline.clear();
         }
     }
     

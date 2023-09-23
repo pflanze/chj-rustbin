@@ -83,8 +83,9 @@ fn main() -> Result<()> {
         let mut v: Vec<KString> = set.into_iter().collect();
         v.sort();
         for line in v {
-            // (XX optim: could we fill tmpline from a KString?)
-            println_stdout(&mut line.to_string())?;
+            tmpline.push_str(&line);
+            println_stdout(&mut tmpline)?;
+            tmpline.clear();
         }
     } else {
         let path = last_path.unwrap();

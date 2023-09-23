@@ -1,7 +1,7 @@
 use anyhow::{Result, bail, Context};
 use structopt::StructOpt;
 use std::fs::File;
-use std::io::{BufReader, BufRead, stdout, Write};
+use std::io::{BufReader, BufRead, stdout, Write, BufWriter};
 use std::os::unix::prelude::MetadataExt;
 use std::path::{PathBuf, Path};
 use std::collections::{VecDeque, HashSet};
@@ -26,9 +26,9 @@ struct Opt {
     file_paths: Vec<PathBuf>,
 }
 
-fn println_stdout(line: &mut String) -> Result<()> {
+fn println(out: &mut impl Write, line: &mut String) -> Result<()> {
     line.push_str("\n");
-    stdout().write_all(line.as_bytes())?;
+    out.write_all(line.as_bytes())?;
     Ok(())
 }
 
@@ -98,12 +98,13 @@ fn main() -> Result<()> {
         set = newset;
     }
 
+    let mut out = BufWriter::new(stdout());
     if opt.set {
         let mut v: Vec<KString> = set.into_iter().collect();
         v.sort();
         for line in v {
             tmpline.push_str(&line);
-            println_stdout(&mut tmpline)?;
+            println(&mut out, &mut tmpline)?;
             tmpline.clear();
         }
     } else {
@@ -112,7 +113,7 @@ fn main() -> Result<()> {
         while inp.read_line(&mut tmpline)? != 0  {
             trim(&mut tmpline);
             if set.contains(&KString::from(&tmpline)) {
-                println_stdout(&mut tmpline)?;
+                println(&mut out, &mut tmpline)?;
             }
             tmpline.clear();
         }

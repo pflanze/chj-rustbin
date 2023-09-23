@@ -2,6 +2,7 @@ use anyhow::{Result, bail};
 use structopt::StructOpt;
 use std::fs::File;
 use std::io::{BufReader, BufRead, stdout, Write};
+use std::os::unix::prelude::MetadataExt;
 use std::path::PathBuf;
 use std::collections::{VecDeque, HashSet};
 use kstring::KString;
@@ -54,7 +55,16 @@ fn main() -> Result<()> {
 
     let last_path = if opt.set { None } else { Some(paths.pop_back().unwrap()) };
 
-    let first_path = paths.pop_front().unwrap();
+    let mut paths_meta: VecDeque<(PathBuf, u64)> =
+        paths.into_iter().map(
+            |path| {
+                let s = path.metadata()?.size();
+                Ok((path, s))}
+        )
+        .collect::<Result<_>>()?;
+    paths_meta.make_contiguous().sort_by_key(|x| x.1);
+
+    let first_path = paths_meta.pop_front().unwrap().0;
     {
         let path = first_path;
         let mut inp = BufReader::new(File::open(path)?);
@@ -65,7 +75,7 @@ fn main() -> Result<()> {
         }
     }
 
-    for path in paths {
+    for (path, _) in paths_meta {
         let mut inp = BufReader::new(File::open(path)?);
         let mut newset = HashSet::new();
         while inp.read_line(&mut tmpline)? != 0  {

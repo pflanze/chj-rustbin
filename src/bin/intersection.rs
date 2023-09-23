@@ -118,6 +118,7 @@ fn main() -> Result<()> {
             tmpline.clear();
         }
     }
+    out.flush()?;
     
     Ok(())
 }

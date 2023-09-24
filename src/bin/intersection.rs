@@ -43,6 +43,19 @@ fn open_file(path: &Path) -> Result<BufReader<File>> {
         || format!("opening file {:?}", path))?))
 }
 
+// "Clean" read_line function: returns true if it did read a line,
+// false on EOF. Does overwrite `line`, not append to it. Removes
+// trailing '\n' if present.
+fn easy_read_line(inp: &mut BufReader<File>, line: &mut String) -> Result<bool> {
+    line.clear();
+    if inp.read_line(line)? != 0 {
+        trim(line);
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
 fn main() -> Result<()> {
     let opt : Opt = Opt::from_args();
     let mut paths: VecDeque<PathBuf> = opt.file_paths.into();
@@ -74,10 +87,8 @@ fn main() -> Result<()> {
     {
         let path = first_path;
         let mut inp = open_file(&path)?;
-        while inp.read_line(&mut tmpline)? != 0  {
-            trim(&mut tmpline);
+        while easy_read_line(&mut inp, &mut tmpline)? {
             set.insert(KString::from(&tmpline));
-            tmpline.clear();
         }
     }
 
@@ -87,13 +98,11 @@ fn main() -> Result<()> {
         }
         let mut inp = open_file(&path)?;
         let mut newset = HashSet::new();
-        while inp.read_line(&mut tmpline)? != 0  {
-            trim(&mut tmpline);
+        while easy_read_line(&mut inp, &mut tmpline)? {
             let line = KString::from(&tmpline);
             if set.contains(&line) {
                 newset.insert(line);
             }
-            tmpline.clear();
         }
         set = newset;
     }
@@ -103,19 +112,17 @@ fn main() -> Result<()> {
         let mut v: Vec<KString> = set.into_iter().collect();
         v.sort();
         for line in v {
+            tmpline.clear();
             tmpline.push_str(&line);
             println(&mut out, &mut tmpline)?;
-            tmpline.clear();
         }
     } else {
         let path = last_path.unwrap();
         let mut inp = open_file(&path)?;
-        while inp.read_line(&mut tmpline)? != 0  {
-            trim(&mut tmpline);
+        while easy_read_line(&mut inp, &mut tmpline)? {
             if set.contains(&KString::from(&tmpline)) {
                 println(&mut out, &mut tmpline)?;
             }
-            tmpline.clear();
         }
     }
     out.flush()?;

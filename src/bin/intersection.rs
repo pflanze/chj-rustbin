@@ -226,7 +226,9 @@ fn main() -> Result<()> {
                     }
                     if all_same {
                         println(&mut out, largest)?;
-                        // One of them has to advance; just pick one:
+                        // One of them has to advance; empirically it
+                        // has to be the (originally!) largest one. XX
+                        // Why?
                         inputs.input_mut(largest_input_i).next()?;
                     }
                 }

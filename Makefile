@@ -1,6 +1,8 @@
 all:
 	cargo build --release
 
+test: target/release/intersection
+	test/run
 
 target/release/%: src/bin/%.rs src/*.rs
 	cargo build --release

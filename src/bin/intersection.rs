@@ -92,8 +92,13 @@ impl Input {
     fn next(&mut self) -> Result<bool> {
         self.current_line_is_1 = !self.current_line_is_1;
         // let current_line = self.current_line_mut();
-        // XXX fix this^
-        let current_line = if self.current_line_is_1 { &mut self.line1 } else { &mut self.line2 };
+        // ^ How could this be made work here?
+        let current_line =
+            if self.current_line_is_1 {
+                &mut self.line1
+            } else {
+                &mut self.line2
+            };
         if easy_read_line(&mut self.input, current_line)? {
             self.linenum += 1;
             if ! self.is_ordered() {

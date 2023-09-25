@@ -33,9 +33,9 @@ struct Opt {
     file_paths: Vec<PathBuf>,
 }
 
-fn println(out: &mut impl Write, line: &mut String) -> Result<()> {
-    line.push_str("\n");
+fn println(out: &mut impl Write, line: &String) -> Result<()> {
     out.write_all(line.as_bytes())?;
+    out.write_all(b"\n")?;
     Ok(())
 }
 
@@ -63,6 +63,83 @@ fn easy_read_line(inp: &mut BufReader<File>, line: &mut String) -> Result<bool> 
     }
 }
 
+
+#[derive(Debug)]
+struct Input {
+    path: PathBuf,
+    input: BufReader<File>,
+    line1: String,
+    line2: String,
+    current_line_is_1: bool,
+    linenum: u64,
+}
+
+impl Input {
+    fn current_line(&self) -> &String {
+        if self.current_line_is_1 { &self.line1 } else { &self.line2 }
+    }
+    // fn current_line_mut(&mut self) -> &mut String {
+    //     if self.current_line_is_1 { &mut self.line1 } else { &mut self.line2 }
+    // }
+    fn is_ordered(&self) -> bool {
+        if self.current_line_is_1 {
+            &self.line1 >= &self.line2
+        } else {
+            &self.line2 >= &self.line1
+        }
+    }
+    // returns false on EOF
+    fn next(&mut self) -> Result<bool> {
+        println!("next: {:?} {} {:?}", self.path, self.linenum, self.current_line_is_1);
+        self.current_line_is_1 = !self.current_line_is_1;
+        // let current_line = self.current_line_mut();
+        // XXX fix this^
+        let current_line = if self.current_line_is_1 { &mut self.line1 } else { &mut self.line2 };
+        if easy_read_line(&mut self.input, current_line)? {
+            self.linenum += 1;
+            if ! self.is_ordered() {
+                bail!("File is not ordered: {:?} line {}",
+                      self.path,
+                      self.linenum)
+            }
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Inputs {
+    inputs: Vec<Input>,
+}
+
+impl Inputs {
+    fn len(&self) -> usize {
+        self.inputs.len()
+    }
+
+    fn largest_input_index(
+        &self
+    ) -> usize {
+        // self.inputs.iter().max_by_key(|x| x.current_line())
+        // XXX^ get to work?
+        self.inputs.iter().enumerate()
+            .max_by(|a, b| {
+                a.1.current_line().cmp(b.1.current_line())
+            }).unwrap().0
+    }
+
+    fn input(&self, index: usize) -> &Input {
+        &self.inputs[index]
+    }
+
+    fn input_mut(&mut self, index: usize) -> &mut Input {
+        &mut self.inputs[index]
+    }
+}
+
+
 #[derive(Error, Debug)]
 enum Signal {
     #[error("Signal: Finished")]
@@ -74,13 +151,13 @@ enum Signal {
 fn main() -> Result<()> {
     let opt : Opt = Opt::from_args();
     let mut paths: VecDeque<PathBuf> = opt.file_paths.into();
-    if opt.set || opt.sorted {
+    if opt.set {
         if paths.len() < 1 {
-            bail!("Need at least 1 input file in --set and --sorted modes");
+            bail!("Need at least 1 input file in --set mode");
         }
     } else {
         if paths.len() < 2 {
-            bail!("Need at least 2 input files in default mode");
+            bail!("Need at least 2 input files except in --set mode");
         }
     }
 
@@ -90,39 +167,60 @@ fn main() -> Result<()> {
 
     if opt.sorted {
         match
-            paths.iter().map(|p| {
-                let mut inp = open_file(p).map_err(Signal::Error)?;
-                let mut line = String::new();
-                if easy_read_line(&mut inp, &mut line).map_err(Signal::Error)? {
-                    Ok((inp, line))
+            paths.into_iter().map(|path| {
+                let mut input = open_file(&path).map_err(Signal::Error)?;
+                let mut current_line = String::new();
+                if easy_read_line(&mut input, &mut current_line).map_err(
+                    Signal::Error)? {
+                    Ok(Input {
+                        path,
+                        input,
+                        line1: String::new(),
+                        line2: current_line,
+                        current_line_is_1: false,
+                        linenum: 1,
+                    })
                 } else {
                     Err(Signal::Finished)
                 }
-            }).collect::<Result<Vec<(BufReader<File>, String)>, Signal>>()
+            }).collect::<Result<Vec<Input>, Signal>>()
         {
-            Ok(mut inputs) => {
+            Ok(inputs) => {
+                let mut inputs = Inputs { inputs };
                 let mut out = BufWriter::new(stdout());
 
                 'full: loop {
-                    // Get the largest value
-                    inputs.sort_unstable_by(|a, b| b.1.cmp(&a.1));
-                    let ((_, largest), rest) = inputs.split_first_mut().unwrap();
-                    // Are the other ones the same, or can we update
-                    // them to the same value?
+                    // dbg!(&inputs);
+                    // Get the largest value--this is what we aim for
+                    // when retrieving values from the other
+                    // inputs.
+                    let largest_input_i = inputs.largest_input_index();
+                    // Are the others the same, or can we update them
+                    // to the same value?
                     let mut all_same = true;
-                    for (input, line) in rest {
-                        'this_input: loop {
-                            match line.cmp(&largest) {
-                                Ordering::Equal => {
-                                    break 'this_input;
-                                }
-                                Ordering::Greater => {
-                                    all_same = false;
-                                    break 'this_input;
-                                }
-                                Ordering::Less => {
-                                    if ! easy_read_line(input, line)? {
-                                        break 'full;
+                    let mut largest = inputs.input(largest_input_i).current_line();
+                    dbg!(largest);
+                    for i in 0..inputs.len() {
+                        if i != largest_input_i {
+                            'this_input: loop {
+                                let i_line = inputs.input(i).current_line();
+                                let res = i_line.cmp(largest);
+                                dbg!((i, i_line, res));
+                                match res {
+                                    Ordering::Equal => {
+                                        break 'this_input;
+                                    }
+                                    Ordering::Greater => {
+                                        all_same = false;
+                                        break 'this_input;
+                                    }
+                                    Ordering::Less => {
+                                        drop(largest);
+                                        if ! inputs.input_mut(i).next()? {
+                                            break 'full;
+                                        }
+                                        largest = inputs.input(largest_input_i)
+                                            .current_line();
                                     }
                                 }
                             }
@@ -130,6 +228,8 @@ fn main() -> Result<()> {
                     }
                     if all_same {
                         println(&mut out, largest)?;
+                        // One of them has to advance; just pick one:
+                        inputs.input_mut(largest_input_i).next()?;
                     }
                 }
 

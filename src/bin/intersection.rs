@@ -121,12 +121,9 @@ impl Inputs {
     fn largest_input_index(
         &self
     ) -> usize {
-        // self.inputs.iter().max_by_key(|x| x.current_line())
-        // XXX^ get to work?
         self.inputs.iter().enumerate()
-            .max_by(|a, b| {
-                a.1.current_line().cmp(b.1.current_line())
-            }).unwrap().0
+            .max_by_key(|x| x.1.current_line())
+            .unwrap().0
     }
 
     fn input(&self, index: usize) -> &Input {

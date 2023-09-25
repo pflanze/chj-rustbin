@@ -90,7 +90,6 @@ impl Input {
     }
     // returns false on EOF
     fn next(&mut self) -> Result<bool> {
-        println!("next: {:?} {} {:?}", self.path, self.linenum, self.current_line_is_1);
         self.current_line_is_1 = !self.current_line_is_1;
         // let current_line = self.current_line_mut();
         // XXX fix this^
@@ -190,7 +189,6 @@ fn main() -> Result<()> {
                 let mut out = BufWriter::new(stdout());
 
                 'full: loop {
-                    // dbg!(&inputs);
                     // Get the largest value--this is what we aim for
                     // when retrieving values from the other
                     // inputs.
@@ -199,13 +197,11 @@ fn main() -> Result<()> {
                     // to the same value?
                     let mut all_same = true;
                     let mut largest = inputs.input(largest_input_i).current_line();
-                    dbg!(largest);
                     for i in 0..inputs.len() {
                         if i != largest_input_i {
                             'this_input: loop {
                                 let i_line = inputs.input(i).current_line();
                                 let res = i_line.cmp(largest);
-                                dbg!((i, i_line, res));
                                 match res {
                                     Ordering::Equal => {
                                         break 'this_input;

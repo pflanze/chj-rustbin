@@ -10,16 +10,18 @@ use std::collections::{VecDeque, HashSet};
 use kstring::KString;
 
 #[derive(StructOpt, Debug)]
-/// Print the lines that occur in all input files. Currently, reads
-/// the first file into an index in memory. By default, the order of
-/// the output lines follows the last file, and if there are
-/// repetitions in the last file, those are repeated, too.
+/// Print the lines that occur in all input files. By default, files
+/// don't need to be sorted (but see `--sorted`); an in-memory set is
+/// built, the order of the output lines follows the last file, and if
+/// there are repetitions in the last file, those are repeated, too.
 
-/// (Todo: sorted intersection mode.)
 #[structopt(name = "intersection from chj-rustbin")]
 struct Opt {
     /// Show the set, not the filtered last file (i.e. there will be
-    /// no repetitions in the output, and it is lexically sorted)
+    /// no repetitions in the output, and it is lexically sorted
+    /// instead of like the last file). This also allows to include
+    /// the file given last in the re-ordering optimization (the
+    /// smallest files being processed first).
     #[structopt(long)]
     set: bool,
 
@@ -28,7 +30,7 @@ struct Opt {
     #[structopt(long)]
     sorted: bool,
 
-    /// The paths to files to get the intersection of
+    /// The paths to files to get the intersection of.
     #[structopt(parse(from_os_str))]
     file_paths: Vec<PathBuf>,
 }

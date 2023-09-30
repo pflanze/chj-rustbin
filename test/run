@@ -11,19 +11,19 @@ err=$(mktemp)
 
 set -x
 
-$intersection --sorted test/intersection/in/{a,b} > "$tmp"
-diff -u test/intersection/out/a+b "$tmp"
+$intersection --sorted test/intersection/1_normal/in/{a,b} > "$tmp"
+diff -u test/intersection/1_normal/out/a+b "$tmp"
 
-$intersection --sorted test/intersection/in/{a,b,c} > "$tmp"
-diff -u test/intersection/out/a+b+c "$tmp"
+$intersection --sorted test/intersection/1_normal/in/{a,b,c} > "$tmp"
+diff -u test/intersection/1_normal/out/a+b+c "$tmp"
 
-$intersection --sorted test/intersection/in/{b,c} > "$tmp"
-diff -u test/intersection/out/b+c "$tmp"
+$intersection --sorted test/intersection/1_normal/in/{b,c} > "$tmp"
+diff -u test/intersection/1_normal/out/b+c "$tmp"
 
-if $intersection --sorted test/intersection/in/{b,c,unsorted} > "$tmp" 2> "$err"; then
+if $intersection --sorted test/intersection/1_normal/in/{b,c,unsorted} > "$tmp" 2> "$err"; then
     echo "error: expected intersection to error out here, it didn't"
     false
 fi
-diff -u test/intersection/out/b+c+unsorted "$tmp"
-diff -u test/intersection/out/b+c+unsorted.err "$err"
+diff -u test/intersection/1_normal/out/b+c+unsorted "$tmp"
+diff -u test/intersection/1_normal/out/b+c+unsorted.err "$err"
 

@@ -9,6 +9,8 @@ intersection=target/release/intersection
 tmp=$(mktemp)
 err=$(mktemp)
 
+set -x
+
 $intersection --sorted test/intersection/in/{a,b} > "$tmp"
 diff -u test/intersection/out/a+b "$tmp"
 

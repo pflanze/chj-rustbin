@@ -18,3 +18,4 @@ target/release/%: src/bin/%.rs src/*.rs
 
 install: /usr/local/bin/lastitem /usr/local/bin/symlinks-index /usr/local/bin/e /usr/local/bin/intersection
 
+.PHONY: test

@@ -104,7 +104,7 @@ impl Input {
         if easy_read_line(&mut self.input, current_line)? {
             self.linenum += 1;
             if ! self.is_ordered() {
-                bail!("File is not ordered: {:?} line {}",
+                bail!("file is not ordered: {:?} line {}",
                       self.path,
                       self.linenum)
             }
@@ -145,9 +145,9 @@ impl Inputs {
 
 #[derive(Error, Debug)]
 enum Signal {
-    #[error("Signal: Finished")]
+    #[error("signal: finished")]
     Finished,
-    #[error("Signal: Error({0:?})")]
+    #[error("signal: error {0:?}")]
     Error(Error)
 }
 
@@ -156,16 +156,16 @@ fn main() -> Result<()> {
     let mut paths: VecDeque<PathBuf> = opt.file_paths.into();
     if opt.set {
         if paths.len() < 1 {
-            bail!("Need at least 1 input file in --set mode");
+            bail!("need at least 1 input file in --set mode");
         }
     } else {
         if paths.len() < 2 {
-            bail!("Need at least 2 input files except in --set mode");
+            bail!("need at least 2 input files except in --set mode");
         }
     }
 
     if opt.set && opt.sorted {
-        bail!("Only one of --set or --sorted is valid");
+        bail!("only one of --set or --sorted is valid");
     }
 
     if opt.sorted {

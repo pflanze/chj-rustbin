@@ -134,9 +134,6 @@ impl Input {
     fn current_line(&self) -> &Line {
         if self.current_line_is_1 { &self.line1 } else { &self.line2 }
     }
-    // fn current_line_mut(&mut self) -> &mut String {
-    //     if self.current_line_is_1 { &mut self.line1 } else { &mut self.line2 }
-    // }
     fn is_ordered(&self, sortorder: SortOrder)
                   -> Result<bool> {
         Ok(
@@ -149,11 +146,10 @@ impl Input {
     // returns false on EOF
     fn next(&mut self, sortorder: SortOrder) -> Result<bool> {
         (|| {
-            self.current_line_is_1 = !self.current_line_is_1;
-            // let current_line = self.current_line_mut();
-            // ^ How could this be made work here?
+            let current_line_is_1 = !self.current_line_is_1;
+            self.current_line_is_1 = current_line_is_1;
             let current_line =
-                if self.current_line_is_1 {
+                if current_line_is_1 {
                     &mut self.line1
                 } else {
                     &mut self.line2

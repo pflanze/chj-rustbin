@@ -155,8 +155,8 @@ impl Input {
                 } else {
                     &mut self.line2
                 };
+            self.linenum += 1;
             if current_line.read_and_parse_line(&mut self.input, sortorder)? {
-                self.linenum += 1;
                 if ! self.is_ordered(sortorder)? {
                     bail!("file is not ordered")
                 }

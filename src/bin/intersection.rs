@@ -81,7 +81,8 @@ impl SortOrder {
     fn perhaps_parse_number(self, line: &str) -> Result<i64> {
         match self {
             SortOrder::Lexical => Ok(MIN),
-            SortOrder::Numeric => parse_number(line)
+            SortOrder::Numeric => line.parse().with_context(
+                || anyhow!("not an i64 number: {:?}", line))
         }
     }
     fn compare(self, l1: &Line, l2: &Line) -> Ordering {
@@ -196,12 +197,6 @@ impl Inputs {
         &mut self.inputs[index]
     }
 }
-
-fn parse_number(s: &str) -> Result<i64> {
-    s.parse::<i64>().with_context(
-        || anyhow!("not an i64 number: {:?}", s))
-}
-
 
 #[derive(Error, Debug)]
 enum Signal {

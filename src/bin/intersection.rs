@@ -263,151 +263,154 @@ fn main() -> Result<()> {
               mode.name());
     }
 
-    if let Mode::Sorted(sortorder) = mode {
-        match
-            paths.into_iter().map(|path| {
-                let mut input = open_file(&path).map_err(Signal::Error)?;
-                let mut line = Line::new();
-                if line.read_and_parse_line(&mut input, sortorder)
-                    .with_context(|| anyhow!("file {:?} line 1", path))
-                    .map_err(Signal::Error)? {
-                    Ok(Input {
-                        path,
-                        input,
-                        line1: Line::new(),
-                        line2: line,
-                        current_line_is_1: false,
-                        linenum: 1,
-                    })
-                } else {
-                    Err(Signal::Finished)
-                }
-            }).collect::<Result<Vec<Input>, Signal>>()
-        {
-            Ok(inputs) => {
-                let mut inputs = Inputs { inputs };
-                let mut out = BufWriter::new(stdout());
+    match mode {
+        Mode::Sorted(sortorder) => {
+            match
+                paths.into_iter().map(|path| {
+                    let mut input = open_file(&path).map_err(Signal::Error)?;
+                    let mut line = Line::new();
+                    if line.read_and_parse_line(&mut input, sortorder)
+                        .with_context(|| anyhow!("file {:?} line 1", path))
+                        .map_err(Signal::Error)? {
+                        Ok(Input {
+                            path,
+                            input,
+                            line1: Line::new(),
+                            line2: line,
+                            current_line_is_1: false,
+                            linenum: 1,
+                        })
+                    } else {
+                        Err(Signal::Finished)
+                    }
+                }).collect::<Result<Vec<Input>, Signal>>()
+            {
+                Ok(inputs) => {
+                    let mut inputs = Inputs { inputs };
+                    let mut out = BufWriter::new(stdout());
 
-                'full: loop {
-                    // Get the largest value--this is what we aim for
-                    // when retrieving values from the other
-                    // inputs.
-                    let largest_input_i = inputs.largest_input_index(sortorder);
-                    // Are the others the same, or can we update them
-                    // to the same value?
-                    let mut all_same = true;
-                    let mut largest = inputs.input(largest_input_i).current_line();
-                    for i in 0..inputs.len() {
-                        if i != largest_input_i {
-                            'this_input: loop {
-                                let i_line = inputs.input(i).current_line();
-                                match sortorder.compare(i_line, largest) {
-                                    Ordering::Equal => {
-                                        break 'this_input;
-                                    }
-                                    Ordering::Greater => {
-                                        all_same = false;
-                                        break 'this_input;
-                                    }
-                                    Ordering::Less => {
-                                        drop(largest);
-                                        if ! inputs.input_mut(i).next(sortorder)? {
-                                            break 'full;
+                    'full: loop {
+                        // Get the largest value--this is what we aim for
+                        // when retrieving values from the other
+                        // inputs.
+                        let largest_input_i = inputs.largest_input_index(sortorder);
+                        // Are the others the same, or can we update them
+                        // to the same value?
+                        let mut all_same = true;
+                        let mut largest = inputs.input(largest_input_i).current_line();
+                        for i in 0..inputs.len() {
+                            if i != largest_input_i {
+                                'this_input: loop {
+                                    let i_line = inputs.input(i).current_line();
+                                    match sortorder.compare(i_line, largest) {
+                                        Ordering::Equal => {
+                                            break 'this_input;
                                         }
-                                        largest = inputs.input(largest_input_i)
-                                            .current_line();
+                                        Ordering::Greater => {
+                                            all_same = false;
+                                            break 'this_input;
+                                        }
+                                        Ordering::Less => {
+                                            drop(largest);
+                                            if ! inputs.input_mut(i).next(sortorder)? {
+                                                break 'full;
+                                            }
+                                            largest = inputs.input(largest_input_i)
+                                                .current_line();
+                                        }
                                     }
                                 }
                             }
                         }
+                        if all_same {
+                            println(&mut out, &largest.string)?;
+                            // One of them has to advance; empirically it
+                            // has to be the (originally!) largest one. XX
+                            // Why?
+                            inputs.input_mut(largest_input_i).next(sortorder)?;
+                        }
                     }
-                    if all_same {
-                        println(&mut out, &largest.string)?;
-                        // One of them has to advance; empirically it
-                        // has to be the (originally!) largest one. XX
-                        // Why?
-                        inputs.input_mut(largest_input_i).next(sortorder)?;
-                    }
+
+                    out.flush()?;
                 }
-
-                out.flush()?;
-            }
-            Err(Signal::Finished) => {
-                // 1+ of the files are empty, we're done
-            }
-            Err(Signal::Error(e)) => {
-                Err(e)?;
-            }
-        }
-        
-    } else {
-        let mut set: HashSet<KString> = HashSet::new();
-        let mut tmpline = String::new();
-
-        let last_path =
-            match mode {
-                Mode::Set => None,
-                Mode::SetThenLinear => Some(paths.pop_back().unwrap()),
-                _ => panic!()
-            };
-
-        let mut paths_meta: VecDeque<(PathBuf, u64)> =
-            paths.into_iter().map(
-                |path| {
-                    let s = path.metadata().with_context(
-                        || format!("stat on file {:?}", path))?.size();
-                    Ok((path, s))}
-            )
-            .collect::<Result<_>>()?;
-        paths_meta.make_contiguous().sort_by_key(|x| x.1);
-
-        let first_path = paths_meta.pop_front().unwrap().0;
-        {
-            let path = first_path;
-            let mut inp = open_file(&path)?;
-            while easy_read_line(&mut inp, &mut tmpline)? {
-                set.insert(KString::from(&tmpline));
-            }
-        }
-
-        for (path, _) in paths_meta {
-            if set.is_empty() {
-                break
-            }
-            let mut inp = open_file(&path)?;
-            let mut newset = HashSet::new();
-            while easy_read_line(&mut inp, &mut tmpline)? {
-                let line = KString::from(&tmpline);
-                if set.contains(&line) {
-                    newset.insert(line);
+                Err(Signal::Finished) => {
+                    // 1+ of the files are empty, we're done
+                }
+                Err(Signal::Error(e)) => {
+                    Err(e)?;
                 }
             }
-            set = newset;
-        }
 
-        let mut out = BufWriter::new(stdout());
-        match mode {
-            Mode::Set => {
-                let mut v: Vec<KString> = set.into_iter().collect();
-                v.sort();
-                for line in v {
-                    tmpline.clear();
-                    tmpline.push_str(&line);
-                    println(&mut out, &mut tmpline)?;
-                }
-            }
-            Mode::SetThenLinear => {
-                let path = last_path.unwrap();
+        }
+        Mode::Set | Mode::SetThenLinear => {
+            let mut set: HashSet<KString> = HashSet::new();
+            let mut tmpline = String::new();
+
+            let last_path =
+                match mode {
+                    Mode::Set => None,
+                    Mode::SetThenLinear => Some(paths.pop_back().unwrap()),
+                    _ => panic!()
+                };
+
+            let mut paths_meta: VecDeque<(PathBuf, u64)> =
+                paths.into_iter().map(
+                    |path| {
+                        let s = path.metadata().with_context(
+                            || format!("stat on file {:?}", path))?.size();
+                        Ok((path, s))}
+                )
+                .collect::<Result<_>>()?;
+            paths_meta.make_contiguous().sort_by_key(|x| x.1);
+
+            let first_path = paths_meta.pop_front().unwrap().0;
+            {
+                let path = first_path;
                 let mut inp = open_file(&path)?;
                 while easy_read_line(&mut inp, &mut tmpline)? {
-                    if set.contains(&KString::from(&tmpline)) {
+                    set.insert(KString::from(&tmpline));
+                }
+            }
+
+            for (path, _) in paths_meta {
+                if set.is_empty() {
+                    break
+                }
+                let mut inp = open_file(&path)?;
+                let mut newset = HashSet::new();
+                while easy_read_line(&mut inp, &mut tmpline)? {
+                    let line = KString::from(&tmpline);
+                    if set.contains(&line) {
+                        newset.insert(line);
+                    }
+                }
+                set = newset;
+            }
+
+            let mut out = BufWriter::new(stdout());
+            match mode {
+                Mode::Set => {
+                    let mut v: Vec<KString> = set.into_iter().collect();
+                    v.sort();
+                    for line in v {
+                        tmpline.clear();
+                        tmpline.push_str(&line);
                         println(&mut out, &mut tmpline)?;
                     }
                 }
+                Mode::SetThenLinear => {
+                    let path = last_path.unwrap();
+                    let mut inp = open_file(&path)?;
+                    while easy_read_line(&mut inp, &mut tmpline)? {
+                        if set.contains(&KString::from(&tmpline)) {
+                            println(&mut out, &mut tmpline)?;
+                        }
+                    }
+                }
+                _ => panic!()
             }
-            _ => panic!()
+            out.flush()?;
         }
-        out.flush()?;
     }
     
     Ok(())

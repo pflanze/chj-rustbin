@@ -145,27 +145,27 @@ impl Input {
     }
     // returns false on EOF
     fn next(&mut self, sortorder: SortOrder) -> Result<bool> {
-        self.current_line_is_1 = !self.current_line_is_1;
-        // let current_line = self.current_line_mut();
-        // ^ How could this be made work here?
-        let current_line =
-            if self.current_line_is_1 {
-                &mut self.line1
+        (|| {
+            self.current_line_is_1 = !self.current_line_is_1;
+            // let current_line = self.current_line_mut();
+            // ^ How could this be made work here?
+            let current_line =
+                if self.current_line_is_1 {
+                    &mut self.line1
+                } else {
+                    &mut self.line2
+                };
+            if current_line.read_and_parse_line(&mut self.input, sortorder)? {
+                self.linenum += 1;
+                if ! self.is_ordered(sortorder)? {
+                    bail!("file is not ordered")
+                }
+                Ok(true)
             } else {
-                &mut self.line2
-            };
-        if current_line.read_and_parse_line(&mut self.input, sortorder)? {
-            self.linenum += 1;
-            if ! self.is_ordered(sortorder).with_context(
-                || anyhow!("file {:?} line {}", self.path, self.linenum))? {
-                bail!("file is not ordered: {:?} line {}",
-                      self.path,
-                      self.linenum)
+                Ok(false)
             }
-            Ok(true)
-        } else {
-            Ok(false)
-        }
+        })().with_context(
+            || anyhow!("file {:?} line {}", self.path, self.linenum))
     }
 }
 
@@ -253,8 +253,9 @@ fn main() -> Result<()> {
             paths.into_iter().map(|path| {
                 let mut input = open_file(&path).map_err(Signal::Error)?;
                 let mut line = Line::new();
-                if line.read_and_parse_line(&mut input, sortorder).map_err(
-                    Signal::Error)? {
+                if line.read_and_parse_line(&mut input, sortorder)
+                    .with_context(|| anyhow!("file {:?} line 1", path))
+                    .map_err(Signal::Error)? {
                     Ok(Input {
                         path,
                         input,

@@ -1,1 +1,4 @@
-Error: file is not ordered: "test/intersection/2_numeric/in/unsorted" line 6
+Error: file "test/intersection/2_numeric/in/unsorted" line 6
+
+Caused by:
+    file is not ordered

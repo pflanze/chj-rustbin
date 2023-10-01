@@ -1,0 +1,5 @@
+Error: file "test/intersection/2_numeric/in/d" line 7
+
+Caused by:
+    0: not an i64 number: "4324298abc"
+    1: invalid digit found in string

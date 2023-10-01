@@ -8,6 +8,7 @@ intersection=target/release/intersection
 
 tmp=$(mktemp)
 err=$(mktemp)
+exitcode=$(mktemp)
 
 test_intersection() {
     subtest="$1"
@@ -30,6 +31,15 @@ test_intersection() {
     fi
     diff -u test/intersection/"$subtest"/out/b+c+unsorted "$tmp"
     diff -u test/intersection/"$subtest"/out/b+c+unsorted.err "$err"
+
+    (
+        set +e
+        $intersection --sorted "$@" test/intersection/"$subtest"/in/{b,c,d} > "$tmp" 2> "$err"
+        echo $? > "$exitcode"
+    )
+    diff -u test/intersection/"$subtest"/out/b+c+d "$tmp"
+    diff -u test/intersection/"$subtest"/out/b+c+d.err "$err"
+    diff -u test/intersection/"$subtest"/out/b+c+d.exitcode "$exitcode"
 
     set +x
 }

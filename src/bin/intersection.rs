@@ -211,32 +211,49 @@ enum Signal {
     Error(Error)
 }
 
+enum Mode {
+    SetThenLinear,
+    Set,
+    Sorted(SortOrder),
+}
+
 fn main() -> Result<()> {
-    let opt : Opt = Opt::from_args();
-    let mut paths: VecDeque<PathBuf> = opt.file_paths.into();
-    if opt.set {
-        if paths.len() < 1 {
-            bail!("need at least 1 input file in --set mode");
+    let (mode, mut paths) = {
+        let opt : Opt = Opt::from_args();
+        let paths: VecDeque<PathBuf> = opt.file_paths.into();
+        if opt.set {
+            if paths.len() < 1 {
+                bail!("need at least 1 input file in --set mode");
+            }
+        } else {
+            if paths.len() < 2 {
+                bail!("need at least 2 input files except in --set mode");
+            }
         }
-    } else {
-        if paths.len() < 2 {
-            bail!("need at least 2 input files except in --set mode");
-        }
-    }
 
-    let sorted = opt.sorted || opt.numeric;
-
-    if opt.set && sorted {
-        bail!("only one of --set or --sorted (or --numeric) is valid");
-    }
-
-    if sorted {
-        let sortorder =
+        let mode =
             if opt.numeric {
-                SortOrder::Numeric
+                Mode::Sorted(SortOrder::Numeric)
+            } else if opt.sorted {
+                Mode::Sorted(SortOrder::Lexical)
+            } else if opt.set {
+                Mode::Set
             } else {
-                SortOrder::Lexical
+                Mode::SetThenLinear
             };
+
+        match mode {
+            Mode::Sorted(_) => 
+                if opt.set {
+                    bail!("only one of --set or --sorted (or --numeric) is valid");
+                }
+            _ => ()
+        }
+
+        (mode, paths)
+    };
+
+    if let Mode::Sorted(sortorder) = mode {
         match
             paths.into_iter().map(|path| {
                 let mut input = open_file(&path).map_err(Signal::Error)?;
@@ -316,7 +333,12 @@ fn main() -> Result<()> {
         let mut set: HashSet<KString> = HashSet::new();
         let mut tmpline = String::new();
 
-        let last_path = if opt.set { None } else { Some(paths.pop_back().unwrap()) };
+        let last_path =
+            match mode {
+                Mode::Set => None,
+                Mode::SetThenLinear => Some(paths.pop_back().unwrap()),
+                _ => panic!()
+            };
 
         let mut paths_meta: VecDeque<(PathBuf, u64)> =
             paths.into_iter().map(
@@ -353,22 +375,26 @@ fn main() -> Result<()> {
         }
 
         let mut out = BufWriter::new(stdout());
-        if opt.set {
-            let mut v: Vec<KString> = set.into_iter().collect();
-            v.sort();
-            for line in v {
-                tmpline.clear();
-                tmpline.push_str(&line);
-                println(&mut out, &mut tmpline)?;
-            }
-        } else {
-            let path = last_path.unwrap();
-            let mut inp = open_file(&path)?;
-            while easy_read_line(&mut inp, &mut tmpline)? {
-                if set.contains(&KString::from(&tmpline)) {
+        match mode {
+            Mode::Set => {
+                let mut v: Vec<KString> = set.into_iter().collect();
+                v.sort();
+                for line in v {
+                    tmpline.clear();
+                    tmpline.push_str(&line);
                     println(&mut out, &mut tmpline)?;
                 }
             }
+            Mode::SetThenLinear => {
+                let path = last_path.unwrap();
+                let mut inp = open_file(&path)?;
+                while easy_read_line(&mut inp, &mut tmpline)? {
+                    if set.contains(&KString::from(&tmpline)) {
+                        println(&mut out, &mut tmpline)?;
+                    }
+                }
+            }
+            _ => panic!()
         }
         out.flush()?;
     }

@@ -36,6 +36,9 @@ struct Opt {
     #[structopt(long)]
     numeric: bool,
 
+    #[structopt(long)]
+    structsizes: bool,
+
     /// The paths to files to get the intersection of.
     #[structopt(parse(from_os_str))]
     file_paths: Vec<PathBuf>,
@@ -210,6 +213,7 @@ enum Mode {
     SetThenLinear,
     Set,
     Sorted(SortOrder),
+    StructSizes,
 }
 
 impl Mode {
@@ -220,6 +224,7 @@ impl Mode {
             // Mode::Sorted(SortOrder::Lexical) => "--sorted",
             // Mode::Sorted(SortOrder::Numeric) => "--numeric",
             Mode::Sorted(_) => "--sorted / --numeric",
+            Mode::StructSizes => "--structsizes",
         }
     }
     fn min_paths_len(&self) -> usize {
@@ -227,8 +232,33 @@ impl Mode {
             Mode::SetThenLinear => 2,
             Mode::Set => 1,
             Mode::Sorted(_) => 2,
+            Mode::StructSizes => 0,
         }
     }
+}
+
+fn p_print(nam: &str, siz: usize) {
+    println!("{siz}\t{nam}")
+}
+macro_rules! p {
+    ( $t:ty ) => {
+        let typename =
+            if false {
+                std::any::type_name::<$t>()
+            } else {
+                stringify!($t)
+            };
+        p_print(typename, std::mem::size_of::<$t>())
+    }
+}
+fn print_sizes() {
+    p!{Opt};
+    p!{Line};
+    p!{Input};
+    p!{Inputs};
+    p!{SortOrder};
+    p!{Signal};
+    p!{Mode};
 }
 
 fn main() -> Result<()> {
@@ -243,6 +273,8 @@ fn main() -> Result<()> {
                 Mode::Sorted(SortOrder::Lexical)
             } else if opt.set {
                 Mode::Set
+            } else if opt.structsizes {
+                Mode::StructSizes
             } else {
                 Mode::SetThenLinear
             };
@@ -411,6 +443,7 @@ fn main() -> Result<()> {
             }
             out.flush()?;
         }
+        Mode::StructSizes => print_sizes()
     }
     
     Ok(())

@@ -212,19 +212,29 @@ enum Mode {
     Sorted(SortOrder),
 }
 
+impl Mode {
+    fn name(&self) -> &'static str {
+        match self {
+            Mode::SetThenLinear => "default",
+            Mode::Set => "--set",
+            // Mode::Sorted(SortOrder::Lexical) => "--sorted",
+            // Mode::Sorted(SortOrder::Numeric) => "--numeric",
+            Mode::Sorted(_) => "--sorted / --numeric",
+        }
+    }
+    fn min_paths_len(&self) -> usize {
+        match self {
+            Mode::SetThenLinear => 2,
+            Mode::Set => 1,
+            Mode::Sorted(_) => 2,
+        }
+    }
+}
+
 fn main() -> Result<()> {
     let (mode, mut paths) = {
         let opt : Opt = Opt::from_args();
         let paths: VecDeque<PathBuf> = opt.file_paths.into();
-        if opt.set {
-            if paths.len() < 1 {
-                bail!("need at least 1 input file in --set mode");
-            }
-        } else {
-            if paths.len() < 2 {
-                bail!("need at least 2 input files except in --set mode");
-            }
-        }
 
         let mode =
             if opt.numeric {
@@ -247,6 +257,11 @@ fn main() -> Result<()> {
 
         (mode, paths)
     };
+
+    if paths.len() < mode.min_paths_len() {
+        bail!("need at least {} input file(s) in {} mode", mode.min_paths_len(),
+              mode.name());
+    }
 
     if let Mode::Sorted(sortorder) = mode {
         match

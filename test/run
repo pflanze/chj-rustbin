@@ -9,21 +9,30 @@ intersection=target/release/intersection
 tmp=$(mktemp)
 err=$(mktemp)
 
-set -x
+test_intersection() {
+    subtest="$1"
+    shift
 
-$intersection --sorted test/intersection/1_normal/in/{a,b} > "$tmp"
-diff -u test/intersection/1_normal/out/a+b "$tmp"
+    echo "Testing intersection $@ in $subtest..."
+    set -x
+    $intersection --sorted "$@" test/intersection/"$subtest"/in/{a,b} > "$tmp"
+    diff -u test/intersection/"$subtest"/out/a+b "$tmp"
 
-$intersection --sorted test/intersection/1_normal/in/{a,b,c} > "$tmp"
-diff -u test/intersection/1_normal/out/a+b+c "$tmp"
+    $intersection --sorted "$@" test/intersection/"$subtest"/in/{a,b,c} > "$tmp"
+    diff -u test/intersection/"$subtest"/out/a+b+c "$tmp"
 
-$intersection --sorted test/intersection/1_normal/in/{b,c} > "$tmp"
-diff -u test/intersection/1_normal/out/b+c "$tmp"
+    $intersection --sorted "$@" test/intersection/"$subtest"/in/{b,c} > "$tmp"
+    diff -u test/intersection/"$subtest"/out/b+c "$tmp"
 
-if $intersection --sorted test/intersection/1_normal/in/{b,c,unsorted} > "$tmp" 2> "$err"; then
-    echo "error: expected intersection to error out here, it didn't"
-    false
-fi
-diff -u test/intersection/1_normal/out/b+c+unsorted "$tmp"
-diff -u test/intersection/1_normal/out/b+c+unsorted.err "$err"
+    if $intersection --sorted "$@" test/intersection/"$subtest"/in/{b,c,unsorted} > "$tmp" 2> "$err"; then
+        echo "error: expected intersection to error out here, it didn't"
+        false
+    fi
+    diff -u test/intersection/"$subtest"/out/b+c+unsorted "$tmp"
+    diff -u test/intersection/"$subtest"/out/b+c+unsorted.err "$err"
 
+    set +x
+}
+
+test_intersection 1_normal
+test_intersection 2_numeric --numeric

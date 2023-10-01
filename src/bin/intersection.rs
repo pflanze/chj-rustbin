@@ -1,8 +1,9 @@
-use anyhow::{Result, bail, Context, Error};
+use anyhow::{Result, bail, Context, Error, anyhow};
 use structopt::StructOpt;
 use thiserror::Error;
 use std::cmp::Ordering;
 use std::fs::File;
+use std::i64::MIN;
 use std::io::{BufReader, BufRead, stdout, Write, BufWriter};
 use std::os::unix::prelude::MetadataExt;
 use std::path::{PathBuf, Path};
@@ -29,6 +30,11 @@ struct Opt {
     /// streaming implementation).
     #[structopt(long)]
     sorted: bool,
+
+    /// Implies --sorted. Assume numeric sorting instead of
+    /// lexical. Currently integers only.
+    #[structopt(long)]
+    numeric: bool,
 
     /// The paths to files to get the intersection of.
     #[structopt(parse(from_os_str))]
@@ -65,33 +71,79 @@ fn easy_read_line(inp: &mut BufReader<File>, line: &mut String) -> Result<bool> 
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum SortOrder {
+    Lexical,
+    Numeric,
+}
+
+impl SortOrder {
+    fn perhaps_parse_number(self, line: &str) -> Result<i64> {
+        match self {
+            SortOrder::Lexical => Ok(MIN),
+            SortOrder::Numeric => parse_number(line)
+        }
+    }
+    fn compare(self, l1: &Line, l2: &Line) -> Ordering {
+        match self {
+            SortOrder::Lexical => l1.string.cmp(&l2.string),
+            SortOrder::Numeric => l1.i64.cmp(&l2.i64),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Line {
+    string: String,
+    i64: i64, // only if opt.numeric; MIN by default in either case
+}
+
+impl Line {
+    fn new() -> Line {
+        Line {
+            string: String::new(),
+            i64: MIN,
+        }
+    }
+    fn read_and_parse_line(&mut self, inp: &mut BufReader<File>, sortorder: SortOrder)
+                           -> Result<bool> {
+        let line = &mut self.string;
+        let have_line = easy_read_line(inp, line)?;
+        if have_line {
+            self.i64 = sortorder.perhaps_parse_number(line)?;
+        }
+        Ok(have_line)
+    }
+}
 
 #[derive(Debug)]
 struct Input {
     path: PathBuf,
     input: BufReader<File>,
-    line1: String,
-    line2: String,
+    line1: Line,
+    line2: Line,
     current_line_is_1: bool,
     linenum: u64,
 }
 
 impl Input {
-    fn current_line(&self) -> &String {
+    fn current_line(&self) -> &Line {
         if self.current_line_is_1 { &self.line1 } else { &self.line2 }
     }
     // fn current_line_mut(&mut self) -> &mut String {
     //     if self.current_line_is_1 { &mut self.line1 } else { &mut self.line2 }
     // }
-    fn is_ordered(&self) -> bool {
-        if self.current_line_is_1 {
-            &self.line1 >= &self.line2
-        } else {
-            &self.line2 >= &self.line1
-        }
+    fn is_ordered(&self, sortorder: SortOrder)
+                  -> Result<bool> {
+        Ok(
+            if self.current_line_is_1 {
+                sortorder.compare(&self.line1, &self.line2)
+            } else {
+                sortorder.compare(&self.line2, &self.line1)
+            }.is_ge())
     }
     // returns false on EOF
-    fn next(&mut self) -> Result<bool> {
+    fn next(&mut self, sortorder: SortOrder) -> Result<bool> {
         self.current_line_is_1 = !self.current_line_is_1;
         // let current_line = self.current_line_mut();
         // ^ How could this be made work here?
@@ -101,9 +153,10 @@ impl Input {
             } else {
                 &mut self.line2
             };
-        if easy_read_line(&mut self.input, current_line)? {
+        if current_line.read_and_parse_line(&mut self.input, sortorder)? {
             self.linenum += 1;
-            if ! self.is_ordered() {
+            if ! self.is_ordered(sortorder).with_context(
+                || anyhow!("file {:?} line {}", self.path, self.linenum))? {
                 bail!("file is not ordered: {:?} line {}",
                       self.path,
                       self.linenum)
@@ -126,10 +179,12 @@ impl Inputs {
     }
 
     fn largest_input_index(
-        &self
+        &self,
+        sortorder: SortOrder
     ) -> usize {
         self.inputs.iter().enumerate()
-            .max_by_key(|x| x.1.current_line())
+            .max_by(|a, b| sortorder.compare(a.1.current_line(),
+                                             b.1.current_line()))
             .unwrap().0
     }
 
@@ -140,6 +195,11 @@ impl Inputs {
     fn input_mut(&mut self, index: usize) -> &mut Input {
         &mut self.inputs[index]
     }
+}
+
+fn parse_number(s: &str) -> Result<i64> {
+    s.parse::<i64>().with_context(
+        || anyhow!("not an i64 number: {:?}", s))
 }
 
 
@@ -164,22 +224,30 @@ fn main() -> Result<()> {
         }
     }
 
-    if opt.set && opt.sorted {
-        bail!("only one of --set or --sorted is valid");
+    let sorted = opt.sorted || opt.numeric;
+
+    if opt.set && sorted {
+        bail!("only one of --set or --sorted (or --numeric) is valid");
     }
 
-    if opt.sorted {
+    if sorted {
+        let sortorder =
+            if opt.numeric {
+                SortOrder::Numeric
+            } else {
+                SortOrder::Lexical
+            };
         match
             paths.into_iter().map(|path| {
                 let mut input = open_file(&path).map_err(Signal::Error)?;
-                let mut current_line = String::new();
-                if easy_read_line(&mut input, &mut current_line).map_err(
+                let mut line = Line::new();
+                if line.read_and_parse_line(&mut input, sortorder).map_err(
                     Signal::Error)? {
                     Ok(Input {
                         path,
                         input,
-                        line1: String::new(),
-                        line2: current_line,
+                        line1: Line::new(),
+                        line2: line,
                         current_line_is_1: false,
                         linenum: 1,
                     })
@@ -196,7 +264,7 @@ fn main() -> Result<()> {
                     // Get the largest value--this is what we aim for
                     // when retrieving values from the other
                     // inputs.
-                    let largest_input_i = inputs.largest_input_index();
+                    let largest_input_i = inputs.largest_input_index(sortorder);
                     // Are the others the same, or can we update them
                     // to the same value?
                     let mut all_same = true;
@@ -205,8 +273,7 @@ fn main() -> Result<()> {
                         if i != largest_input_i {
                             'this_input: loop {
                                 let i_line = inputs.input(i).current_line();
-                                let res = i_line.cmp(largest);
-                                match res {
+                                match sortorder.compare(i_line, largest) {
                                     Ordering::Equal => {
                                         break 'this_input;
                                     }
@@ -216,7 +283,7 @@ fn main() -> Result<()> {
                                     }
                                     Ordering::Less => {
                                         drop(largest);
-                                        if ! inputs.input_mut(i).next()? {
+                                        if ! inputs.input_mut(i).next(sortorder)? {
                                             break 'full;
                                         }
                                         largest = inputs.input(largest_input_i)
@@ -227,11 +294,11 @@ fn main() -> Result<()> {
                         }
                     }
                     if all_same {
-                        println(&mut out, largest)?;
+                        println(&mut out, &largest.string)?;
                         // One of them has to advance; empirically it
                         // has to be the (originally!) largest one. XX
                         // Why?
-                        inputs.input_mut(largest_input_i).next()?;
+                        inputs.input_mut(largest_input_i).next(sortorder)?;
                     }
                 }
 

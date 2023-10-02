@@ -6,6 +6,10 @@ test: target/release/intersection
 
 target/release/%: src/bin/%.rs src/*.rs
 	cargo build --release
+	touch $@
+# ^ touch because cargo won't update binaries if they don't depend on
+# a src/*.rs file; and then running make as root again runs cargo
+# again, which is rebuilding everything.
 
 /usr/local/bin/lastitem: target/release/lastitem
 	install target/release/lastitem /usr/local/bin/lastitem

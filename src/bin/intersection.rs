@@ -1,3 +1,8 @@
+#[path = "../moreordering.rs"]
+mod moreordering;
+#[allow(unused_imports)] // only used with older compiler
+use moreordering::MoreOrdering;
+
 use anyhow::{Result, bail, Context, Error, anyhow};
 use structopt::StructOpt;
 use thiserror::Error;
@@ -273,7 +278,7 @@ impl Mode {
 }
 
 fn p_print(nam: &str, siz: usize) {
-    println!("{siz}\t{nam}")
+    println!("{}\t{}", siz, nam)
 }
 macro_rules! p {
     ( $t:ty ) => {

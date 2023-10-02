@@ -86,6 +86,30 @@ fn easy_read_line(inp: &mut BufReader<File>, line: &mut String) -> Result<bool> 
     }
 }
 
+// Automatically count lines and report them and the path in error
+// messages
+struct ReadWithContext<'p> {
+    path: &'p Path,
+    linenumber: i64,
+    reader: BufReader<File>,
+}
+
+impl<'p> ReadWithContext<'p> {
+    fn open_path(path: &'p Path) -> Result<ReadWithContext<'p>> {
+        Ok(ReadWithContext {
+            path,
+            linenumber: 0,
+            reader: open_file(path)?
+        })
+    }
+    fn easy_read_line(&mut self, line: &mut String) -> Result<bool> {
+        self.linenumber += 1;
+        easy_read_line(&mut self.reader, line).with_context(
+            || anyhow!("file {:?} line {}", self.path, self.linenumber))
+    }
+}
+
+
 #[derive(Debug, Clone, Copy)]
 enum SortOrder {
     Lexical,
@@ -479,8 +503,8 @@ fn main() -> Result<()> {
             let first_path = paths_meta.pop_front().unwrap().0;
             {
                 let path = first_path;
-                let mut inp = open_file(&path)?;
-                while easy_read_line(&mut inp, &mut tmpline)? {
+                let mut inp = ReadWithContext::open_path(&path)?;
+                while inp.easy_read_line(&mut tmpline)? {
                     set.insert(KString::from(&tmpline));
                 }
             }
@@ -489,9 +513,9 @@ fn main() -> Result<()> {
                 if set.is_empty() {
                     break
                 }
-                let mut inp = open_file(&path)?;
+                let mut inp = ReadWithContext::open_path(&path)?;
                 let mut newset = HashSet::new();
-                while easy_read_line(&mut inp, &mut tmpline)? {
+                while inp.easy_read_line(&mut tmpline)? {
                     let line = KString::from(&tmpline);
                     if set.contains(&line) {
                         newset.insert(line);
@@ -513,8 +537,8 @@ fn main() -> Result<()> {
                 }
                 Mode::SetThenLinear => {
                     let path = last_path.unwrap();
-                    let mut inp = open_file(&path)?;
-                    while easy_read_line(&mut inp, &mut tmpline)? {
+                    let mut inp = ReadWithContext::open_path(&path)?;
+                    while inp.easy_read_line(&mut tmpline)? {
                         if set.contains(&KString::from(&tmpline)) {
                             println(&mut out, &mut tmpline)?;
                         }

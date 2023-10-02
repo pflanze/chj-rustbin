@@ -7,6 +7,9 @@ IFS=
 intersection=target/release/intersection
 
 tmp=$(mktemp)
+tmp10=$(mktemp)
+tmp11=$(mktemp)
+tmp12=$(mktemp)
 err=$(mktemp)
 exitcode=$(mktemp)
 
@@ -19,8 +22,12 @@ test_intersection() {
     $intersection --sorted "$@" test/intersection/"$subtest"/in/{a,b} > "$tmp"
     diff -u test/intersection/"$subtest"/out/a+b "$tmp"
 
-    $intersection --sorted "$@" test/intersection/"$subtest"/in/{a,b,c} > "$tmp"
+    $intersection --sorted --fddrop "$@" test/intersection/"$subtest"/in/{a,b,c} > "$tmp" \
+                  10> "$tmp10" 11> "$tmp11" 12> "$tmp12"
     diff -u test/intersection/"$subtest"/out/a+b+c "$tmp"
+    diff -u test/intersection/"$subtest"/out/a+b+c.10 "$tmp10"
+    diff -u test/intersection/"$subtest"/out/a+b+c.11 "$tmp11"
+    diff -u test/intersection/"$subtest"/out/a+b+c.12 "$tmp12"
 
     $intersection --sorted "$@" test/intersection/"$subtest"/in/{b,c} > "$tmp"
     diff -u test/intersection/"$subtest"/out/b+c "$tmp"

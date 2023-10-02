@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use std::fs::File;
 use std::i64::MIN;
 use std::io::{BufReader, BufRead, stdout, Write, BufWriter};
-use std::os::unix::prelude::MetadataExt;
+use std::os::unix::prelude::{MetadataExt, FromRawFd};
 use std::path::{PathBuf, Path};
 use std::collections::{VecDeque, HashSet};
 use kstring::KString;
@@ -35,6 +35,13 @@ struct Opt {
     /// lexical. Currently integers only.
     #[structopt(long)]
     numeric: bool,
+
+    /// Whether to print dropped lines to file descriptor from 10
+    /// onwards (the dropped lines from the first file go to file
+    /// descriptor 10, the second file to fd 11, etc.). Only works in
+    /// sorted mode (--sorted or --numeric).
+    #[structopt(long)]
+    fddrop: bool,
 
     #[structopt(long)]
     structsizes: bool,
@@ -89,10 +96,12 @@ impl SortOrder {
         }
     }
     fn compare(self, l1: &Line, l2: &Line) -> Ordering {
-        match self {
+        let res = match self {
             SortOrder::Lexical => l1.string.cmp(&l2.string),
             SortOrder::Numeric => l1.i64.cmp(&l2.i64),
-        }
+        };
+        // eprintln!("compare({:?}, {:?}) = {:?}", l1.string, l2.string, res);
+        res
     }
 }
 
@@ -124,9 +133,11 @@ impl Line {
 struct Input {
     path: PathBuf,
     input: BufReader<File>,
+    output: Option<BufWriter<File>>, // for fddrop
     line1: Line,
     line2: Line,
     current_line_is_1: bool,
+    current_line_is_in_set: bool,
     linenum: u64,
 }
 
@@ -136,6 +147,7 @@ impl Input {
     }
     fn is_ordered(&self, sortorder: SortOrder)
                   -> Result<bool> {
+        // eprintln!("is_ordered({:?})...", self.path);
         Ok(
             if self.current_line_is_1 {
                 sortorder.compare(&self.line1, &self.line2)
@@ -146,6 +158,25 @@ impl Input {
     // returns false on EOF
     fn next(&mut self, sortorder: SortOrder) -> Result<bool> {
         (|| {
+            // eprintln!("next({:?})...", self.path);
+            // Write line to output if fddrop:
+            if let Some(output) = &mut self.output {
+                if !self.current_line_is_in_set {
+                    // copy-paste of current_line algo, once more
+                    // (make a macro?):
+                    let current_line =
+                        if self.current_line_is_1 {
+                            &mut self.line1
+                        } else {
+                            &mut self.line2
+                        };
+                    // eprintln!("next({:?}): drop {:?}", self.path,
+                    //           &current_line.string);
+                    println(output, &current_line.string)?;
+                }
+                self.current_line_is_in_set = false;
+            }
+            // Switch around line buffers and get the next line
             let current_line_is_1 = !self.current_line_is_1;
             self.current_line_is_1 = current_line_is_1;
             let current_line =
@@ -156,11 +187,16 @@ impl Input {
                 };
             self.linenum += 1;
             if current_line.read_and_parse_line(&mut self.input, sortorder)? {
+                // eprintln!("next({:?}): new: {:?}", self.path, &current_line.string);
                 if ! self.is_ordered(sortorder)? {
                     bail!("file is not ordered")
                 }
                 Ok(true)
             } else {
+                // Mis-use this flag as iterator exhaustion marker, to
+                // prevent subsequent calls from println'ing the empty
+                // line:
+                self.current_line_is_in_set = true;
                 Ok(false)
             }
         })().with_context(
@@ -182,10 +218,13 @@ impl Inputs {
         &self,
         sortorder: SortOrder
     ) -> usize {
-        self.inputs.iter().enumerate()
+        let res = self.inputs.iter().enumerate()
             .max_by(|a, b| sortorder.compare(a.1.current_line(),
                                              b.1.current_line()))
-            .unwrap().0
+            .unwrap().0;
+        // eprintln!("largest_input_index() = {} {:?}", res,
+        //           self.inputs[res].current_line().string);
+        res
     }
 
     fn input(&self, index: usize) -> &Input {
@@ -257,8 +296,12 @@ fn print_sizes() {
     p!{Mode};
 }
 
+fn output_fd_for_input_index(i: usize) -> i32 {
+    10 + i as i32
+}
+
 fn main() -> Result<()> {
-    let (mode, mut paths) = {
+    let (mode, mut paths, fddrop) = {
         let opt : Opt = Opt::from_args();
         let paths: VecDeque<PathBuf> = opt.file_paths.into();
 
@@ -283,7 +326,7 @@ fn main() -> Result<()> {
             _ => ()
         }
 
-        (mode, paths)
+        (mode, paths, opt.fddrop)
     };
 
     if paths.len() < mode.min_paths_len() {
@@ -294,18 +337,30 @@ fn main() -> Result<()> {
     match mode {
         Mode::Sorted(sortorder) => {
             match
-                paths.into_iter().map(|path| {
+                paths.into_iter().enumerate().map(|(i, path)| {
                     let mut input = open_file(&path).map_err(Signal::Error)?;
                     let mut line = Line::new();
                     if line.read_and_parse_line(&mut input, sortorder)
                         .with_context(|| anyhow!("file {:?} line 1", path))
-                        .map_err(Signal::Error)? {
+                        .map_err(Signal::Error)?
+                    {
+                        let output =
+                            if fddrop {
+                                Some(
+                                    BufWriter::new(unsafe {
+                                        File::from_raw_fd(output_fd_for_input_index(i))
+                                    }))
+                            } else {
+                                None
+                            };
                         Ok(Input {
                             path,
                             input,
+                            output,
                             line1: Line::new(),
                             line2: line,
                             current_line_is_1: false,
+                            current_line_is_in_set: false,
                             linenum: 1,
                         })
                     } else {
@@ -314,10 +369,13 @@ fn main() -> Result<()> {
                 }).collect::<Result<Vec<Input>, Signal>>()
             {
                 Ok(inputs) => {
+                    // eprintln!("inputs = {:?}", inputs.iter().map(
+                    //     |input| &input.current_line().string).collect::<Vec<_>>());
                     let mut inputs = Inputs { inputs };
                     let mut out = BufWriter::new(stdout());
 
                     'full: loop {
+                        // eprintln!("--- loop... ------------");
                         // Get the largest value--this is what we aim for
                         // when retrieving values from the other
                         // inputs.
@@ -327,6 +385,8 @@ fn main() -> Result<()> {
                         let mut all_same = true;
                         let mut largest = inputs.input(largest_input_i).current_line();
                         for i in 0..inputs.len() {
+                            // eprintln!("for input (largest_input_i = {}, i = {})...",
+                            //           largest_input_i, i);
                             if i != largest_input_i {
                                 'this_input: loop {
                                     let i_line = inputs.input(i).current_line();
@@ -351,7 +411,13 @@ fn main() -> Result<()> {
                             }
                         }
                         if all_same {
+                            // eprintln!("all_same: {:?}", &largest.string);
                             println(&mut out, &largest.string)?;
+
+                            // Mark them all as in set
+                            for input in &mut inputs.inputs {
+                                input.current_line_is_in_set = true;
+                            }
                             // One of them has to advance; empirically it
                             // has to be the (originally!) largest one. XX
                             // Why?
@@ -359,7 +425,21 @@ fn main() -> Result<()> {
                         }
                     }
 
-                    out.flush()?;
+                    // eprintln!("---finish----");
+                    out.flush().with_context(
+                        || anyhow!("flushing stdout"))?;
+                    for (i, input) in inputs.inputs.iter_mut().enumerate() {
+                        if let Some(_) = &mut input.output {
+                            // Re-use next() to copy over the
+                            // remainder of the file. (Wasteful? No,
+                            // verifications should be done anyway.)
+                            
+                            while input.next(sortorder)? {}
+                            input.output.as_mut().unwrap().flush().with_context(
+                                || anyhow!("flushing file descriptor {:?}",
+                                           output_fd_for_input_index(i)))?;
+                        }
+                    }
                 }
                 Err(Signal::Finished) => {
                     // 1+ of the files are empty, we're done

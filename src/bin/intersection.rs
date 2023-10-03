@@ -450,7 +450,7 @@ fn main() -> Result<()> {
                 paths.into_iter().map(
                     |path| {
                         let s = path.metadata().with_context(
-                            || format!("stat on file {:?}", path))?.size();
+                            || anyhow!("stat on file {:?}", path))?.size();
                         Ok((path, s))}
                 )
                 .collect::<Result<_>>()?;

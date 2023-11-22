@@ -74,6 +74,7 @@ dependencies = [
  "nix",
  "rayon",
  "structopt",
+ "tai64",
  "thiserror",
 ]
 
@@ -403,6 +404,12 @@ dependencies = [
  "quote",
  "unicode-ident",
 ]
+
+[[package]]
+name = "tai64"
+version = "4.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed7401421025f4132e6c1f7af5e7f8287383969f36e6628016cd509b8d3da9dc"
 
 [[package]]
 name = "termcolor"

@@ -21,3 +21,4 @@ bstr_parse = "0.1.0"
 thiserror = "1.0.37"
 # kstring = "2.0.0" doesn't compile with rustc 1.48.0
 kstring = { version = "1.0.6", default-features = false }
+tai64 = "4"

@@ -23,3 +23,4 @@ thiserror = "1.0.37"
 kstring = { version = "1.0.6", default-features = false }
 tai64 = "4"
 chrono = "^0.4"
+num = "0.4"

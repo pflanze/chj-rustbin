@@ -1,18 +1,4 @@
-use std::{hash::Hash, collections::{HashMap, hash_map::{Entry, OccupiedEntry}, BTreeMap, btree_map}, borrow::Borrow, time::Duration, fmt::Display};
-
-// XX I have *done* these before
-// fn str_skip_while(s: &str, pred: impl Fn(char) -> bool) -> &str {
-//     if let Some(i) = s.find(|c| c != '/') {
-//         &s[i..]
-//     } else {
-//         s
-//     }
-// }
-
-// fn rootbased_to_relative(s: &str) -> &str {
-//     str_skip_while(s, |c| c != '/')
-// }
-
+use std::{hash::Hash, collections::{HashMap, hash_map::{Entry, OccupiedEntry}, BTreeMap, btree_map}, borrow::Borrow, time::Duration, fmt::Display, convert::TryInto};
 
 
 // A HashMap::get_mut variant that allows to work around the issue

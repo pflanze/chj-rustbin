@@ -78,6 +78,23 @@ pub fn btreemap_try_insert<'m, K: Ord, V>(
 }
 
 
+pub fn hashmap_get_mut_vivify<'m, K: Eq + Hash + Clone, V>(
+    m: &'m mut HashMap<K, V>,
+    k: &K,
+    create: impl FnOnce() -> V
+) -> &'m mut V
+{
+    match hashmap_get_mut(m, k) {
+        Ok(val) => val,
+        Err(m) => {
+            m.insert(k.clone(), create());
+            m.get_mut(k).expect("just inserted")
+        }
+    }
+}
+
+
+
 // For cases where the context is not Option, hence `?` does not work.
 #[macro_export]
 macro_rules! tryoption {

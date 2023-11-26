@@ -48,10 +48,30 @@ impl<'p> ReadWithContext<'p> {
             reader: open_file(path)?
         })
     }
+    /// "Clean" read_line function: returns true if it did read a line,
+    /// false on EOF. Does overwrite `line`, not append to it. Removes
+    /// trailing '\n' if present.
     pub fn easy_read_line(&mut self, line: &mut String) -> Result<bool> {
         self.linenumber += 1;
         easy_read_line(&mut self.reader, line).with_context(
             || anyhow!("file {:?} line {}", self.path, self.linenumber))
     }
+
+
+    /// Report an error in the context of this file and position
+    pub fn err_with_context<T>(&self, err: anyhow::Error) -> Result<T, anyhow::Error>
+    {
+        Err(err.context(anyhow!("file {:?} line {}", self.path, self.linenumber)))
+    }
+
+    /// A Result in the context of this file and position
+    pub fn context<T>(&self, res: Result<T, anyhow::Error>) -> Result<T, anyhow::Error>
+    {
+        match res {
+            Ok(v) => Ok(v),
+            Err(e) => self.err_with_context(e)
+        }
+    }
+
 }
 

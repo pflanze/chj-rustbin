@@ -1,11 +1,12 @@
+use std::rc::Rc;
 use chrono::{Timelike, NaiveDate};
 use genawaiter::rc::Gen;
 use structopt::StructOpt;
 use tai64::Tai64N;
+use std::collections::HashMap;
 use std::{path::PathBuf, fmt::Display, fs::File, io::BufWriter};
 use std::io::Write;
 use anyhow::{Result, bail, anyhow, Context};
-use bit_set::BitSet;
 
 use chj_rustbin::gen_try_result;
 use chj_rustbin::numbers::numbers_within;
@@ -382,6 +383,41 @@ fn parse_files(
     }).into_iter()
 }
 
+struct Row {
+    time: Rc<String>,
+    received_cum: usize,
+    sent_cum: usize,
+    received_hour: usize,
+    sent_hour: usize,
+    total_all_ifaces_hour: Option<usize>,
+}
+impl Row {
+    fn write_header(outp: &mut impl Write) -> Result<(), std::io::Error> {
+        writeln!(outp,
+                 "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                 "time",
+                 "received B",
+                 "sent B",
+                 "received B/hour",
+                 "sent B/hour",
+                 "total B/hour",
+                 "all interfaces B/hour"
+        )
+    }
+    fn write(&self, outp: &mut impl Write) -> Result<(), std::io::Error> {
+        writeln!(outp,
+                 "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                 self.time,
+                 self.received_cum,
+                 self.sent_cum,
+                 self.received_hour,
+                 self.sent_hour,
+                 self.received_hour + self.sent_hour,
+                 self.total_all_ifaces_hour.expect(
+                     "total filled in by caller"))
+    }
+}
+
 fn main() -> Result<()> {
     let opt : Opt = Opt::from_args();
     if !opt.show_direct && !opt.tsv.is_some() {
@@ -468,46 +504,38 @@ fn main() -> Result<()> {
             |pointss| Group(pointss.take().unwrap()));
 
         for output in &mut outputs {
-            writeln!(output,
-                     "{}\t({})\t({})\t{}\t{}",
-                     "f.timestamp.to_rfc2822_local()",
-                     "f.transfer.received",
-                     "f.transfer.sent",
-                     "transferdiff.received",
-                     "transferdiff.sent")?;
+            Row::write_header(output)?;
         }
 
         let mut last_group: Option<Group> = None;
-        let mut seen: BitSet = Default::default();
+        let mut rows: HashMap<u16, Row> = Default::default();
         for group in groups {
             let group = group?;
-            let time = group.first_timepoint().timestamp().to_rfc2822_local();
+            let time = Rc::new(group.first_timepoint().timestamp().to_rfc2822_local());
 
-            seen.clear();
+            rows.clear();
             let mut total_all_ifaces = 0; // B
             for (iface, transferdiff) in group.transfer_diffs(last_group.as_ref()) {
                 total_all_ifaces += transferdiff.total();
                 let i = iface.0 as usize;
                 let f = group.first_datapoint(i)
                     .expect("exists because we have a transferdiff");
-                let outp = &mut outputs[i];
-                write!(outp,
-                       "{}\t({})\t({})\t{}\t{}",
-                       time,
-                       f.transfer.received,
-                       f.transfer.sent,
-                       transferdiff.received,
-                       transferdiff.sent)?;
-                seen.insert(i);
+                let row = Row {
+                    time: time.clone(),
+                    received_cum: f.transfer.received,
+                    sent_cum: f.transfer.sent,
+                    received_hour: transferdiff.received,
+                    sent_hour: transferdiff.sent,
+                    total_all_ifaces_hour: None
+                };
+                rows.insert(iface.0, row);
             }
             last_group = Some(group);
 
-            for i in &seen {
-                let outp = &mut outputs[i];
-                writeln!(outp,
-                         "",
-                         // XX totals and stuff   total_all_ifaces
-                )?;
+            for (i, row) in &mut rows {
+                let outp = &mut outputs[*i as usize];
+                row.total_all_ifaces_hour = Some(total_all_ifaces);
+                row.write(outp)?;
             }
         }
         return Ok(())

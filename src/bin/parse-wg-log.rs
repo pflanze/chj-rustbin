@@ -8,7 +8,7 @@ use std::io::Write;
 use anyhow::{Result, bail, anyhow, Context};
 
 use chj_rustbin::gen_try_result;
-use chj_rustbin::numbers::numbers_within;
+use chj_rustbin::numbers::{numbers_within, max_f64};
 use chj_rustbin::sequences::try_group;
 use chj_rustbin::{readwithcontext::ReadWithContext,
                   parseutil::{cleanwhite, parse_byte_multiplier, is_all_white,
@@ -382,18 +382,26 @@ fn parse_files(
     }).into_iter()
 }
 
-struct Row {
+struct RowShared {
     time: Tai64N,
+    total_all_ifaces_hour: usize,
+    num_servers_running: u32,
+}
+struct RowUser {
     received_cum: usize,
     sent_cum: usize,
     received_hour: usize,
     sent_hour: usize,
-    total_all_ifaces_hour: Option<usize>,
 }
-impl Row {
+
+struct Row<'a> {
+    shared: &'a RowShared,
+    user: &'a RowUser,
+}
+impl<'a> Row<'a> {
     fn write_header(outp: &mut impl Write) -> Result<(), std::io::Error> {
         writeln!(outp,
-                 "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                 "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                  "time",
                  "time excel",
                  "received B",
@@ -401,21 +409,42 @@ impl Row {
                  "received B/hour",
                  "sent B/hour",
                  "total B/hour",
-                 "all interfaces B/hour"
+                 "all interfaces B/hour",
+                 "% of all traffic",
+                 "num servers running",
+                 "included traffic B/hour",
+                 "billed traffic B",
+                 "billed cost EUR",
         )
     }
     fn write(&self, outp: &mut impl Write) -> Result<(), std::io::Error> {
+        let total = self.user.received_hour + self.user.sent_hour;
+        let part =
+            total as f64
+            / (self.shared.total_all_ifaces_hour as f64);
+        let included_traffic = self.shared.num_servers_running as f64 * 1.42e9;
+        let billed_traffic =
+            max_f64(0.,
+                    self.shared.total_all_ifaces_hour as f64
+                    - included_traffic);
+        let billed_cost = billed_traffic * (0.02000000 / 1e9);
+
         writeln!(outp,
-                 "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
-                 self.time.to_rfc2822_local(),
-                 self.time.to_exceldays(),
-                 self.received_cum,
-                 self.sent_cum,
-                 self.received_hour,
-                 self.sent_hour,
-                 self.received_hour + self.sent_hour,
-                 self.total_all_ifaces_hour.expect(
-                     "total filled in by caller"))
+                 "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                 self.shared.time.to_rfc2822_local(),
+                 self.shared.time.to_exceldays(),
+                 self.user.received_cum,
+                 self.user.sent_cum,
+                 self.user.received_hour,
+                 self.user.sent_hour,
+                 total,
+                 self.shared.total_all_ifaces_hour,
+                 part, // * 100. ? use Excel formatting for that
+                 self.shared.num_servers_running,
+                 included_traffic,
+                 billed_traffic,
+                 billed_cost,
+        )
     }
 }
 
@@ -509,35 +538,42 @@ fn main() -> Result<()> {
         }
 
         let mut last_group: Option<Group> = None;
-        let mut rows: HashMap<u16, Row> = Default::default();
+        let mut rows: HashMap<u16, RowUser> = Default::default();
         for group in groups {
             let group = group?;
-            let time = group.first_timepoint().timestamp();
 
             rows.clear();
-            let mut total_all_ifaces = 0; // B
+            let mut total_all_ifaces_hour = 0; // B
             for (iface, transferdiff) in group.transfer_diffs(last_group.as_ref()) {
-                total_all_ifaces += transferdiff.total();
+                total_all_ifaces_hour += transferdiff.total();
                 let i = iface.0 as usize;
                 let f = group.first_datapoint(i)
                     .expect("exists because we have a transferdiff");
-                let row = Row {
-                    time: time.clone(),
+                let row = RowUser {
                     received_cum: f.transfer.received,
                     sent_cum: f.transfer.sent,
                     received_hour: transferdiff.received,
                     sent_hour: transferdiff.sent,
-                    total_all_ifaces_hour: None
                 };
                 rows.insert(iface.0, row);
             }
-            last_group = Some(group);
 
-            for (i, row) in &mut rows {
+            let num_servers_running = 3; // configure XX
+            let shared = RowShared {
+                time: group.first_timepoint().timestamp().clone(),
+                total_all_ifaces_hour,
+                num_servers_running
+            };
+            for (i, user) in &mut rows {
                 let outp = &mut outputs[*i as usize];
-                row.total_all_ifaces_hour = Some(total_all_ifaces);
+                let row = Row {
+                    shared: &shared,
+                    user
+                };
                 row.write(outp)?;
             }
+
+            last_group = Some(group);
         }
         return Ok(())
     }

@@ -1,4 +1,4 @@
-use std::{hash::Hash, collections::{HashMap, hash_map::{Entry, OccupiedEntry}, BTreeMap, btree_map}, borrow::Borrow, time::Duration, fmt::Display, convert::TryInto};
+use std::{hash::Hash, collections::{HashMap, hash_map::{Entry, OccupiedEntry}, BTreeMap, btree_map}, borrow::Borrow, time::Duration, fmt::Display, convert::TryInto, ops::Add};
 
 
 // A HashMap::get_mut variant that allows to work around the issue
@@ -94,18 +94,20 @@ pub fn hashmap_get_mut_vivify<'m, K: Eq + Hash + Clone, V>(
 }
 
 
-
-// For cases where the context is not Option, hence `?` does not work.
-#[macro_export]
-macro_rules! tryoption {
-    ($e:expr) => {{
-        let res = $e;
-        if let Some(val) = res {
-            val
-        } else {
-            return Ok(None)
+/// Insert a key-value mapping, or if already existing, add the value
+/// to the existing value via Add trait.
+pub fn hashmap_add<K: Hash + Eq, V: Add<Output = V> + Copy>(
+    m: &mut HashMap<K, V>, k: K, v: V
+) {
+    match hashmap_get_mut(m, &k) {
+        Ok(oldv) => {
+            // *oldv += v;  What's needed for this?
+            *oldv = oldv.add(v);
         }
-    }}
+        Err(m) => {
+            m.insert(k, v);
+        }
+    }
 }
 
 
@@ -164,6 +166,20 @@ macro_rules! loop_try {
     }}
 }
 
+
+// For cases where the context is not Option, hence `?` does not
+// work. -- vs. try_option ?!
+#[macro_export]
+macro_rules! tryoption {
+    ($e:expr) => {{
+        let res = $e;
+        if let Some(val) = res {
+            val
+        } else {
+            return Ok(None)
+        }
+    }}
+}
 
 #[macro_export]
 macro_rules! try_do {

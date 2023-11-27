@@ -1,14 +1,16 @@
-use chrono::{Timelike, NaiveDate};
+use chj_rustbin::util::{hashmap_add, hashmap_get_mut_vivify};
+use chrono::{Timelike, NaiveDate, Datelike};
 use genawaiter::rc::Gen;
 use structopt::StructOpt;
 use tai64::Tai64N;
 use std::collections::HashMap;
+use std::ops::Add;
 use std::{path::PathBuf, fmt::Display, fs::File, io::BufWriter};
 use std::io::Write;
 use anyhow::{Result, bail, anyhow, Context};
 
 use chj_rustbin::gen_try_result;
-use chj_rustbin::numbers::{numbers_within, max_f64};
+use chj_rustbin::numbers::{numbers_within, max_f64, nandropping_add};
 use chj_rustbin::sequences::try_group;
 use chj_rustbin::{readwithcontext::ReadWithContext,
                   parseutil::{cleanwhite, parse_byte_multiplier, is_all_white,
@@ -30,7 +32,9 @@ struct Opt {
 
     /// Calculate derived values and save as TSV files, one for each
     /// interface. The option specifies the base path, to which
-    /// `$interfacename.tsv` is appended.
+    /// `$interfacename.tsv` is appended for the hourly tables, and
+    /// `$interfacename-summary.tsv` is appended for the monthly
+    /// summary tables.
     #[structopt(long)]
     tsv: Option<String>,
 
@@ -126,6 +130,25 @@ struct Datapoint {
     timestamp: Tai64N,
     date_and_hour: DateHourUtc, // cache, derived from timestamp
     transfer: Transfer,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, PartialOrd, Ord)]
+struct YearMonth {
+    year: i32,
+    month: u8,
+}
+impl YearMonth {
+    fn from_naivedate(nd: NaiveDate) -> YearMonth {
+        YearMonth {
+            year: nd.year(),
+            month: nd.month() as u8,
+        }
+    }
+}
+impl Display for YearMonth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("{}/{:02}", self.year, self.month))
+    }
 }
 
 const NUM_INTERFACES: usize = 2;
@@ -372,7 +395,8 @@ fn parse_files(
                             num_errors += 1;
                             eprintln!("Warning: {e:?}");
                         } else {
-                            //return Err(e) // XXX? right way to give an endless error?
+                            //return Err(e)
+                            //  Is there a way to give an endless error?
                             co.yield_(Err(e)).await
                         }
                 }
@@ -381,6 +405,23 @@ fn parse_files(
         ()
     }).into_iter()
 }
+
+#[derive(Copy, Clone, Debug)]
+struct BilledCost {
+    billed_cost: f64,
+    your_cost: f64
+}
+impl Add for BilledCost {
+    type Output = BilledCost;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        // evil to drop NaN?
+        let billed_cost = nandropping_add(self.billed_cost, rhs.billed_cost);
+        let your_cost = nandropping_add(self.your_cost, rhs.your_cost);
+        BilledCost { billed_cost, your_cost }
+    }
+}
+
 
 struct RowShared {
     time: Tai64N,
@@ -401,7 +442,7 @@ struct Row<'a> {
 impl<'a> Row<'a> {
     fn write_header(outp: &mut impl Write) -> Result<(), std::io::Error> {
         writeln!(outp,
-                 "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                 "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                  "time",
                  "time excel",
                  "received B",
@@ -415,9 +456,10 @@ impl<'a> Row<'a> {
                  "included traffic B/hour",
                  "billed traffic B",
                  "billed cost EUR",
+                 "your cost EUR"
         )
     }
-    fn write(&self, outp: &mut impl Write) -> Result<(), std::io::Error> {
+    fn write(&self, outp: &mut impl Write) -> Result<BilledCost, std::io::Error> {
         let total = self.user.received_hour + self.user.sent_hour;
         let part =
             total as f64
@@ -428,9 +470,10 @@ impl<'a> Row<'a> {
                     self.shared.total_all_ifaces_hour as f64
                     - included_traffic);
         let billed_cost = billed_traffic * (0.02000000 / 1e9);
+        let your_cost = part * billed_cost;
 
         writeln!(outp,
-                 "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                 "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                  self.shared.time.to_rfc2822_local(),
                  self.shared.time.to_exceldays(),
                  self.user.received_cum,
@@ -444,7 +487,11 @@ impl<'a> Row<'a> {
                  included_traffic,
                  billed_traffic,
                  billed_cost,
-        )
+                 your_cost
+        )?;
+
+        // Hack: return calculated values for summary
+        Ok(BilledCost { billed_cost, your_cost })
     }
 }
 
@@ -537,6 +584,9 @@ fn main() -> Result<()> {
             Row::write_header(output)?;
         }
 
+        let mut by_user_month: HashMap<u16, HashMap<YearMonth, BilledCost>>
+            = Default::default();
+
         let mut last_group: Option<Group> = None;
         let mut rows: HashMap<u16, RowUser> = Default::default();
         for group in groups {
@@ -564,17 +614,40 @@ fn main() -> Result<()> {
                 total_all_ifaces_hour,
                 num_servers_running
             };
+            let ym = YearMonth::from_naivedate(
+                shared.time.to_datetime_utc().date_naive());
             for (i, user) in &mut rows {
                 let outp = &mut outputs[*i as usize];
                 let row = Row {
                     shared: &shared,
                     user
                 };
-                row.write(outp)?;
+                let calculated = row.write(outp)?;
+                hashmap_add(
+                    hashmap_get_mut_vivify(
+                        &mut by_user_month,
+                        i,
+                        || HashMap::new()),
+                    ym,
+                    calculated);
             }
 
             last_group = Some(group);
         }
+
+        for (i, by_month) in &by_user_month {
+            let mut summary: Vec<_> = by_month.iter().collect();
+            summary.sort_by(|a, b| (*a).0.cmp(b.0));
+            let iface = WireguardInterface(*i);
+            let mut outp = BufWriter::new(File::create(format!(
+                "{tsv_basepath}{iface}-summary.tsv"))?);
+            writeln!(&mut outp, "year/month\tbilled cost EUR\tyour cost EUR")?;
+            for (month, cost) in summary {
+                writeln!(&mut outp, "{month}\t{}\t{}",
+                         cost.billed_cost, cost.your_cost)?;
+            }
+        }
+
         return Ok(())
     }
     Ok(())

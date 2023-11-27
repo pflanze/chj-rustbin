@@ -5,3 +5,4 @@ pub mod tai;
 pub mod numbers;
 pub mod sequences;
 pub mod util;
+pub mod excel;

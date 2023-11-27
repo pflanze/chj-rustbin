@@ -1,9 +1,11 @@
+use std::time::SystemTime;
+
 use anyhow::{Result, anyhow, bail};
 use tai64::Tai64N;
 use chrono::{DateTime, Local, Utc};
 
 use crate::{parseutil::{first_rest, take_while, char_is_white, parse_hex, drop_n},
-            fp::complement};
+            fp::complement, excel::exceldays_from_unixtime};
 
 
 pub fn parse_timestamp(s: &str) -> Result<(Tai64N, &str)> {
@@ -25,6 +27,7 @@ pub trait Tai64Format {
     fn to_rfc2822_local(&self) -> String;
     fn to_rfc2822_utc(&self) -> String;
     fn to_datetime_utc(&self) -> DateTime<Utc>;
+    fn to_exceldays(&self) -> f64;
 }
 
 impl Tai64Format for Tai64N {
@@ -33,13 +36,26 @@ impl Tai64Format for Tai64N {
         let dt: DateTime<Local> = DateTime::from(t);
         dt.to_rfc2822()
     }
+
     fn to_rfc2822_utc(&self) -> String {
         let t = self.to_system_time();
         let dt: DateTime<Utc> = DateTime::from(t);
         dt.to_rfc2822()
     }
+
     fn to_datetime_utc(&self) -> DateTime<Utc> {
         let t = self.to_system_time();
         DateTime::from(t)
+    }
+
+    /// Convert to Excel's days-since-Excel's epoch values. Ignores
+    /// issues during leap seconds. And otherwise assumes Excel time
+    /// is handling leap seconds the same way. Also, ignores potential
+    /// conversion errors (panics).
+    fn to_exceldays(&self) -> f64 {
+        let st = self.to_system_time();
+        let t = st.duration_since(SystemTime::UNIX_EPOCH)
+            .expect("no overflows?").as_secs_f64();
+        exceldays_from_unixtime(t)
     }
 }

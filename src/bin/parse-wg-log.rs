@@ -1,4 +1,3 @@
-use std::rc::Rc;
 use chrono::{Timelike, NaiveDate};
 use genawaiter::rc::Gen;
 use structopt::StructOpt;
@@ -384,7 +383,7 @@ fn parse_files(
 }
 
 struct Row {
-    time: Rc<String>,
+    time: Tai64N,
     received_cum: usize,
     sent_cum: usize,
     received_hour: usize,
@@ -394,8 +393,9 @@ struct Row {
 impl Row {
     fn write_header(outp: &mut impl Write) -> Result<(), std::io::Error> {
         writeln!(outp,
-                 "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                 "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                  "time",
+                 "time excel",
                  "received B",
                  "sent B",
                  "received B/hour",
@@ -406,8 +406,9 @@ impl Row {
     }
     fn write(&self, outp: &mut impl Write) -> Result<(), std::io::Error> {
         writeln!(outp,
-                 "{}\t{}\t{}\t{}\t{}\t{}\t{}",
-                 self.time,
+                 "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                 self.time.to_rfc2822_local(),
+                 self.time.to_exceldays(),
                  self.received_cum,
                  self.sent_cum,
                  self.received_hour,
@@ -511,7 +512,7 @@ fn main() -> Result<()> {
         let mut rows: HashMap<u16, Row> = Default::default();
         for group in groups {
             let group = group?;
-            let time = Rc::new(group.first_timepoint().timestamp().to_rfc2822_local());
+            let time = group.first_timepoint().timestamp();
 
             rows.clear();
             let mut total_all_ifaces = 0; // B

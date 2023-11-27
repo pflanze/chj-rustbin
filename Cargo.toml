@@ -25,4 +25,3 @@ tai64 = "4"
 chrono = "^0.4"
 num = "0.4"
 genawaiter = { version = "0.99", default-features = false }
-bit-set	= "0.5"

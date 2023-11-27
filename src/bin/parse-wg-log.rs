@@ -475,7 +475,14 @@ impl<'a> Row<'a> {
         writeln!(outp,
                  "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                  self.shared.time.to_rfc2822_local(),
-                 self.shared.time.to_exceldays(),
+                 // XX Hard coding +01:00 for central europe, since
+                 // daylight savings time is the fake one, thus this
+                 // is closest without introducing discontinuities
+                 // (because this is easier than switching for DST,
+                 // introducing wrong time points while at it, and
+                 // discontinuities which might matter e.g. for
+                 // plots):
+                 self.shared.time.to_exceldays(1.),
                  self.user.received_cum,
                  self.user.sent_cum,
                  self.user.received_hour,
@@ -643,7 +650,7 @@ fn main() -> Result<()> {
                 "{tsv_basepath}{iface}-summary.tsv"))?);
             writeln!(&mut outp, "year/month\tbilled cost EUR\tyour cost EUR")?;
             for (month, cost) in summary {
-                writeln!(&mut outp, "{month}\t{}\t{}",
+                writeln!(&mut outp, "{month}\t{:.2}\t{:.2}",
                          cost.billed_cost, cost.your_cost)?;
             }
         }

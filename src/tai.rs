@@ -27,7 +27,7 @@ pub trait Tai64Format {
     fn to_rfc2822_local(&self) -> String;
     fn to_rfc2822_utc(&self) -> String;
     fn to_datetime_utc(&self) -> DateTime<Utc>;
-    fn to_exceldays(&self) -> f64;
+    fn to_exceldays(&self, offset_hours: f64) -> f64;
 }
 
 impl Tai64Format for Tai64N {
@@ -48,14 +48,14 @@ impl Tai64Format for Tai64N {
         DateTime::from(t)
     }
 
-    /// Convert to Excel's days-since-Excel's epoch values. Ignores
-    /// issues during leap seconds. And otherwise assumes Excel time
-    /// is handling leap seconds the same way. Also, ignores potential
-    /// conversion errors (panics).
-    fn to_exceldays(&self) -> f64 {
+    /// Convert to Excel's days-since-~1900 values. You need to pass
+    /// the correct zone difference, and adapt it for DST. Panics on
+    /// potential conversion errors.  offset_hours: `1.0` represents
+    /// `+01:00`.
+    fn to_exceldays(&self, offset_hours: f64) -> f64 {
         let st = self.to_system_time();
         let t = st.duration_since(SystemTime::UNIX_EPOCH)
             .expect("no overflows?").as_secs_f64();
-        exceldays_from_unixtime(t)
+        exceldays_from_unixtime(t, offset_hours)
     }
 }

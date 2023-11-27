@@ -3,23 +3,28 @@
 
 const DAYS_AT_EPOCH: f64 = 25569.;
 
-pub fn exceldays_from_unixtime(unixtime: f64) -> f64 {
-    unixtime / 86400. + DAYS_AT_EPOCH
+/// offset_hours: `1.0` represents `+01:00`.
+pub fn exceldays_from_unixtime(unixtime: f64, offset_hours: f64) -> f64 {
+    unixtime / 86400. + (DAYS_AT_EPOCH + offset_hours / 24.)
 }
 
-pub fn unixtime_from_exceldays(exceldays: f64) -> f64 {
-    (exceldays - DAYS_AT_EPOCH) * 86400.
+/// offset_hours: `1.0` represents `+01:00`.
+pub fn unixtime_from_exceldays(exceldays: f64, offset_hours: f64) -> f64 {
+    (exceldays - (DAYS_AT_EPOCH + offset_hours / 24.)) * 86400.
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use approx::assert_relative_eq;
 
     #[test]
     fn t_() {
         fn t(ut: f64, et: f64) {
-            assert_eq!(exceldays_from_unixtime(ut), et);
-            assert_eq!(ut, unixtime_from_exceldays(et));
+            assert_relative_eq!(exceldays_from_unixtime(ut, 0.), et);
+            assert_relative_eq!(ut, unixtime_from_exceldays(et, 0.));
+            assert_relative_eq!(exceldays_from_unixtime(ut, 1.), et + 1./24.);
+            assert_relative_eq!(ut, unixtime_from_exceldays(et + 1./24., 1.));
         }
         t(1538352000., 43374.);
     }

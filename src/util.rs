@@ -180,3 +180,16 @@ macro_rules! try_option {
     ( $($b:tt)* ) => ( (|| -> Option<_> { $($b)* })() )
 }
 
+/// Alternative for `?` in genawaiter closures.
+#[macro_export]
+macro_rules! gen_try_result {
+    ( $e:expr, $co:expr ) => {
+        match $e {
+            Ok(v) => v,
+            Err(e) => {
+                $co.yield_(Err(e)).await;
+                return;
+            }
+        }
+    }
+}

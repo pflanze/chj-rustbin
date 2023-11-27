@@ -1,4 +1,3 @@
-use chj_rustbin::numbers::numbers_within;
 use chrono::{Timelike, NaiveDate};
 use genawaiter::rc::Gen;
 use structopt::StructOpt;
@@ -8,11 +7,13 @@ use std::io::Write;
 use anyhow::{Result, bail, anyhow, Context};
 use bit_set::BitSet;
 
+use chj_rustbin::gen_try_result;
+use chj_rustbin::numbers::numbers_within;
+use chj_rustbin::sequences::try_group;
 use chj_rustbin::{readwithcontext::ReadWithContext,
                   parseutil::{cleanwhite, parse_byte_multiplier, is_all_white,
                               key_val, after_white},
                   tai::{parse_timestamp, Tai64Format},
-                  sequences::group,
                   fp::on};
 
 
@@ -274,97 +275,111 @@ const MAX_ERRORS: usize = 2000000;
 
 fn parse_files(
     files: Vec<PathBuf>
-) -> Result<Vec<Datapoint>>
+) -> impl Iterator<Item = Result<Datapoint>>
 {
-    let mut line = String::new();
-    let mut current_interface: Option<WireguardInterface> = None;
-    let mut current_peer: Option<UnfinishedPeer> = None;
-    let mut num_errors = 0;
-    let mut out = Vec::new();
-    for file in files {
-        let mut inp = ReadWithContext::open_path(&file)?;
+    Gen::new(|co| async move {
+        let mut line = String::new();
+        let mut current_interface: Option<WireguardInterface> = None;
+        let mut current_peer: Option<UnfinishedPeer> = None;
+        let mut num_errors = 0;
+        for file in files {
+            let mut inp = gen_try_result!(ReadWithContext::open_path(&file), co);
 
-        while inp.easy_read_line(&mut line)? {
-            let res = (|current_interface: &mut Option<WireguardInterface>| -> Result<_> {
-                let (timestamp, rest) = inp.context(parse_timestamp(&line))?;
-                if is_all_white(rest) {
-                    return Ok(());
-                }
-                if let Some((indentkey, val)) = key_val(rest) {
-                    let val = cleanwhite(val);
-                    if indentkey == "interface" {
-                        if current_interface.is_some() {
-                            inp.err_with_context(anyhow!(
-                                "missed \"peer\" before another \"interface\""))?
-                        }
-                        *current_interface = Some(WireguardInterface::from_str(val)?);
-                    } else if indentkey == "peer" {
-                        if current_peer.is_some() {
-                            inp.err_with_context(anyhow!(
-                                "got \"peer\" again"))?
-                        }   
-                        if let Some(interface) = current_interface.take() {
-                            current_peer = Some(UnfinishedPeer {
-                                interface
-                            });
-                            *current_interface = None;
-                        } else {
-                            inp.err_with_context(anyhow!(
-                                "missed \"peer\" before another \"interface\""))?
-                        }
-                    } else if let Some(key) = after_white(indentkey) {
-                        if key == "public key" {
-                        } else if key == "private key" {
-                        } else if key == "listening port" {
-                        } else if key == "endpoint" {
-                        } else if key == "allowed ips" {
-                        } else if key == "latest handshake" {
-                        } else if key == "transfer" {
-                            let transfer = inp.context(parse_transfer(val))?;
-                            if let Some(peer) = current_peer.take() {
-                                let dt = timestamp.to_datetime_utc();
-                                let datehour = DateHourUtc {
-                                    date: dt.date_naive(),
-                                    hour: dt.hour() as u8
-                                };
-                                let dp = Datapoint {
-                                    timestamp,
-                                    date_and_hour: datehour,
-                                    transfer,
-                                    interface: peer.interface
-                                };
-                                out.push(dp);
+            while gen_try_result!(inp.easy_read_line(&mut line), co) {
+                let res = (|current_interface: &mut Option<WireguardInterface>|
+                                                           -> Result<Option<Datapoint>> {
+                    let (timestamp, rest) = inp.context(parse_timestamp(&line))?;
+                    if is_all_white(rest) {
+                        return Ok(None);
+                    }
+                    if let Some((indentkey, val)) = key_val(rest) {
+                        let val = cleanwhite(val);
+                        if indentkey == "interface" {
+                            if current_interface.is_some() {
+                                inp.err_with_context(anyhow!(
+                                    "missed \"peer\" before another \
+                                     \"interface\""))?
+                            }
+                            *current_interface =
+                                Some(WireguardInterface::from_str(val)?);
+                            Ok(None)
+                        } else if indentkey == "peer" {
+                            if current_peer.is_some() {
+                                inp.err_with_context(anyhow!(
+                                    "got \"peer\" again"))?
+                            }   
+                            if let Some(interface) = current_interface.take() {
+                                current_peer = Some(UnfinishedPeer {
+                                    interface
+                                });
+                                *current_interface = None;
                             } else {
                                 inp.err_with_context(anyhow!(
-                                    "missing peer before key {key:?}"))?
+                                    "missed \"peer\" before another \
+                                     \"interface\""))?
+                            }
+                            Ok(None)
+                        } else if let Some(key) = after_white(indentkey) {
+                            if key == "public key" {
+                                Ok(None)
+                            } else if key == "private key" {
+                                Ok(None)
+                            } else if key == "listening port" {
+                                Ok(None)
+                            } else if key == "endpoint" {
+                                Ok(None)
+                            } else if key == "allowed ips" {
+                                Ok(None)
+                            } else if key == "latest handshake" {
+                                Ok(None)
+                            } else if key == "transfer" {
+                                let transfer = inp.context(parse_transfer(val))?;
+                                if let Some(peer) = current_peer.take() {
+                                    let dt = timestamp.to_datetime_utc();
+                                    let datehour = DateHourUtc {
+                                        date: dt.date_naive(),
+                                        hour: dt.hour() as u8
+                                    };
+                                    let dp = Datapoint {
+                                        timestamp,
+                                        date_and_hour: datehour,
+                                        transfer,
+                                        interface: peer.interface
+                                    };
+                                    Ok(Some(dp))
+                                } else {
+                                    inp.err_with_context(anyhow!(
+                                        "missing peer before key {key:?}"))
+                                }
+                            } else {
+                                inp.err_with_context(anyhow!(
+                                    "unknown indented key {key:?}"))
                             }
                         } else {
                             inp.err_with_context(anyhow!(
-                                "unknown indented key {key:?}"))?
+                                "unknown key {indentkey:?}"))
                         }
                     } else {
                         inp.err_with_context(anyhow!(
-                            "unknown key {indentkey:?}"))?
+                            "line does not match `key: val` pattern"))
                     }
-                } else {
-                    inp.err_with_context(anyhow!(
-                        "line does not match `key: val` pattern"))?
+                })(&mut current_interface);
+                match res {
+                    Ok(None) => {},
+                    Ok(Some(v)) => co.yield_(Ok(v)).await,
+                    Err(e) =>
+                        if num_errors < MAX_ERRORS {
+                            num_errors += 1;
+                            eprintln!("Warning: {e:?}");
+                        } else {
+                            //return Err(e) // XXX? right way to give an endless error?
+                            co.yield_(Err(e)).await
+                        }
                 }
-                Ok(())
-            })(&mut current_interface);
-            match res {
-                Ok(_) => {},
-                Err(e) =>
-                    if num_errors < MAX_ERRORS {
-                        num_errors += 1;
-                        eprintln!("Warning: {e:?}");
-                    } else {
-                        return Err(e)
-                    }
             }
         }
-    }
-    Ok(out)
+        ()
+    }).into_iter()
 }
 
 fn main() -> Result<()> {
@@ -404,15 +419,17 @@ fn main() -> Result<()> {
     }
     file_paths.sort(); // Not ideal, should sort on filenames only.
 
-    let datapoints = parse_files(file_paths)?;
+    let datapoints = parse_files(file_paths);
     if opt.show_direct {
-        for datapoint in &datapoints {
+        for datapoint in datapoints {
+            let datapoint = datapoint?;
             println!("{}: {}: {} {}",
                      datapoint.timestamp.to_rfc2822_local(),
                      datapoint.interface,
                      datapoint.transfer.received,
                      datapoint.transfer.sent);
         }
+        return Ok(())
     }
     if let Some(tsv_basepath) = opt.tsv {
         // Go through the values by time, if time difference is <5
@@ -436,15 +453,15 @@ fn main() -> Result<()> {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let timepoints = group(
-            datapoints.into_iter(),
+        let timepoints = try_group(
+            datapoints,
             on(timestamp_second, numbers_within(8)),
             |points| Timepoint::from_iter(points.as_mut().unwrap().drain(..))
                 .expect("groups are guaranteed to be non-empty, \
                          and we just panic for now if interfaces \
                          are > NUM_INTERFACES"));
 
-        let groups = group(
+        let groups = try_group(
             timepoints,
             on(|tp: &Timepoint| tp.date_and_hour(),
                |a, b| a == b),
@@ -463,6 +480,7 @@ fn main() -> Result<()> {
         let mut last_group: Option<Group> = None;
         let mut seen: BitSet = Default::default();
         for group in groups {
+            let group = group?;
             let time = group.first_timepoint().timestamp().to_rfc2822_local();
 
             seen.clear();
@@ -492,7 +510,7 @@ fn main() -> Result<()> {
                 )?;
             }
         }
+        return Ok(())
     }
-
     Ok(())
 }

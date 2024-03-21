@@ -376,7 +376,7 @@ fn run_cmd_with_log(cmd: &Vec<CString>, logpath: &OsStr) -> Result<i32> {
 
 fn main() -> Result<()> {
 
-    let (args, args_is_all_files) = (|| -> Result<(Vec<CString>, bool)> {
+    let (mut args, args_is_all_files) = (|| -> Result<(Vec<CString>, bool)> {
         let args = cstrings_from_osstrings(&mut env::args_os().skip(1))?;
         let mut files : Vec<CString> = Vec::new();
         let mut iargs = args.clone().into_iter();
@@ -499,7 +499,8 @@ fn main() -> Result<()> {
             CString::new("emacsclient")?,
             CString::new("-c")?,
         );
-        cmd.append(&mut args.clone());
+        cmd.append(&mut args);
+        drop(args);
 
         if is_running_in_terminal() {
             // Need to run direcly, can't redirect log

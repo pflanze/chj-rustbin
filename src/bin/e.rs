@@ -373,13 +373,30 @@ fn run_cmd_with_log(cmd: &Vec<CString>, logpath: &OsStr) -> Result<i32> {
     }
 }
 
-/// If `s` ends with ":" and some digits, then split off this part and
-/// return the digits as second value.
+
+fn is_num(s: &str) -> bool {
+    (!s.is_empty()) && s.chars().all(|c| c.is_ascii_digit())
+}
+
+/// If `s` ends with ":" and some digits for line, and optionally
+/// another ":" and more digits for column, then split off this part
+/// and return the digits (and optionally ":" and more digits) as
+/// second value.
 fn parse_file_description(s: &str) -> (&str, Option<&str>) {
     if let Some((pos, _)) = s.char_indices().rev().find(|(_, c)| *c == ':') {
         let (path, num) = (&s[0..pos], &s[pos+1..]);
-        if (!num.is_empty()) && num.chars().all(|c| c.is_ascii_digit()) {
-            (path, Some(num))
+        if is_num(num) {
+            // stupid nested copy
+            if let Some((pos, _)) = path.char_indices().rev().find(|(_, c)| *c == ':') {
+                let (path2, num2) = (&path[0..pos], &path[pos+1..]);
+                if is_num(num2) {
+                    (path2, Some(&s[pos+1..]))
+                } else {
+                    (path, Some(num))
+                }
+            } else {
+                (path, Some(num))
+            }
         } else {
             (s, None)
         }
@@ -399,8 +416,14 @@ mod tests {
         assert_eq!(t(""), ("", None));
         assert_eq!(t(":"), (":", None));
         assert_eq!(t("foo:123"), ("foo", Some("123")));
+        assert_eq!(t("foo:"), ("foo:", None));
         assert_eq!(t(":123"), ("", Some("123")));
         assert_eq!(t("foo:12a3"), ("foo:12a3", None));
+        assert_eq!(t("foo:12:a3"), ("foo:12:a3", None));
+        assert_eq!(t("foo:12a:3"), ("foo:12a", Some("3")));
+        assert_eq!(t("foo::3"), ("foo:", Some("3")));
+        assert_eq!(t("foo:3:"), ("foo:3:", None));
+        assert_eq!(t("foo:12:3"), ("foo", Some("12:3")));
     }
 }
 

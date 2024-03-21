@@ -17,7 +17,7 @@ use nix::fcntl::{open, OFlag};
 use nix::sys::stat::{mode_t, Mode};
 use nix::sys::wait::{wait, waitpid, WaitStatus};
 use std::os::unix::io::{FromRawFd, RawFd};
-use std::ffi::{CString, OsString, OsStr};
+use std::ffi::{CString, OsString, OsStr, CStr};
 use std::os::unix::ffi::OsStringExt;
 use nix::sys::signal::Signal;
 use bstr_parse::{BStrParse, ParseIntError, FromBStr};
@@ -373,10 +373,59 @@ fn run_cmd_with_log(cmd: &Vec<CString>, logpath: &OsStr) -> Result<i32> {
     }
 }
 
+/// If `s` ends with ":" and some digits, then split off this part and
+/// return the digits as second value.
+fn parse_file_description(s: &str) -> (&str, Option<&str>) {
+    if let Some((pos, _)) = s.char_indices().rev().find(|(_, c)| *c == ':') {
+        let (path, num) = (&s[0..pos], &s[pos+1..]);
+        if (!num.is_empty()) && num.chars().all(|c| c.is_ascii_digit()) {
+            (path, Some(num))
+        } else {
+            (s, None)
+        }
+    } else {
+        (s, None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn t_() {
+        let t = parse_file_description;
+        assert_eq!(t("/foo/bar"), ("/foo/bar", None));
+        assert_eq!(t(""), ("", None));
+        assert_eq!(t(":"), (":", None));
+        assert_eq!(t("foo:123"), ("foo", Some("123")));
+        assert_eq!(t(":123"), ("", Some("123")));
+        assert_eq!(t("foo:12a3"), ("foo:12a3", None));
+    }
+}
+
+// Only detects line numbering for paths that are UTF-8. OK?
+fn parse_file_description_from_cstring(s: &CStr) -> Option<(&str, &str)> {
+    match s.to_str() {
+        Ok(s) => {
+            let (path, pos) = parse_file_description(s);
+            if let Some(pos) = pos {
+                Some((path, pos))
+            } else {
+                None
+            }
+        }
+        Err(_) => None,
+    }
+}
+
+
 
 fn main() -> Result<()> {
 
-    let (mut args, args_is_all_files) = (|| -> Result<(Vec<CString>, bool)> {
+    // If `args_is_all_files` then `args` is all file descriptions
+    // (which can be path or path:linenumber).
+    let (mut args, args_is_all_files): (Vec<CString>, bool) = (|| -> Result<(Vec<CString>, bool)> {
         let args = cstrings_from_osstrings(&mut env::args_os().skip(1))?;
         let mut files : Vec<CString> = Vec::new();
         let mut iargs = args.clone().into_iter();
@@ -471,11 +520,21 @@ fn main() -> Result<()> {
         // we then wait on.
         let mut pids : HashMap<Pid, Vec<CString>> = HashMap::new();
         for file in args {
-            let cmd = vec!(
-                CString::new("emacsclient")?,
-                CString::new("-c")?,
-                CString::new("--")?,
-                file);
+            let cmd = 
+                if let Some((path, pos)) = parse_file_description_from_cstring(&file) {
+                    vec!(
+                        CString::new("emacsclient")?,
+                        CString::new("-c")?,
+                        CString::new(format!("+{pos}"))?,
+                        CString::new("--")?,
+                        CString::new(path)?)
+                } else {
+                    vec!(
+                        CString::new("emacsclient")?,
+                        CString::new("-c")?,
+                        CString::new("--")?,
+                        file)
+                };
             let pid = fork_session_proc(|| {
                 if do_debug() { eprintln!("e: child {} {:?}", getpid(), cmd) }
                 run_cmd_with_log(&cmd, &logpath)?;

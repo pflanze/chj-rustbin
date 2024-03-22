@@ -416,7 +416,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn t_() {
+    fn t_parse_file_description() {
         let t = parse_file_description;
         assert_eq!(t("/foo/bar"), ("/foo/bar", None));
         assert_eq!(t("/foo/bar:"), ("/foo/bar", None));

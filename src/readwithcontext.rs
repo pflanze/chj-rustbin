@@ -59,12 +59,14 @@ impl<'p> ReadWithContext<'p> {
 
 
     /// Report an error in the context of this file and position
+    #[allow(unused)]
     pub fn err_with_context<T>(&self, err: anyhow::Error) -> Result<T, anyhow::Error>
     {
         Err(err.context(anyhow!("file {:?} line {}", self.path, self.linenumber)))
     }
 
     /// A Result in the context of this file and position
+    #[allow(unused)]
     pub fn context<T>(&self, res: Result<T, anyhow::Error>) -> Result<T, anyhow::Error>
     {
         match res {

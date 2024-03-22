@@ -381,8 +381,14 @@ fn is_num(s: &str) -> bool {
 /// If `s` ends with ":" and some digits for line, and optionally
 /// another ":" and more digits for column, then split off this part
 /// and return the digits (and optionally ":" and more digits) as
-/// second value.
+/// second value. Also, as the first step, any trailing ":" is removed.
 fn parse_file_description(s: &str) -> (&str, Option<&str>) {
+    let s =
+        if s.chars().rev().next() == Some(':') {
+            &s[..s.len() - 1]
+        } else {
+            s
+        };
     if let Some((pos, _)) = s.char_indices().rev().find(|(_, c)| *c == ':') {
         let (path, num) = (&s[0..pos], &s[pos+1..]);
         if is_num(num) {
@@ -413,31 +419,29 @@ mod tests {
     fn t_() {
         let t = parse_file_description;
         assert_eq!(t("/foo/bar"), ("/foo/bar", None));
+        assert_eq!(t("/foo/bar:"), ("/foo/bar", None));
+        assert_eq!(t("/foo/bar::"), ("/foo/bar:", None));
+        assert_eq!(t("/foo/ba:r"), ("/foo/ba:r", None));
         assert_eq!(t(""), ("", None));
-        assert_eq!(t(":"), (":", None));
+        assert_eq!(t(":"), ("", None));
         assert_eq!(t("foo:123"), ("foo", Some("123")));
-        assert_eq!(t("foo:"), ("foo:", None));
+        assert_eq!(t("foo:123:"), ("foo", Some("123")));
+        assert_eq!(t("foo:"), ("foo", None));
         assert_eq!(t(":123"), ("", Some("123")));
         assert_eq!(t("foo:12a3"), ("foo:12a3", None));
         assert_eq!(t("foo:12:a3"), ("foo:12:a3", None));
         assert_eq!(t("foo:12a:3"), ("foo:12a", Some("3")));
         assert_eq!(t("foo::3"), ("foo:", Some("3")));
-        assert_eq!(t("foo:3:"), ("foo:3:", None));
+        assert_eq!(t("foo:3:"), ("foo", Some("3")));
         assert_eq!(t("foo:12:3"), ("foo", Some("12:3")));
+        assert_eq!(t("foo:12:3:"), ("foo", Some("12:3")));
     }
 }
 
 // Only detects line numbering for paths that are UTF-8. OK?
-fn parse_file_description_from_cstring(s: &CStr) -> Option<(&str, &str)> {
+fn parse_file_description_from_cstring(s: &CStr) -> Option<(&str, Option<&str>)> {
     match s.to_str() {
-        Ok(s) => {
-            let (path, pos) = parse_file_description(s);
-            if let Some(pos) = pos {
-                Some((path, pos))
-            } else {
-                None
-            }
-        }
+        Ok(s) => Some(parse_file_description(s)),
         Err(_) => None,
     }
 }
@@ -543,20 +547,30 @@ fn main() -> Result<()> {
         // we then wait on.
         let mut pids : HashMap<Pid, Vec<CString>> = HashMap::new();
         for file in args {
+            macro_rules! without_pos {
+                { $arg:expr } => {
+                    vec!(
+                        CString::new("emacsclient")?,
+                        CString::new("-c")?,
+                        CString::new("--")?,
+                        $arg)
+                }
+            }
             let cmd = 
                 if let Some((path, pos)) = parse_file_description_from_cstring(&file) {
-                    vec!(
-                        CString::new("emacsclient")?,
-                        CString::new("-c")?,
-                        CString::new(format!("+{pos}"))?,
-                        CString::new("--")?,
-                        CString::new(path)?)
+                    if let Some(pos) = pos {
+                        vec!(
+                            CString::new("emacsclient")?,
+                            CString::new("-c")?,
+                            CString::new(format!("+{pos}"))?,
+                            CString::new("--")?,
+                            CString::new(path)?)
+                    } else {
+                        // but use `path`, not `file`, to get trailing ":"s dropped
+                        without_pos!(CString::new(path)?)
+                    }
                 } else {
-                    vec!(
-                        CString::new("emacsclient")?,
-                        CString::new("-c")?,
-                        CString::new("--")?,
-                        file)
+                    without_pos!(file)
                 };
             let pid = fork_session_proc(|| {
                 if do_debug() { eprintln!("e: child {} {:?}", getpid(), cmd) }

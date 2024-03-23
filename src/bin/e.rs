@@ -452,7 +452,7 @@ fn main() -> Result<()> {
 
     // If `args_is_all_files` then `args` is all file descriptions
     // (which can be path or path:linenumber).
-    let (mut args, args_is_all_files): (Vec<CString>, bool) = (|| -> Result<(Vec<CString>, bool)> {
+    let (mut args, args_is_all_files): (Vec<CString>, bool) = (|| -> Result<_> {
         let args = cstrings_from_osstrings(&mut env::args_os().skip(1))?;
         let mut files : Vec<CString> = Vec::new();
         let mut iargs = args.clone().into_iter();

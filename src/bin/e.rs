@@ -382,7 +382,7 @@ fn is_num(s: &str) -> bool {
 /// another ":" and more digits for column, then split off this part
 /// and return the digits (and optionally ":" and more digits) as
 /// second value. Also, as the first step, any trailing ":" is
-/// removed, same for a leading "file:".
+/// removed, same for a leading "file://".
 fn parse_file_description(s: &str) -> (&str, Option<&str>) {
     let s =
         if s.chars().rev().next() == Some(':') {
@@ -391,8 +391,8 @@ fn parse_file_description(s: &str) -> (&str, Option<&str>) {
             s
         };
     let s =
-        if s.starts_with("file:") {
-            &s[5..]
+        if s.starts_with("file://") {
+            &s[7..]
         } else {
             s
         };
@@ -433,8 +433,10 @@ mod tests {
         assert_eq!(t(":"), ("", None));
         assert_eq!(t("foo:123"), ("foo", Some("123")));
         assert_eq!(t("foo:123:"), ("foo", Some("123")));
-        assert_eq!(t("file:foo:123:"), ("foo", Some("123")));
-        assert_eq!(t("file:123:"), ("123", None));
+        assert_eq!(t("file:foo:123:"), ("file:foo", Some("123")));
+        assert_eq!(t("file://foo:123:"), ("foo", Some("123")));
+        assert_eq!(t("file:///foo:123:"), ("/foo", Some("123")));
+        assert_eq!(t("file://123:"), ("123", None));
         assert_eq!(t("foo:"), ("foo", None));
         assert_eq!(t(":123"), ("", Some("123")));
         assert_eq!(t("foo:12a3"), ("foo:12a3", None));

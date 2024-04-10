@@ -414,7 +414,7 @@ fn main() -> Result<()> {
                     out.flush().with_context(
                         || anyhow!("flushing stdout"))?;
                     for (i, input) in inputs.inputs.iter_mut().enumerate() {
-                        if let Some(_) = &mut input.output {
+                        if input.output.is_some() {
                             // Re-use next() to copy over the
                             // remainder of the file. (Wasteful? No,
                             // verifications should be done anyway.)

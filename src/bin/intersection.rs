@@ -420,9 +420,11 @@ fn main() -> Result<()> {
                             // verifications should be done anyway.)
                             
                             while input.next(sortorder)? {}
-                            input.output.as_mut().unwrap().flush().with_context(
-                                || anyhow!("flushing file descriptor {:?}",
-                                           output_fd_for_input_index(i)))?;
+                            input.output.as_mut().expect(
+                                "always have a buffer because we already checked in the above if let")
+                                .flush().with_context(
+                                    || anyhow!("flushing file descriptor {:?}",
+                                               output_fd_for_input_index(i)))?;
                         }
                     }
                 }

@@ -118,7 +118,10 @@ impl Line {
 struct Input {
     path: PathBuf,
     input: BufReader<File>,
-    output: Option<BufWriter<File>>, // for fddrop
+    /// Filehandle to write non-intersecting entries to if --fddrop is given.
+    output: Option<BufWriter<File>>,
+    /// Using two line buffers so as to read a line in advance without
+    /// losing the previous one -- for?
     line1: Line,
     line2: Line,
     current_line_is_1: bool,
@@ -199,6 +202,9 @@ impl Inputs {
         self.inputs.len()
     }
 
+    /// The index into Inputs that has the line furthest along in
+    /// sorted processing (if multiple, the one with the largest index
+    /// (since `max_by` returns the last one per its docs)).
     fn largest_input_index(
         &self,
         sortorder: SortOrder

@@ -550,29 +550,30 @@ fn main() -> Result<()> {
         // we then wait on.
         let mut pids : HashMap<Pid, Vec<CString>> = HashMap::new();
         for file in args {
-            let without_pos = |s| {
-                vec!(
+            let cmd = {
+                let mut cmd = vec![
                     CString::new("emacsclient").unwrap(),
-                    CString::new("-c").unwrap(),
-                    CString::new("--").unwrap(),
-                    s)
-            };
-            let cmd = 
+                    CString::new("-c").unwrap()
+                ];
                 if let Some((path, pos)) = parse_file_description_from_cstring(&file) {
                     if let Some(pos) = pos {
-                        vec!(
-                            CString::new("emacsclient")?,
-                            CString::new("-c")?,
+                        cmd.append(&mut vec![
                             CString::new(format!("+{pos}"))?,
                             CString::new("--")?,
-                            CString::new(path)?)
+                            CString::new(path)?]);
                     } else {
-                        // but use `path`, not `file`, to get trailing ":"s dropped
-                        without_pos(CString::new(path)?)
+                        // use `path`, not `file`, to get trailing ":"s dropped
+                        cmd.append(&mut vec![
+                            CString::new("--")?,
+                            CString::new(path)?]);
                     }
                 } else {
-                    without_pos(file)
-                };
+                    cmd.append(&mut vec![
+                        CString::new("--")?,
+                        file]);
+                }
+                cmd
+            };
             let pid = fork_session_proc(|| {
                 if do_debug() { eprintln!("e: child {} {:?}", getpid(), cmd) }
                 run_cmd_with_log(&cmd, &logpath)?;

@@ -456,7 +456,6 @@ fn main() -> Result<()> {
         for arg in &mut iargs {
             let a = arg.to_bytes();
             if a == b"--" {
-                // XXX shouldn't the "--" be pushed too, first?
                 files.extend(&mut iargs);
                 return Ok((files, true, opt_nw))
             } else if a == b"-nw" || a == b"-t" || a == b"--tty" {
@@ -613,6 +612,9 @@ fn main() -> Result<()> {
         }
     } else {
         let mut cmd = emacsclient_cmd_base();
+        if args_is_all_files {
+            cmd.push(CString::new("--").unwrap());
+        }
         cmd.append(&mut args);
         drop(args);
 

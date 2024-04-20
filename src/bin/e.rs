@@ -183,10 +183,6 @@ fn run_session_proc(
     waitpid_until_gone(fork_session_proc(proc)?)
 }
 
-fn is_running_in_terminal() -> bool {
-    env::var_os("DISPLAY").is_none()
-}
-
 
 fn ask_yn(question: &str) -> Result<bool> {
     let mut opts = OpenOptions::new();
@@ -452,20 +448,24 @@ fn main() -> Result<()> {
 
     // If `args_is_all_files` then `args` is all file descriptions
     // (which can be path or path:linenumber).
-    let (mut args, args_is_all_files): (Vec<CString>, bool) = (|| -> Result<_> {
+    let (mut args, args_is_all_files, opt_nw): (Vec<CString>, bool, bool) = (|| -> Result<_> {
         let args = cstrings_from_osstrings(&mut env::args_os().skip(1))?;
+        let mut opt_nw = false;
         let mut files : Vec<CString> = Vec::new();
         let mut iargs = args.clone().into_iter();
         for arg in &mut iargs {
             let a = arg.to_bytes();
             if a == b"--" {
+                // XXX shouldn't the "--" be pushed too, first?
                 files.extend(&mut iargs);
-                return Ok((files, true))
+                return Ok((files, true, opt_nw))
+            } else if a == b"-nw" || a == b"-t" || a == b"--tty" {
+                opt_nw = true;
             } else if a.starts_with(b"-") {
                 eprintln!("e: can't currently deal with options, falling \
                            back to single emacsclient call (not opening \
                            a separate frame per file)");
-                return Ok((args, false))
+                return Ok((args, false, opt_nw))
             } else if a.starts_with(b"+") {
                 // XX todo: now that we support "path:123" style
                 // positions, either remove this or implement it too.
@@ -473,7 +473,7 @@ fn main() -> Result<()> {
                            back to single emacsclient call (not opening \
                            a separate frame per file); note that 'file:123' style positions \
                            are supported.");
-                return Ok((args, false))
+                return Ok((args, false, opt_nw))
             } else if a.ends_with(b"~") {
                 // Simply always ignore (for now? I'm not sure I've
                 // ever opened backup files via `e`)
@@ -481,8 +481,20 @@ fn main() -> Result<()> {
                 files.push(arg.clone());
             }
         }
-        Ok((files, true))
+        Ok((files, true, opt_nw))
     })()?;
+    let (is_running_in_terminal, add_nw_option) =
+        if env::var_os("DISPLAY").is_none() {
+            (true, false)
+        } else if args_is_all_files {
+            // We stripped the "-nw" or similar options if they were
+            // present.
+            (opt_nw, opt_nw)
+        } else {
+            // We did retain the "-nw" or similar options; only need
+            // to add_nw_option if not already seen it.
+            (opt_nw, !opt_nw)
+        };
 
     verify_env()?;
     
@@ -545,16 +557,23 @@ fn main() -> Result<()> {
         }
     }
 
-    if args_is_all_files && !is_running_in_terminal() {
+    let emacsclient_cmd_base = || {
+        let mut cmd = vec![
+            CString::new("emacsclient").unwrap(),
+            CString::new("-c").unwrap()
+        ];
+        if add_nw_option {
+            cmd.push(CString::new("-nw").unwrap());
+        }
+        cmd
+    };
+    if args_is_all_files && !is_running_in_terminal {
         // Open each file separately, collecting the pids that
         // we then wait on.
         let mut pids : HashMap<Pid, Vec<CString>> = HashMap::new();
         for file in args {
             let cmd = {
-                let mut cmd = vec![
-                    CString::new("emacsclient").unwrap(),
-                    CString::new("-c").unwrap()
-                ];
+                let mut cmd = emacsclient_cmd_base();
                 if let Some((path, pos)) = parse_file_description_from_cstring(&file) {
                     if let Some(pos) = pos {
                         cmd.append(&mut vec![
@@ -593,14 +612,11 @@ fn main() -> Result<()> {
             }
         }
     } else {
-        let mut cmd = vec!(
-            CString::new("emacsclient")?,
-            CString::new("-c")?,
-        );
+        let mut cmd = emacsclient_cmd_base();
         cmd.append(&mut args);
         drop(args);
 
-        if is_running_in_terminal() {
+        if is_running_in_terminal {
             // Need to run direcly, can't redirect log
             execvp(&cmd[0], &cmd)?;
             unsafe { _exit(123) }; // never reached, to satisfy type system

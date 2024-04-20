@@ -467,9 +467,12 @@ fn main() -> Result<()> {
                            a separate frame per file)");
                 return Ok((args, false))
             } else if a.starts_with(b"+") {
-                eprintln!("e: can't currently deal with positions, falling \
+                // XX todo: now that we support "path:123" style
+                // positions, either remove this or implement it too.
+                eprintln!("e: can't currently deal with '+' style positions, falling \
                            back to single emacsclient call (not opening \
-                           a separate frame per file)");
+                           a separate frame per file); note that 'file:123' style positions \
+                           are supported.");
                 return Ok((args, false))
             } else if a.ends_with(b"~") {
                 // Simply always ignore (for now? I'm not sure I've

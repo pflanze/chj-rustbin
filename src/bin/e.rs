@@ -547,15 +547,13 @@ fn main() -> Result<()> {
         // we then wait on.
         let mut pids : HashMap<Pid, Vec<CString>> = HashMap::new();
         for file in args {
-            macro_rules! without_pos {
-                { $arg:expr } => {
-                    vec!(
-                        CString::new("emacsclient")?,
-                        CString::new("-c")?,
-                        CString::new("--")?,
-                        $arg)
-                }
-            }
+            let without_pos = |s| -> Result<_> {
+                Ok(vec!(
+                    CString::new("emacsclient")?,
+                    CString::new("-c")?,
+                    CString::new("--")?,
+                    s))
+            };
             let cmd = 
                 if let Some((path, pos)) = parse_file_description_from_cstring(&file) {
                     if let Some(pos) = pos {
@@ -567,10 +565,10 @@ fn main() -> Result<()> {
                             CString::new(path)?)
                     } else {
                         // but use `path`, not `file`, to get trailing ":"s dropped
-                        without_pos!(CString::new(path)?)
+                        without_pos(CString::new(path)?)?
                     }
                 } else {
-                    without_pos!(file)
+                    without_pos(file)?
                 };
             let pid = fork_session_proc(|| {
                 if do_debug() { eprintln!("e: child {} {:?}", getpid(), cmd) }

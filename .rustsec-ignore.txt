@@ -1,0 +1,11 @@
+# atty 0.2.11 affected by RUSTSEC-2021-0145 (unsound)
+RUSTSEC-2021-0145
+
+# time 0.1.45 affected by RUSTSEC-2020-0071 (Potential segfault in the time crate)
+RUSTSEC-2020-0071
+
+# regex 1.4.6 affected by RUSTSEC-2022-0013 (Regexes with large repetitions on empty sub-expressions take a very long time to parse)
+RUSTSEC-2022-0013
+
+# ansi_term 0.12.1 affected by RUSTSEC-2021-0139 (unmaintained)
+RUSTSEC-2021-0139

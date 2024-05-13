@@ -390,7 +390,6 @@ fn main() -> Result<()> {
                                             break 'this_input;
                                         }
                                         Ordering::Less => {
-                                            drop(largest);
                                             if ! inputs.input_mut(i).next(sortorder)? {
                                                 break 'full;
                                             }

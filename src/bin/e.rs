@@ -434,14 +434,69 @@ mod tests {
     }
 }
 
-// Only detects line numbering for paths that are UTF-8. OK?
-fn parse_file_description_from_cstring(s: &CStr) -> Option<(&str, Option<&str>)> {
-    match s.to_str() {
-        Ok(s) => Some(parse_file_description(s)),
-        Err(_) => None,
+fn starts_with_a_b(s: &str) -> Option<(&str, &str)> {
+    let mut cs = s.chars();
+    let c0 = cs.next()?;
+    let c1 = cs.next()?;
+    let c2 = cs.next()?;
+    match c0 {
+        'a'|'b' => match c1 {
+            '/' => match c2 {
+                '/' => None,
+                _ => Some((&s[0..1], &s[2..]))
+            }
+            _ => None
+        }
+        _ => None
     }
 }
 
+#[cfg(test)]
+mod tests2 {
+    use super::*;
+
+    #[test]
+    fn t_starts_with_a_b() {
+        let t = starts_with_a_b;
+        assert_eq!(t(""), None);
+        assert_eq!(t("a"), None);
+        assert_eq!(t("a/"), None);
+        assert_eq!(t("a//be"), None);
+        assert_eq!(t("a/be"), Some(("a", "be")));
+        assert_eq!(t("a/c/d.x"), Some(("a", "c/d.x")));
+        assert_eq!(t("c/c/d.x"), None);
+        assert_eq!(t("b/."), Some(("b", ".")));
+    }
+}
+
+
+
+/// Tries to decode `s` as UTF-8 string (if not successful, returns
+/// None).  If the string starts with `a/` or `b/` and a non-'/'
+/// character afterwards, check if a directory of the same name
+/// exists, if not, strip it (it's then assumed to be left-overs from
+/// ). Then process (what remains) via `parse_file_description`. (This
+/// means that line numbering etc. is only detected for paths that are
+/// UTF-8, which is probably OK, at least on Linux.)
+fn parse_file_description_from_cstring(s: &CStr) -> Option<(&str, Option<&str>)> {
+    match s.to_str() {
+        Ok(s) => {
+            if let Some((prefix, rest)) = starts_with_a_b(s) {
+                match std::fs::metadata(prefix) {
+                    Ok(m) => if m.is_dir() {
+                        Some(parse_file_description(s))
+                    } else {
+                        Some(parse_file_description(rest))
+                    },
+                    Err(_) => Some(parse_file_description(rest))
+                }
+            } else {
+                Some(parse_file_description(s))
+            }
+        },
+        Err(_) => None,
+    }
+}
 
 
 fn main() -> Result<()> {

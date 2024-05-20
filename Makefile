@@ -1,8 +1,11 @@
 all:
 	cargo build --release
 
-test: target/release/intersection
+test_intersection: target/release/intersection
 	test/run
+
+test: test_intersection
+	cargo test --release
 
 target/release/%: src/bin/%.rs src/*.rs
 	cargo build --release
@@ -22,4 +25,4 @@ target/release/%: src/bin/%.rs src/*.rs
 
 install: /usr/local/bin/lastitem /usr/local/bin/symlinks-index /usr/local/bin/e /usr/local/bin/intersection
 
-.PHONY: test
+.PHONY: test test_intersection

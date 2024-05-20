@@ -3,6 +3,7 @@
 
 #[path = "../rawfdreader.rs"]
 mod rawfdreader;
+use chj_rustbin::unix_fs::path_is_file;
 use rawfdreader::RawFdReader;
 use anyhow::{Result, anyhow, bail}; 
 use std::fs::OpenOptions;
@@ -481,7 +482,6 @@ mod tests2 {
 }
 
 
-
 /// Tries to decode `s` as UTF-8 string (if not successful, returns
 /// None).  If the string starts with `a/` or `b/` and a non-'/'
 /// character afterwards, check if a directory of the same name
@@ -639,7 +639,15 @@ fn main() -> Result<()> {
         for file in args {
             let cmd = {
                 let mut cmd = emacsclient_cmd_base();
-                if let Some((path, pos)) = parse_file_description_from_cstring(&file) {
+                let mut append_unchanged = || -> Result<()> {
+                    cmd.append(&mut vec![
+                        CString::new("--")?,
+                        file.clone()]);
+                    Ok(())
+                };
+                if path_is_file(&file) {
+                    append_unchanged()?;
+                } else if let Some((path, pos)) = parse_file_description_from_cstring(&file) {
                     if let Some(pos) = pos {
                         cmd.append(&mut vec![
                             CString::new(format!("+{pos}"))?,
@@ -652,9 +660,7 @@ fn main() -> Result<()> {
                             CString::new(path)?]);
                     }
                 } else {
-                    cmd.append(&mut vec![
-                        CString::new("--")?,
-                        file]);
+                    append_unchanged()?;
                 }
                 cmd
             };

@@ -6,3 +6,4 @@ pub mod numbers;
 pub mod sequences;
 pub mod util;
 pub mod excel;
+pub mod unix_fs;

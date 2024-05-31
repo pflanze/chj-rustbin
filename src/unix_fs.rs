@@ -37,35 +37,44 @@ fn stat_filetype(st: &FileStat) -> u8 {
 /// Test whether stat on `path` succeeds and yields the given file
 /// type. If permissions deny access or there are disk errors, the
 /// result is simply `false`.
-pub fn path_is_type(path: &CStr, ftype: FileType) -> bool {
-    match nix::sys::stat::stat(path) {
+pub fn path_is_type(path: &CStr, ftypes: &[FileType], follow_links: bool) -> bool {
+    let statfunction: fn(&CStr) -> _ = if follow_links {
+        nix::sys::stat::stat
+    } else {
+        nix::sys::stat::lstat
+    };
+    match statfunction(path) {
         Ok(m) => {
-            m.filetype() == ftype
+            ftypes.iter().any(|ftype| m.filetype() == *ftype)
         }, 
         Err(_) => false
     }
 }
 
 pub fn path_is_file(path: &CStr) -> bool {
-    path_is_type(path, FileType::File)
+    path_is_type(path, &[FileType::File], false)
 }
 pub fn path_is_dir(path: &CStr) -> bool {
-    path_is_type(path, FileType::Dir)
+    path_is_type(path, &[FileType::Dir], false)
 }
 pub fn path_is_link(path: &CStr) -> bool {
-    path_is_type(path, FileType::Link)
+    path_is_type(path, &[FileType::Link], false)
 }
 pub fn path_is_blockdevice(path: &CStr) -> bool {
-    path_is_type(path, FileType::BlockDevice)
+    path_is_type(path, &[FileType::BlockDevice], false)
 }
 pub fn path_is_pipe(path: &CStr) -> bool {
-    path_is_type(path, FileType::Pipe)
+    path_is_type(path, &[FileType::Pipe], false)
 }
 pub fn path_is_socket(path: &CStr) -> bool {
-    path_is_type(path, FileType::Socket)
+    path_is_type(path, &[FileType::Socket], false)
 }
 pub fn path_is_chardevice(path: &CStr) -> bool {
-    path_is_type(path, FileType::CharDevice)
+    path_is_type(path, &[FileType::CharDevice], false)
+}
+
+pub fn path_is_normal(path: &CStr) -> bool {
+    path_is_type(path, &[FileType::File, FileType::Dir], true)
 }
 
 
@@ -91,5 +100,10 @@ mod tests {
         t(path_is_chardevice, "/dev/null", true);
         t(path_is_chardevice, "/dev/loop0", false);
         t(path_is_blockdevice, "/dev/loop0", true);
+        t(path_is_normal, "/dev/loop0", false);
+        t(path_is_normal, "8hbrr2kz8kmztb4dqh4", false);
+        t(path_is_normal, "/etc/fstab", true);
+        t(path_is_link, "/etc/localtime", true);
+        t(path_is_normal, "/etc/localtime", true);
     }
 }

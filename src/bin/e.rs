@@ -3,7 +3,7 @@
 
 #[path = "../rawfdreader.rs"]
 mod rawfdreader;
-use chj_rustbin::unix_fs::path_is_file;
+use chj_rustbin::unix_fs::path_is_normal;
 use rawfdreader::RawFdReader;
 use anyhow::{Result, anyhow, bail}; 
 use std::fs::OpenOptions;
@@ -645,7 +645,7 @@ fn main() -> Result<()> {
                         file.clone()]);
                     Ok(())
                 };
-                if path_is_file(&file) {
+                if path_is_normal(&file) {
                     append_unchanged()?;
                 } else if let Some((path, pos)) = parse_file_description_from_cstring(&file) {
                     if let Some(pos) = pos {

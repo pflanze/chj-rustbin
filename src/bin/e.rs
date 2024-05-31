@@ -648,16 +648,25 @@ fn main() -> Result<()> {
                 if path_is_normal(&file) {
                     append_unchanged()?;
                 } else if let Some((path, pos)) = parse_file_description_from_cstring(&file) {
-                    if let Some(pos) = pos {
-                        cmd.append(&mut vec![
-                            CString::new(format!("+{pos}"))?,
-                            CString::new("--")?,
-                            CString::new(path)?]);
+                    let path_cstr = CString::new(path.as_bytes()).expect(
+                        "`file` came from CStr thus no problem with \0 possible");
+                    if path_is_normal(&path_cstr) {
+                        if let Some(pos) = pos {
+                            cmd.append(&mut vec![
+                                CString::new(format!("+{pos}"))?,
+                                CString::new("--")?,
+                                CString::new(path)?]);
+                        } else {
+                            // use `path`, not `file`, to get trailing ":"s dropped
+                            cmd.append(&mut vec![
+                                CString::new("--")?,
+                                CString::new(path)?]);
+                        }
                     } else {
-                        // use `path`, not `file`, to get trailing ":"s dropped
-                        cmd.append(&mut vec![
-                            CString::new("--")?,
-                            CString::new(path)?]);
+                        // There's no reason a non-existing path would
+                        // have line/column numbers added, thus assume
+                        // the user wants to edit the original path.
+                        append_unchanged()?;
                     }
                 } else {
                     append_unchanged()?;

@@ -446,19 +446,11 @@ mod tests {
     }
 }
 
+// Checking whether the path comes from git diff
 fn starts_with_a_b(s: &str) -> Option<(&str, &str)> {
-    let mut cs = s.chars();
-    let c0 = cs.next()?;
-    let c1 = cs.next()?;
-    let c2 = cs.next()?;
-    match c0 {
-        'a'|'b' => match c1 {
-            '/' => match c2 {
-                '/' => None,
-                _ => Some((&s[0..1], &s[2..]))
-            }
-            _ => None
-        }
+    if s.len() < 3 { return None }
+    match &s.as_bytes()[0..3] {
+        &[ b'a' | b'b', b'/', r ] if r != b'/' => Some((&s[0..1], &s[2..])),
         _ => None
     }
 }

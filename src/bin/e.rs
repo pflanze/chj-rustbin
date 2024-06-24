@@ -448,9 +448,8 @@ mod tests {
 
 // Checking whether the path comes from git diff
 fn starts_with_a_b(s: &str) -> Option<(&str, &str)> {
-    if s.len() < 3 { return None }
-    match &s.as_bytes()[0..3] {
-        &[ b'a' | b'b', b'/', r ] if r != b'/' => Some((&s[0..1], &s[2..])),
+    match &*s.chars().collect::<Vec<char>>() {
+        &[ 'a' | 'b', '/', r, .. ] if r != '/' => Some((&s[0..1], &s[2..])),
         _ => None
     }
 }

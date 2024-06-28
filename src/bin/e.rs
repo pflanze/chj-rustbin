@@ -375,18 +375,42 @@ fn is_num(s: &str) -> bool {
     (!s.is_empty()) && s.chars().all(|c| c.is_ascii_digit())
 }
 
+// "Garbage" is a ':' and any following string that is empty or
+// contains non-digit characters (except for ':').
+fn remove_trailing_garbage(s: &str) -> &str {
+    if let Some((i, _c)) = s.char_indices().rev().find(|(_i, c)| *c == ':') {
+        let rest = &s[i+1..];
+        if rest.is_empty() || rest.contains(|c: char| ! c.is_ascii_digit()) {
+            &s[0..i]
+        } else {
+            s
+        }
+    } else {
+        s
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn t_remove_trailing_garbage() {
+    let t = remove_trailing_garbage;
+    assert_eq!(t("foo"), "foo");
+    assert_eq!(t("foo:"), "foo");
+    assert_eq!(t("foo:53"), "foo:53");
+    assert_eq!(t("foo:bar"), "foo");
+    assert_eq!(t("foo:b53"), "foo");
+    assert_eq!(t("foo:5b3"), "foo");
+    assert_eq!(t("foo:5b3:"), "foo:5b3");
+}
+
 /// If `s` ends with ":" and some digits for line, and optionally
 /// another ":" and more digits for column, then split off this part
 /// and return the digits (and optionally ":" and more digits) as
-/// second value. Also, as the first step, any trailing ":" is
-/// removed, same for a leading "file://".
+/// second value. Also, as the first step, any trailing ":" along with
+/// any non-digit string after it is removed, same for a leading
+/// "file://".
 fn parse_file_description(s: &str) -> (&str, Option<&str>) {
-    let s =
-        if s.chars().rev().next() == Some(':') {
-            &s[..s.len() - 1]
-        } else {
-            s
-        };
+    let s = remove_trailing_garbage(s);
     let s =
         if s.starts_with("file://") {
             &s[7..]
@@ -425,24 +449,28 @@ mod tests {
         assert_eq!(t("/foo/bar"), ("/foo/bar", None));
         assert_eq!(t("/foo/bar:"), ("/foo/bar", None));
         assert_eq!(t("/foo/bar::"), ("/foo/bar:", None));
-        assert_eq!(t("/foo/ba:r"), ("/foo/ba:r", None));
+        assert_eq!(t("/foo/ba:r"), ("/foo/ba", None));
         assert_eq!(t(""), ("", None));
         assert_eq!(t(":"), ("", None));
         assert_eq!(t("foo:123"), ("foo", Some("123")));
         assert_eq!(t("foo:123:"), ("foo", Some("123")));
+        assert_eq!(t("foo:123:abc"), ("foo", Some("123")));
+        assert_eq!(t("foo:abc:"), ("foo:abc", None));
+        assert_eq!(t("foo:abc:def"), ("foo:abc", None));
         assert_eq!(t("file:foo:123:"), ("file:foo", Some("123")));
         assert_eq!(t("file://foo:123:"), ("foo", Some("123")));
         assert_eq!(t("file:///foo:123:"), ("/foo", Some("123")));
         assert_eq!(t("file://123:"), ("123", None));
         assert_eq!(t("foo:"), ("foo", None));
         assert_eq!(t(":123"), ("", Some("123")));
-        assert_eq!(t("foo:12a3"), ("foo:12a3", None));
-        assert_eq!(t("foo:12:a3"), ("foo:12:a3", None));
+        assert_eq!(t("foo:12a3"), ("foo", None));
+        assert_eq!(t("foo:12:a3"), ("foo", Some("12")));
         assert_eq!(t("foo:12a:3"), ("foo:12a", Some("3")));
         assert_eq!(t("foo::3"), ("foo:", Some("3")));
         assert_eq!(t("foo:3:"), ("foo", Some("3")));
         assert_eq!(t("foo:12:3"), ("foo", Some("12:3")));
         assert_eq!(t("foo:12:3:"), ("foo", Some("12:3")));
+        assert_eq!(t("foo:12:3:abc"), ("foo", Some("12:3")));
     }
 }
 

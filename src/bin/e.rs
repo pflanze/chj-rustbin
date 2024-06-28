@@ -481,22 +481,18 @@ mod tests2 {
 /// means that line numbering etc. is only detected for paths that are
 /// UTF-8, which is probably OK, at least on Linux.)
 fn parse_file_description_from_cstring(s: &CStr) -> Option<(&str, Option<&str>)> {
-    match s.to_str() {
-        Ok(s) => {
-            if let Some((prefix, rest)) = starts_with_a_b(s) {
-                match std::fs::metadata(prefix) {
-                    Ok(m) => if m.is_dir() {
-                        Some(parse_file_description(s))
-                    } else {
-                        Some(parse_file_description(rest))
-                    },
-                    Err(_) => Some(parse_file_description(rest))
-                }
-            } else {
+    let s = s.to_str().ok()?;
+    if let Some((prefix, rest)) = starts_with_a_b(s) {
+        match std::fs::metadata(prefix) {
+            Ok(m) => if m.is_dir() {
                 Some(parse_file_description(s))
-            }
-        },
-        Err(_) => None,
+            } else {
+                Some(parse_file_description(rest))
+            },
+            Err(_) => Some(parse_file_description(rest))
+        }
+    } else {
+        Some(parse_file_description(s))
     }
 }
 

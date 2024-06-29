@@ -474,7 +474,8 @@ mod tests {
     }
 }
 
-// Checking whether the path comes from git diff
+// Returns `(prefixed_dir, path)` if `s` is a path coming from git
+// diff.
 fn starts_with_a_b(s: &str) -> Option<(&str, &str)> {
     match s.as_bytes() {
         &[ b'a' | b'b', b'/', r, .. ] if r != b'/' => Some((&s[0..1], &s[2..])),

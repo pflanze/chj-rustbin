@@ -476,8 +476,9 @@ mod tests {
 
 // Checking whether the path comes from git diff
 fn starts_with_a_b(s: &str) -> Option<(&str, &str)> {
-    match &*s.chars().take(3).collect::<Vec<_>>() {
-        &[ 'a' | 'b', '/', r ] if r != '/' => Some((&s[0..1], &s[2..])),
+    let mut cs = s.chars();
+    match [ cs.next()?, cs.next()?, cs.next()?] {
+        [ 'a' | 'b', '/', r ] if r != '/' => Some((&s[0..1], &s[2..])),
         _ => None
     }
 }

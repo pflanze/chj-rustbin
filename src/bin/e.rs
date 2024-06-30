@@ -613,12 +613,23 @@ fn main() -> Result<()> {
         }
     }
     
-    // Check if emacs daemon is up, if not, start it. Then
-    // open each file (args is just files here) with a
-    // separate emacsclient call, so that each is opened in a
-    // separate frame.
+    // Check if emacs daemon is up, if not, start it. Then open each
+    // file (args is just files here) with a separate emacsclient
+    // call, so that each is opened in a separate frame.
 
-    let start_emacs = || -> Result<()> {
+    let emacs_is_up = {
+        let res : Result<i32> = backtick(
+            &vec!(CString::new("emacsclient")?,
+                  CString::new("-e")?,
+                  CString::new("(+ 3 2)")?),
+            true,
+            true);
+        match res {
+            Err(_) => false,
+            Ok(val) => val == 5
+        }
+    };
+    if ! emacs_is_up {
         let cmd = vec!(CString::new("emacs")?,
                        CString::new("--daemon")?);
         xcheck_status(
@@ -627,27 +638,7 @@ fn main() -> Result<()> {
                     if do_debug() { eprintln!("e: child {} {:?}", getpid(), cmd) }
                     run_cmd_with_log(&cmd, &logpath)
                 })?,
-            &cmd)
-    };
-    
-    let res : Result<i32> = backtick(
-        &vec!(CString::new("emacsclient")?,
-              CString::new("-e")?,
-              CString::new("(+ 3 2)")?),
-        true,
-        true);
-    // eprintln!("res= {:?}", res);
-    match res {
-        Err(_) => {
-            start_emacs()?
-        },
-        Ok(val) => {
-            if val == 5 {
-                // Emacs is already up
-            } else {
-                start_emacs()?
-            }
-        }
+            &cmd)?;
     }
 
     let emacsclient_cmd_base = || {

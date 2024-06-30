@@ -730,7 +730,6 @@ fn main() -> Result<()> {
         if is_running_in_terminal {
             // Need to run direcly, can't redirect log
             execvp(&cmd[0], &cmd)?;
-            unsafe { _exit(123) }; // never reached, to satisfy type system
         } else {
             xcheck_status(
                 run_session_proc(

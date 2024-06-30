@@ -575,6 +575,7 @@ fn main() -> Result<()> {
         }
         Ok((files, true, opt_nw))
     })()?;
+
     let (is_running_in_terminal, add_nw_option) =
         if env::var_os("DISPLAY").is_none() {
             (true, false)

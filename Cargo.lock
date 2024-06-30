@@ -107,6 +107,7 @@ dependencies = [
  "log",
  "nix",
  "num",
+ "once_cell",
  "rayon",
  "structopt",
  "tai64",

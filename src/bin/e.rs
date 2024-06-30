@@ -535,7 +535,8 @@ fn parse_file_description_from_cstring(s: &CStr) -> Option<(&str, Option<&str>)>
 fn main() -> Result<()> {
 
     // If `args_is_all_files` then `args` is all file descriptions
-    // (which can be path or path:linenumber).
+    // (which can be path, path:linenumber, path:linenumber:colnumber,
+    // or the same with :garbage appended).
     let (mut args, args_is_all_files, opt_nw): (Vec<CString>, bool, bool) = (|| -> Result<_> {
         let args = cstrings_from_osstrings(&mut env::args_os().skip(1))?;
         let mut opt_nw = false;
@@ -544,7 +545,11 @@ fn main() -> Result<()> {
         for arg in &mut iargs {
             let a = arg.to_bytes();
             if a == b"--" {
+                // (Idea: mark files from after "--" as such, and
+                // don't do some magic then?)
                 files.extend(&mut iargs);
+                // Return args_is_all_files=`true` since otherwise we
+                // returned earlier already.
                 return Ok((files, true, opt_nw))
             } else if a == b"-nw" || a == b"-t" || a == b"--tty" {
                 opt_nw = true;
@@ -562,8 +567,8 @@ fn main() -> Result<()> {
                            are supported.");
                 return Ok((args, false, opt_nw))
             } else if a.ends_with(b"~") {
-                // Simply always ignore (for now? I'm not sure I've
-                // ever opened backup files via `e`)
+                // Simply always ignore such arguments (for now? But
+                // I'm not sure I've ever opened backup files via `e`)
             } else {
                 files.push(arg.clone());
             }

@@ -570,7 +570,7 @@ fn main() -> Result<()> {
                 // Simply always ignore such arguments (for now? But
                 // I'm not sure I've ever opened backup files via `e`)
             } else {
-                files.push(arg.clone());
+                files.push(arg);
             }
         }
         Ok((files, true, opt_nw))

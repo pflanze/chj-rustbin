@@ -576,20 +576,12 @@ fn main() -> Result<()> {
         Ok((files, true, opt_nw))
     })()?;
 
-    // Drop superfluous `e` argument from accidentally running `e e foo`
+    // Drop superfluous `e` arguments from accidentally running `e e foo` etc.
     let args =
         if args_is_all_files {
-            if let Some(first) = _args.iter().next() {
-                if first.as_bytes() == b"e" {
-                    &_args[1..]
-                } else {
-                    &_args
-                }
-            } else {
-                &_args
-            }
+            _args.into_iter().skip_while(|a| a.as_bytes() == b"e").collect()
         } else {
-            &_args
+            _args
         };
 
     let (is_running_in_terminal, add_nw_option) =

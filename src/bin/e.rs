@@ -378,7 +378,10 @@ fn is_num(s: &str) -> bool {
 // "Garbage" is a ':' and any following string that is empty or
 // contains non-digit characters (except for ':').
 fn remove_trailing_garbage(s: &str) -> &str {
-    if let Some((i, _c)) = s.char_indices().rev().find(|(_i, c)| *c == ':') {
+    if let Some((i, c)) = s.char_indices().rev().find(|(_i, c)| *c == ':' || *c == '/') {
+        if c == '/' {
+            return s;
+        }
         let rest = &s[i+1..];
         if rest.is_empty() || rest.contains(|c: char| ! c.is_ascii_digit()) {
             &s[0..i]
@@ -401,6 +404,9 @@ fn t_remove_trailing_garbage() {
     assert_eq!(t("foo:b53"), "foo");
     assert_eq!(t("foo:5b3"), "foo");
     assert_eq!(t("foo:5b3:"), "foo:5b3");
+    assert_eq!(t("a:1:1/foo:5b3"), "a:1:1/foo");
+    assert_eq!(t("a:1:1/foo:5b3:"), "a:1:1/foo:5b3");
+    assert_eq!(t("a:1:1/fwef"), "a:1:1/fwef");
 }
 
 /// If `s` ends with ":" and some digits for line, and optionally

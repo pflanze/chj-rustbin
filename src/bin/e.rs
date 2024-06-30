@@ -4,9 +4,11 @@
 #[path = "../rawfdreader.rs"]
 mod rawfdreader;
 use chj_rustbin::unix_fs::path_is_normal;
+use once_cell::sync::Lazy;
 use rawfdreader::RawFdReader;
 use anyhow::{Result, anyhow, bail}; 
 use std::fs::OpenOptions;
+use std::path::PathBuf;
 use std::{env, writeln};
 use std::io::{stderr, Write, BufReader, BufRead};
 use libc::_exit;
@@ -579,7 +581,10 @@ fn main() -> Result<()> {
     // Drop superfluous `e` arguments from accidentally running `e e foo` etc.
     let args =
         if args_is_all_files {
-            _args.into_iter().skip_while(|a| a.as_bytes() == b"e").collect()
+            let e_exists: Lazy<bool> = Lazy::new(|| {
+                PathBuf::from("e").exists()
+            });
+            _args.into_iter().skip_while(|a| a.as_bytes() == b"e" && ! *e_exists).collect()
         } else {
             _args
         };

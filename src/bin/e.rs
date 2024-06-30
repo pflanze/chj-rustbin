@@ -537,7 +537,7 @@ fn main() -> Result<()> {
     // If `args_is_all_files` then `args` is all file descriptions
     // (which can be path, path:linenumber, path:linenumber:colnumber,
     // or the same with :garbage appended).
-    let (mut args, args_is_all_files, opt_nw): (Vec<CString>, bool, bool) = (|| -> Result<_> {
+    let (_args, args_is_all_files, opt_nw): (Vec<CString>, bool, bool) = (|| -> Result<_> {
         let args = cstrings_from_osstrings(&mut env::args_os().skip(1))?;
         let mut opt_nw = false;
         let mut files : Vec<CString> = Vec::new();
@@ -575,6 +575,22 @@ fn main() -> Result<()> {
         }
         Ok((files, true, opt_nw))
     })()?;
+
+    // Drop superfluous `e` argument from accidentally running `e e foo`
+    let args =
+        if args_is_all_files {
+            if let Some(first) = _args.iter().next() {
+                if first.as_bytes() == b"e" {
+                    &_args[1..]
+                } else {
+                    &_args
+                }
+            } else {
+                &_args
+            }
+        } else {
+            &_args
+        };
 
     let (is_running_in_terminal, add_nw_option) =
         if env::var_os("DISPLAY").is_none() {
@@ -715,8 +731,7 @@ fn main() -> Result<()> {
         if args_is_all_files {
             cmd.push(CString::new("--").unwrap());
         }
-        cmd.append(&mut args);
-        drop(args);
+        cmd.append(&mut args.to_owned());
 
         if is_running_in_terminal {
             // Need to run direcly, can't redirect log

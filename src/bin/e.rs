@@ -533,6 +533,9 @@ fn parse_file_description_from_cstring(s: &CStr) -> Option<(&str, Option<&str>)>
     }
 }
 
+fn is_hr(s: &[u8]) -> bool {
+    s.len() >= 3 && s.iter().all(|b| *b == b'-')    
+}
 
 fn main() -> Result<()> {
 
@@ -555,7 +558,7 @@ fn main() -> Result<()> {
                 return Ok((files, true, opt_nw))
             } else if a == b"-nw" || a == b"-t" || a == b"--tty" {
                 opt_nw = true;
-            } else if a.starts_with(b"-") {
+            } else if a.starts_with(b"-") && ! is_hr(a) {
                 eprintln!("e: can't currently deal with options, falling \
                            back to single emacsclient call (not opening \
                            a separate frame per file)");
@@ -578,13 +581,21 @@ fn main() -> Result<()> {
         Ok((files, true, opt_nw))
     })()?;
 
-    // Drop superfluous `e` arguments from accidentally running `e e foo` etc.
+    // Drop superfluous `e` arguments from accidentally running
+    // e.g. `e e foo`, and file paths consisting of 3 or more `-`
+    // characters (copy pastes from gitk).
     let args =
         if args_is_all_files {
             let e_exists: Lazy<bool> = Lazy::new(|| {
                 PathBuf::from("e").exists()
             });
-            _args.into_iter().skip_while(|a| a.as_bytes() == b"e" && ! *e_exists).collect()
+            _args.into_iter().filter(|a| if a.as_bytes() == b"e" {
+                *e_exists
+            } else if is_hr(a.as_bytes()) {
+                path_is_normal(a) 
+            } else {
+                true
+            }).collect()
         } else {
             _args
         };

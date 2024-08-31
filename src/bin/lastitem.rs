@@ -146,53 +146,11 @@ fn item_merge(old_item: Option<Item>, new_item: Option<Item>)
     }
 }
 
-fn main() -> Result<()> {
-    let mut opt = Opt::from_args();
 
-    if !opt.files && !opt.dirs && !opt.other {
-        let arg0 = env::args_os().next();
-        let exepath = arg0.ok_or_else(
-            || anyhow!("can't get executable path from args_os"))?;
-        let exename = Path::new(&exepath).file_name().ok_or_else(
-            || anyhow!("can't extract file_name from executable path"))?;
-
-        if exename == "lastitem" {
-            opt.files = true;
-            opt.dirs = true;
-            opt.other = true;
-        } else if exename == "lastfile" {
-            opt.files = true;
-        } else if exename == "lastdir" {
-            opt.dirs = true;
-        } else {
-            bail!("inacceptable executable name: {}",
-                  exename.to_string_lossy());
-        }
-    }
-
-    let mut excludes =
-        if opt.no_ignore {
-            empty_excludes()
-        } else {
-            default_excludes()
-        };
-
-    match opt.ignore_files {
-        Some(ref s) => insert_lines(&mut excludes.files, s),
-        None => ()
-    }
-
-    match opt.ignore_dirs {
-        Some(ref s) => insert_lines(&mut excludes.dirs, s),
-        None => ()
-    }
-
-    env::set_current_dir(&opt.directory_path).with_context(
-        || format!("can't chdir to {:?}", opt.directory_path))?;
-
+fn lastitem(dir_path: &str, opt: &Opt, excludes: &Excludes) -> Result<Option<Item>> {
     let items: Vec<OsString> =
-        fs::read_dir(".").with_context(
-            || "can't open the base directory for reading")?
+        fs::read_dir(dir_path).with_context(
+            || anyhow!("opening directory {dir_path:?} for reading"))?
         .filter_map(
             |entry_result: Result<fs::DirEntry, std::io::Error>|
                                   -> Option<Result<OsString,
@@ -244,8 +202,55 @@ fn main() -> Result<()> {
         .try_reduce(
             || None,
             |a, b| Ok(item_merge(a, b)))?;
+    Ok(newest_item)
+}
 
-    match newest_item {
+
+fn main() -> Result<()> {
+    let mut opt = Opt::from_args();
+
+    if !opt.files && !opt.dirs && !opt.other {
+        let arg0 = env::args_os().next();
+        let exepath = arg0.ok_or_else(
+            || anyhow!("can't get executable path from args_os"))?;
+        let exename = Path::new(&exepath).file_name().ok_or_else(
+            || anyhow!("can't extract file_name from executable path"))?;
+
+        if exename == "lastitem" {
+            opt.files = true;
+            opt.dirs = true;
+            opt.other = true;
+        } else if exename == "lastfile" {
+            opt.files = true;
+        } else if exename == "lastdir" {
+            opt.dirs = true;
+        } else {
+            bail!("inacceptable executable name: {}",
+                  exename.to_string_lossy());
+        }
+    }
+
+    let mut excludes =
+        if opt.no_ignore {
+            empty_excludes()
+        } else {
+            default_excludes()
+        };
+
+    match opt.ignore_files {
+        Some(ref s) => insert_lines(&mut excludes.files, s),
+        None => ()
+    }
+
+    match opt.ignore_dirs {
+        Some(ref s) => insert_lines(&mut excludes.dirs, s),
+        None => ()
+    }
+
+    env::set_current_dir(&opt.directory_path).with_context(
+        || format!("can't chdir to {:?}", opt.directory_path))?;
+
+    match lastitem(".", &opt, &excludes)? {
         Some(Item { filename, mtime: _ }) => {
             io::stdout().write_all(
                 if opt.fullpath {
@@ -254,7 +259,8 @@ fn main() -> Result<()> {
                 } else {
                     filename
                 }.as_bytes())?;
-            io::stdout().write_all(b"\n")
+            io::stdout().write_all(b"\n")?;
+            Ok(())
         }
         None =>
             if opt.allow_empty {
@@ -274,7 +280,5 @@ fn main() -> Result<()> {
                           which.natural_language_join()
                       })
             }
-    }?;
-
-    Ok(())
+    }
 }

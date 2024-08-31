@@ -6,8 +6,17 @@ version = "0.1.0"
 authors = ["Christian Jaeger <ch@christianjaeger.ch>"]
 edition = "2018"
 
+[profile.dev.package."*"]
+opt-level = "s"
+debug = false
+debug-assertions = false
+overflow-checks = false
+
 [profile.release]
 opt-level = "s"
+debug = false
+debug-assertions = false
+overflow-checks = false
 
 [dependencies]
 structopt = "0.3"

@@ -1,7 +1,7 @@
 use chj_rustbin::util::{hashmap_add, hashmap_get_mut_vivify};
 use chrono::{Timelike, NaiveDate, Datelike};
+use clap::Parser;
 use genawaiter::rc::Gen;
-use structopt::StructOpt;
 use tai64::Tai64N;
 use std::collections::HashMap;
 use std::ops::Add;
@@ -19,15 +19,15 @@ use chj_rustbin::{readwithcontext::ReadWithContext,
                   fp::on};
 
 
-#[derive(StructOpt, Debug)]
+#[derive(clap::Parser, Debug)]
 /// Parse a log file consisting of repeated output of `wg` (wireguard
 /// command line tool), with tai64n timestamps prepended to each line
 /// (DJB daemontools log format).
 
-#[structopt(name = "parse-wg-log from chj-rustbin")]
+#[clap(name = "parse-wg-log from chj-rustbin")]
 struct Opt {
     /// Show parsed data directly
-    #[structopt(long)]
+    #[clap(long)]
     show_direct: bool,
 
     /// Calculate derived values and save as TSV files, one for each
@@ -35,11 +35,11 @@ struct Opt {
     /// `$interfacename.tsv` is appended for the hourly tables, and
     /// `$interfacename-summary.tsv` is appended for the monthly
     /// summary tables.
-    #[structopt(long)]
+    #[clap(long)]
     tsv: Option<String>,
 
     /// The paths to dirs with files to parse
-    #[structopt(parse(from_os_str))]
+    #[clap(parse(from_os_str))]
     dir_paths: Vec<PathBuf>,
 }
 

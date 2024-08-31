@@ -6,6 +6,9 @@ mod naturallanguagejoin;
 use naturallanguagejoin::NaturalLanguageJoin;
 
 use anyhow::{Context, Result, bail, anyhow};
+use clap::Parser;
+use rayon::iter::ParallelIterator;
+use rayon::iter::IntoParallelIterator;
 use std::fs;
 use std::io;
 use std::env;
@@ -15,9 +18,6 @@ use std::ffi::{OsString, OsStr};
 use std::io::Write;
 use std::time::SystemTime;
 use std::path::PathBuf;
-use structopt::StructOpt;
-use rayon::iter::ParallelIterator;
-use rayon::iter::IntoParallelIterator;
 use std::collections::hash_set::HashSet;
 use std::convert::From;
 
@@ -57,59 +57,59 @@ fn generic_ignore_filename(filename: &OsString) -> bool {
 }
 
 
-#[derive(StructOpt, Debug)]
+#[derive(clap::Parser, Debug)]
 /// Show the newest (with regards to mtime) item in a directory. If
 /// called via a symlink as `lastfile`, shows the last file, if called
 /// as `lastdir`, the last dir, if called as `lastitem`, any kind of
 /// filesystem entry. Alternatively, if the --dirs or --files option
 /// is given, that takes precedence.
-#[structopt(name = "lastitem from chj-rustbin")]
+#[clap(name = "lastitem from chj-rustbin")]
 struct Opt {
     /// consider dirs
-    #[structopt(long)]
+    #[clap(long)]
     dirs: bool,
 
     /// consider files
-    #[structopt(long)]
+    #[clap(long)]
     files: bool,
 
     /// consider other items (symlinks, pipes, sockets, device files)
-    #[structopt(long)]
+    #[clap(long)]
     other: bool,
 
     /// do not ignore dot and Emacs backup (ending in '~') files
-    #[structopt(short, long)]
+    #[clap(short, long)]
     all: bool,
 
     /// do not ignore special file and dir names that are ignored by
     /// default, like .git
-    #[structopt(long)]
+    #[clap(long)]
     no_ignore: bool,
 
     /// ignore files with the given name(s); these are in addition to
     /// the default ignores, use --no-ignore to drop those. XX Due to
-    /// not knowing how to get StructOpt or Clap to allow multiple
+    /// not knowing how to get Clap to allow multiple
     /// calls to this option, it can only be used once; multiple files
     /// can be given by separating them with a \n newline character
-    #[structopt(long)]
+    #[clap(long)]
     ignore_files: Option<OsString>,
 
     /// ignore dirs with the given names(s); the same comments apply
     /// as for --ignore-files
-    #[structopt(long)]
+    #[clap(long)]
     ignore_dirs: Option<OsString>,
 
     /// if a directory has no files after filtering, succeed without
     /// showing a result (the default is to report an error)
-    #[structopt(long)]
+    #[clap(long)]
     allow_empty: bool,
 
     /// show the full path instead of just the filename
-    #[structopt(short, long)]
+    #[clap(short, long)]
     fullpath: bool,
 
     /// the directory to find the item in
-    #[structopt(parse(from_os_str), default_value = ".")]
+    #[clap(parse(from_os_str), default_value = ".")]
     directory_path: PathBuf,
 }
 

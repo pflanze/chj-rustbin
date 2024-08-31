@@ -8,7 +8,7 @@ mod readwithcontext;
 use readwithcontext::{easy_read_line, open_file, ReadWithContext};
 
 use anyhow::{Result, bail, Context, Error, anyhow};
-use structopt::StructOpt;
+use clap::Parser;
 use thiserror::Error;
 use std::cmp::Ordering;
 use std::fs::File;
@@ -19,44 +19,44 @@ use std::path::PathBuf;
 use std::collections::{VecDeque, HashSet};
 use kstring::KString;
 
-#[derive(StructOpt, Debug)]
+#[derive(clap::Parser, Debug)]
 /// Print the lines that occur in all input files. By default, files
 /// don't need to be sorted (but see `--sorted`); an in-memory set is
 /// built, the order of the output lines follows the last file, and if
 /// there are repetitions in the last file, those are repeated, too.
 
-#[structopt(name = "intersection from chj-rustbin")]
+#[clap(name = "intersection from chj-rustbin")]
 struct Opt {
     /// Show the set, not the filtered last file (i.e. there will be
     /// no repetitions in the output, and it is lexically sorted
     /// instead of like the last file). This also allows to include
     /// the file given last in the re-ordering optimization (the
     /// smallest files being processed first).
-    #[structopt(long)]
+    #[clap(long)]
     set: bool,
 
     /// Assume that the input files are lexically sorted (uses a
     /// streaming implementation).
-    #[structopt(long)]
+    #[clap(long)]
     sorted: bool,
 
     /// Implies --sorted. Assume numeric sorting instead of
     /// lexical. Currently integers only.
-    #[structopt(long)]
+    #[clap(long)]
     numeric: bool,
 
     /// Whether to print dropped lines to file descriptor from 10
     /// onwards (the dropped lines from the first file go to file
     /// descriptor 10, the second file to fd 11, etc.). Only works in
     /// sorted mode (--sorted or --numeric).
-    #[structopt(long)]
+    #[clap(long)]
     fddrop: bool,
 
-    #[structopt(long)]
+    #[clap(long)]
     structsizes: bool,
 
     /// The paths to files to get the intersection of.
-    #[structopt(parse(from_os_str))]
+    #[clap(parse(from_os_str))]
     file_paths: Vec<PathBuf>,
 }
 

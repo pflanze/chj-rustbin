@@ -99,6 +99,11 @@ struct Opt {
     #[clap(long)]
     ignore_dirs: Option<OsString>,
 
+    /// look for an item DEPTH levels deeper than the given directory
+    /// (i.e. with DEPTH levels of directories inbetween), default: 0
+    #[clap(long)]
+    depth: Option<u8>,
+
     /// if a directory has no files after filtering, succeed without
     /// showing a result (the default is to report an error)
     #[clap(long)]
@@ -147,47 +152,67 @@ fn item_merge(old_item: Option<Item>, new_item: Option<Item>)
 }
 
 
-fn lastitem(dir_path: &str, opt: &Opt, excludes: &Excludes) -> Result<Option<Item>> {
-    let items: Vec<OsString> =
-        fs::read_dir(dir_path).with_context(
-            || anyhow!("opening directory {dir_path:?} for reading"))?
-        .filter_map(
-            |entry_result: Result<fs::DirEntry, std::io::Error>|
-                                  -> Option<Result<OsString,
-                                                   std::io::Error>> {
-                match entry_result {
-                    Ok(entry) => {
-                        let ft = entry.file_type()
-                            .expect("does this fail on OSes needing stat?");
-                        let filename = entry.file_name();
-                        if opt.all || ! generic_ignore_filename(&filename) {
-                            let handle_as_dir = ft.is_dir()
-                                && opt.dirs
-                                && !excludes.dirs.contains(&filename);
-                            let handle_as_file = ft.is_file()
-                                && opt.files
-                                && !excludes.files.contains(&filename);
-                            let handle_as_other = opt.other &&
-                                (!ft.is_dir() && !ft.is_file());
-                            if handle_as_dir || (
-                                handle_as_file || handle_as_other) {
-                                Some(Ok(filename))
-                            } else {
-                                trace!(
-                                    "ignoring item '{:?}' (type {:?})",
-                                    filename, ft);
-                                None
-                            }
+struct LastitemOpt {
+    all: bool,
+    dirs: bool,
+    files: bool,
+    other: bool,
+}
+
+impl From<&Opt> for LastitemOpt {
+    fn from(o: &Opt) -> Self {
+        LastitemOpt {
+            all: o.all,
+            dirs: o.dirs,
+            files: o.files,
+            other: o.other
+        }
+    }
+}
+
+fn items(dir_path: &str, opt: &LastitemOpt, excludes: &Excludes) -> Result<Vec<OsString>> {
+    fs::read_dir(dir_path).with_context(
+        || anyhow!("opening directory {dir_path:?} for reading"))?
+    .filter_map(
+        |entry_result: Result<fs::DirEntry, std::io::Error>|
+                              -> Option<Result<OsString,
+                                               std::io::Error>> {
+            match entry_result {
+                Ok(entry) => {
+                    let ft = entry.file_type()
+                        .expect("does this fail on OSes needing stat?");
+                    let filename = entry.file_name();
+                    if opt.all || ! generic_ignore_filename(&filename) {
+                        let handle_as_dir = ft.is_dir()
+                            && opt.dirs
+                            && !excludes.dirs.contains(&filename);
+                        let handle_as_file = ft.is_file()
+                            && opt.files
+                            && !excludes.files.contains(&filename);
+                        let handle_as_other = opt.other &&
+                            (!ft.is_dir() && !ft.is_file());
+                        if handle_as_dir || (
+                            handle_as_file || handle_as_other) {
+                            Some(Ok(filename))
                         } else {
+                            trace!(
+                                "ignoring item '{:?}' (type {:?})",
+                                filename, ft);
                             None
                         }
-                    },
-                    Err(e) =>
-                        Some(Err(e))
-                }
-            })
-        .collect::<Result<_,_>>()?;
+                    } else {
+                        None
+                    }
+                },
+                Err(e) =>
+                    Some(Err(e))
+            }
+        })
+    .collect::<Result<_,_>>().map_err(|e| e.into())
+}
 
+fn lastitem(dir_path: &str, opt: &LastitemOpt, excludes: &Excludes) -> Result<Option<Item>> {
+    let items = items(dir_path, opt, excludes)?;
     let newest_item =
         items.into_par_iter().try_fold(
             || None,
@@ -204,7 +229,6 @@ fn lastitem(dir_path: &str, opt: &Opt, excludes: &Excludes) -> Result<Option<Ite
             |a, b| Ok(item_merge(a, b)))?;
     Ok(newest_item)
 }
-
 
 fn main() -> Result<()> {
     let mut opt = Opt::from_args();
@@ -250,7 +274,14 @@ fn main() -> Result<()> {
     env::set_current_dir(&opt.directory_path).with_context(
         || format!("can't chdir to {:?}", opt.directory_path))?;
 
-    match lastitem(".", &opt, &excludes)? {
+    let lastitem_opt = LastitemOpt::from(&opt);
+
+    let last = match opt.depth {
+        Some(depth) => todo!(),
+        None => lastitem(".", &lastitem_opt, &excludes)? 
+    };
+    
+    match last {
         Some(Item { filename, mtime: _ }) => {
             io::stdout().write_all(
                 if opt.fullpath {

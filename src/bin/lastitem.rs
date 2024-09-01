@@ -123,7 +123,7 @@ struct Opt {
 }
 
 
-trait PathLike: Into<PathBuf> + Debug + PartialEq {}
+trait PathLike: Debug {}
 impl PathLike for &Path {}
 impl PathLike for PathBuf {}
 

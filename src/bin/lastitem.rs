@@ -23,6 +23,7 @@ use std::collections::hash_set::HashSet;
 use std::convert::From;
 
 
+#[derive(Debug)]
 struct Excludes {
     files: HashSet<OsString>,
     dirs: HashSet<OsString>
@@ -115,6 +116,10 @@ struct Opt {
     /// the directory to find the item in
     #[clap(parse(from_os_str), default_value = ".")]
     directory_path: PathBuf,
+
+    /// show some information about what's being done
+    #[clap(short, long)]
+    verbose: bool,
 }
 
 
@@ -332,6 +337,10 @@ fn main() -> Result<()> {
 
     for s in &opt.ignore_dir {
         excludes.dirs.insert(s.clone());
+    }
+
+    if opt.verbose {
+        eprintln!("lastitem: {excludes:?}");
     }
 
     env::set_current_dir(&opt.directory_path).with_context(

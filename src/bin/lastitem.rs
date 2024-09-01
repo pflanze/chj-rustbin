@@ -9,6 +9,7 @@ use anyhow::{Context, Result, bail, anyhow};
 use clap::Parser;
 use rayon::iter::ParallelIterator;
 use rayon::iter::IntoParallelIterator;
+use std::fmt::Debug;
 use std::fs;
 use std::io;
 use std::env;
@@ -126,32 +127,80 @@ fn insert_lines(hashset: &mut HashSet<OsString>, s: &OsString) {
     }
 }
 
+trait PathLike: Into<PathBuf> + Debug + PartialEq {}
+impl PathLike for &Path {}
+impl PathLike for PathBuf {}
 
-struct Item {
+trait ItemLike {
+    fn mtime(&self) -> &SystemTime;
+    fn filename(&self) -> &OsString;
+}
+
+
+#[derive(Debug)]
+struct Item1 {
     filename: OsString,
     mtime: SystemTime,
 }
 
-fn item_merge(old_item: Option<Item>, new_item: Option<Item>)
-              -> Option<Item> {
-    match (&old_item, &new_item) {
-        (&Some(Item { filename: ref old_filename, mtime: old_mtime }),
-         &Some(Item { filename: ref new_filename, mtime: new_mtime })) =>
-            if (old_mtime < new_mtime)
-            || ((old_mtime == new_mtime) &&
-                (*old_filename > *new_filename)) {
-                new_item
-            } else {
-                old_item
-            },
-        (_, None) =>
-            old_item,
-        (None, _) =>
-            new_item
+impl Item1 {
+    fn with_parent<P: PathLike>(self, parentdir: P) -> Item2<P> {
+        Item2 {
+            parentdir,
+            filename: self.filename,
+            mtime: self.mtime
+        }
+    }
+}
+
+impl ItemLike for Item1 {
+    fn mtime(&self) -> &SystemTime {
+        &self.mtime
+    }
+
+    fn filename(&self) -> &OsString {
+        &self.filename
+    }
+}
+
+#[derive(Debug)]
+struct Item2<P: PathLike> {
+    parentdir: P,
+    filename: OsString,
+    mtime: SystemTime,
+}
+
+impl<P: PathLike> ItemLike for Item2<P> {
+    fn mtime(&self) -> &SystemTime {
+        &self.mtime
+    }
+
+    fn filename(&self) -> &OsString {
+        &self.filename
     }
 }
 
 
+fn newer_item<I: ItemLike>(
+    a: Option<I>, b: Option<I>
+) -> Option<I> {
+    match (a, b) {
+        (Some(a), Some(b)) => {
+            if (a.mtime() < b.mtime()) ||
+                ((a.mtime() == b.mtime()) && (a.filename() > b.filename()))
+            {
+                Some(b)
+            } else {
+                Some(a)
+            }
+        },
+        (a, None) => a,
+        (None, b) => b
+    }
+}
+
+
+#[derive(Debug)]
 struct LastitemOpt {
     all: bool,
     dirs: bool,
@@ -170,13 +219,12 @@ impl From<&Opt> for LastitemOpt {
     }
 }
 
-fn items(dir_path: &str, opt: &LastitemOpt, excludes: &Excludes) -> Result<Vec<OsString>> {
+fn items(dir_path: &Path, opt: &LastitemOpt, excludes: &Excludes) -> Result<Vec<OsString>> {
+    // eprintln!("items({dir_path:?}, {opt:?})");
     fs::read_dir(dir_path).with_context(
         || anyhow!("opening directory {dir_path:?} for reading"))?
     .filter_map(
-        |entry_result: Result<fs::DirEntry, std::io::Error>|
-                              -> Option<Result<OsString,
-                                               std::io::Error>> {
+        |entry_result: Result<fs::DirEntry, std::io::Error>| -> Option<Result<OsString>> {
             match entry_result {
                 Ok(entry) => {
                     let ft = entry.file_type()
@@ -205,30 +253,56 @@ fn items(dir_path: &str, opt: &LastitemOpt, excludes: &Excludes) -> Result<Vec<O
                     }
                 },
                 Err(e) =>
-                    Some(Err(e))
+                    Some(Err(e).with_context(|| anyhow!("read_dir on {dir_path:?}")))
             }
         })
-    .collect::<Result<_,_>>().map_err(|e| e.into())
+    .collect::<Result<_,_>>()
 }
 
-fn lastitem(dir_path: &str, opt: &LastitemOpt, excludes: &Excludes) -> Result<Option<Item>> {
-    let items = items(dir_path, opt, excludes)?;
+fn lastitem(
+    dir_path: PathBuf, opt: &LastitemOpt, excludes: &Excludes
+) -> Result<Option<Item2<PathBuf>>> {
+    let items = items(&dir_path, opt, excludes)?;
     let newest_item =
         items.into_par_iter().try_fold(
             || None,
-            |newest_item: Option<Item>, filename: OsString|
-                                 -> Result<Option<Item>, std::io::Error> {
-                let md = fs::symlink_metadata(&filename)?;
-                let mtime = md.modified()?;
-                Ok(item_merge(
+            |newest_item: Option<Item1>, filename: OsString| -> Result<Option<Item1>> {
+                let path = dir_path.join(&filename);
+                let md = fs::symlink_metadata(&path)
+                    .with_context(|| anyhow!("symlink_metadata on {filename:?}"))?;
+                let mtime = md.modified().with_context(|| anyhow!("modified on {filename:?}"))?;
+                Ok(newer_item(
                     newest_item,
-                    Some(Item { filename, mtime })))
+                    Some(Item1 { filename, mtime })))
             })
         .try_reduce(
             || None,
-            |a, b| Ok(item_merge(a, b)))?;
-    Ok(newest_item)
+            |a, b| Ok(newer_item(a, b)))?;
+    Ok(newest_item.map(|item| item.with_parent(dir_path)))
 }
+
+fn deeper_lastitem(
+    dir_path: PathBuf, depth: u8, opt: &LastitemOpt, excludes: &Excludes
+) -> Result<Option<Item2<PathBuf>>> {
+    if depth == 0 {
+        lastitem(dir_path, opt, excludes)
+    } else {
+        let dir_items = items(
+            &dir_path,
+            &LastitemOpt { all: opt.all, dirs: true, files: false, other: false },
+            excludes)?;
+        dir_items.into_par_iter().map(|dir_item| {
+            let path = dir_path.join(dir_item);
+            deeper_lastitem(path, depth - 1, opt, excludes)
+        }).try_fold(
+            || None,
+            |a, b_result| b_result.map(|b| newer_item(a, b))
+        ).try_reduce(
+            || None,
+            |a, b| Ok(newer_item(a, b)))           
+    }
+}
+
 
 fn main() -> Result<()> {
     let mut opt = Opt::from_args();
@@ -276,20 +350,27 @@ fn main() -> Result<()> {
 
     let lastitem_opt = LastitemOpt::from(&opt);
 
+    let dot = PathBuf::from(".");
+
     let last = match opt.depth {
-        Some(depth) => todo!(),
-        None => lastitem(".", &lastitem_opt, &excludes)? 
+        Some(depth) => deeper_lastitem(dot, depth, &lastitem_opt, &excludes)?,
+        None => lastitem(dot, &lastitem_opt, &excludes)? 
     };
     
     match last {
-        Some(Item { filename, mtime: _ }) => {
-            io::stdout().write_all(
+        Some(Item2 { parentdir, filename, mtime: _ }) => {
+            // todo: it is offering `join`, yet then we use the
+            // archaic "./" stripping.
+            let clean_parentdir: &Path = parentdir.strip_prefix("./").unwrap_or(&parentdir);
+            let path = clean_parentdir.join(&filename);
+            let full_path =
                 if opt.fullpath {
-                    opt.directory_path.join(filename)
-                        .into_os_string()
+                    opt.directory_path.join(path)
                 } else {
-                    filename
-                }.as_bytes())?;
+                    path.into()
+                };
+            // (todo: is going via OsString for bytes the correct approach?)
+            io::stdout().write_all(full_path.into_os_string().as_bytes())?;
             io::stdout().write_all(b"\n")?;
             Ok(())
         }

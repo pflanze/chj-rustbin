@@ -15,7 +15,7 @@ use std::io;
 use std::env;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
-use std::ffi::{OsString, OsStr};
+use std::ffi::OsString;
 use std::io::Write;
 use std::time::SystemTime;
 use std::path::PathBuf;
@@ -89,17 +89,14 @@ struct Opt {
     no_ignore: bool,
 
     /// ignore files with the given name(s); these are in addition to
-    /// the default ignores, use --no-ignore to drop those. XX Due to
-    /// not knowing how to get Clap to allow multiple
-    /// calls to this option, it can only be used once; multiple files
-    /// can be given by separating them with a \n newline character
-    #[clap(long)]
-    ignore_files: Option<OsString>,
+    /// the default ignores, use --no-ignore to drop those.
+    #[clap(long, multiple = true)]
+    ignore_file: Vec<OsString>,
 
     /// ignore dirs with the given names(s); the same comments apply
     /// as for --ignore-files
-    #[clap(long)]
-    ignore_dirs: Option<OsString>,
+    #[clap(long, multiple = true)]
+    ignore_dir: Vec<OsString>,
 
     /// look for an item DEPTH levels deeper than the given directory
     /// (i.e. with DEPTH levels of directories inbetween), default: 0
@@ -120,13 +117,6 @@ struct Opt {
     directory_path: PathBuf,
 }
 
-
-fn insert_lines(hashset: &mut HashSet<OsString>, s: &OsString) {
-    let parts = s.as_bytes().split(|c| *c == b'\n');
-    for p in parts {
-        hashset.insert(OsString::from(OsStr::from_bytes(p)));
-    }
-}
 
 trait PathLike: Into<PathBuf> + Debug + PartialEq {}
 impl PathLike for &Path {}
@@ -336,14 +326,12 @@ fn main() -> Result<()> {
             default_excludes()
         };
 
-    match opt.ignore_files {
-        Some(ref s) => insert_lines(&mut excludes.files, s),
-        None => ()
+    for s in &opt.ignore_file {
+        excludes.files.insert(s.clone());
     }
 
-    match opt.ignore_dirs {
-        Some(ref s) => insert_lines(&mut excludes.dirs, s),
-        None => ()
+    for s in &opt.ignore_dir {
+        excludes.dirs.insert(s.clone());
     }
 
     env::set_current_dir(&opt.directory_path).with_context(

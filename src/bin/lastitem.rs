@@ -370,8 +370,14 @@ fn main() -> Result<()> {
                     path.into()
                 };
             // (todo: is going via OsString for bytes the correct approach?)
-            io::stdout().write_all(full_path.into_os_string().as_bytes())?;
-            io::stdout().write_all(b"\n")?;
+
+            // unstable feature
+            // io::stdout().write_all_vectored(&mut [
+            //     IoSlice::new(full_path.into_os_string().as_bytes()),
+            //     IoSlice::new(b"\n")])?;
+            let mut lock = io::stdout().lock();
+            lock.write_all(full_path.into_os_string().as_bytes())?;
+            lock.write_all(b"\n")?;
             Ok(())
         }
         None =>

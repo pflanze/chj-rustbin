@@ -8,6 +8,5 @@ pub mod util;
 pub mod excel;
 pub mod unix_fs;
 pub mod naturallanguagejoin;
-pub mod moreordering;
 pub mod rawfdreader;
 pub mod startswith;

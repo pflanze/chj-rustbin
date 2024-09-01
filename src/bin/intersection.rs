@@ -12,8 +12,7 @@ use std::collections::{VecDeque, HashSet};
 use kstring::KString;
 
 use chj_rustbin::readwithcontext::{easy_read_line, open_file, ReadWithContext};
-#[allow(unused_imports)] // polyfill only used with older compiler
-use chj_rustbin::moreordering::MoreOrdering;
+
 
 #[derive(clap::Parser, Debug)]
 /// Print the lines that occur in all input files. By default, files

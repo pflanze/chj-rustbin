@@ -346,15 +346,11 @@ fn main() -> Result<()> {
     env::set_current_dir(&opt.directory_path).with_context(
         || format!("can't chdir to {:?}", opt.directory_path))?;
 
-    let lastitem_opt = LastitemOpt::from(&opt);
+    let last = deeper_lastitem(PathBuf::from("."),
+                               opt.depth.unwrap_or(0),
+                               &LastitemOpt::from(&opt),
+                               &excludes)?;
 
-    let dot = PathBuf::from(".");
-
-    let last = match opt.depth {
-        Some(depth) => deeper_lastitem(dot, depth, &lastitem_opt, &excludes)?,
-        None => lastitem(dot, &lastitem_opt, &excludes)? 
-    };
-    
     match last {
         Some(Item2 { parentdir, filename, mtime: _ }) => {
             // todo: it is offering `join`, yet then we use the

@@ -123,25 +123,19 @@ struct Opt {
 }
 
 
-trait PathLike: Debug {}
-impl PathLike for &Path {}
-impl PathLike for PathBuf {}
-
-trait ItemLike {
-    fn mtime(&self) -> &SystemTime;
-    fn filename(&self) -> &OsString;
-}
-
+#[derive(Debug)]
+struct NoPath;
 
 #[derive(Debug)]
-struct Item1 {
+struct Item<P: Debug> {
+    parentdir: P,
     filename: OsString,
     mtime: SystemTime,
 }
 
-impl Item1 {
-    fn with_parent<P: PathLike>(self, parentdir: P) -> Item2<P> {
-        Item2 {
+impl Item<NoPath> {
+    fn with_parent(self, parentdir: PathBuf) -> Item<PathBuf> {
+        Item {
             parentdir,
             filename: self.filename,
             mtime: self.mtime
@@ -149,41 +143,13 @@ impl Item1 {
     }
 }
 
-impl ItemLike for Item1 {
-    fn mtime(&self) -> &SystemTime {
-        &self.mtime
-    }
-
-    fn filename(&self) -> &OsString {
-        &self.filename
-    }
-}
-
-#[derive(Debug)]
-struct Item2<P: PathLike> {
-    parentdir: P,
-    filename: OsString,
-    mtime: SystemTime,
-}
-
-impl<P: PathLike> ItemLike for Item2<P> {
-    fn mtime(&self) -> &SystemTime {
-        &self.mtime
-    }
-
-    fn filename(&self) -> &OsString {
-        &self.filename
-    }
-}
-
-
-fn newer_item<I: ItemLike>(
-    a: Option<I>, b: Option<I>
-) -> Option<I> {
+fn newer_item<P: Debug>(
+    a: Option<Item<P>>, b: Option<Item<P>>
+) -> Option<Item<P>> {
     match (a, b) {
         (Some(a), Some(b)) => {
-            if (a.mtime() < b.mtime()) ||
-                ((a.mtime() == b.mtime()) && (a.filename() > b.filename()))
+            if (a.mtime < b.mtime) ||
+                ((a.mtime == b.mtime) && (a.filename > b.filename))
             {
                 Some(b)
             } else {
@@ -257,19 +223,19 @@ fn items(dir_path: &Path, opt: &LastitemOpt, excludes: &Excludes) -> Result<Vec<
 
 fn lastitem(
     dir_path: PathBuf, opt: &LastitemOpt, excludes: &Excludes
-) -> Result<Option<Item2<PathBuf>>> {
+) -> Result<Option<Item<PathBuf>>> {
     let items = items(&dir_path, opt, excludes)?;
     let newest_item =
         items.into_par_iter().try_fold(
             || None,
-            |newest_item: Option<Item1>, filename: OsString| -> Result<Option<Item1>> {
+            |newest_item: Option<Item<NoPath>>, filename: OsString| -> Result<Option<Item<NoPath>>> {
                 let path = dir_path.join(&filename);
                 let md = fs::symlink_metadata(&path)
                     .with_context(|| anyhow!("symlink_metadata on {filename:?}"))?;
                 let mtime = md.modified().with_context(|| anyhow!("modified on {filename:?}"))?;
                 Ok(newer_item(
                     newest_item,
-                    Some(Item1 { filename, mtime })))
+                    Some(Item { parentdir: NoPath, filename, mtime })))
             })
         .try_reduce(
             || None,
@@ -279,7 +245,7 @@ fn lastitem(
 
 fn deeper_lastitem(
     dir_path: PathBuf, depth: u8, opt: &LastitemOpt, excludes: &Excludes
-) -> Result<Option<Item2<PathBuf>>> {
+) -> Result<Option<Item<PathBuf>>> {
     if depth == 0 {
         lastitem(dir_path, opt, excludes)
     } else {
@@ -352,7 +318,7 @@ fn main() -> Result<()> {
                                &excludes)?;
 
     match last {
-        Some(Item2 { parentdir, filename, mtime: _ }) => {
+        Some(Item { parentdir, filename, mtime: _ }) => {
             // todo: it is offering `join`, yet then we use the
             // archaic "./" stripping.
             let clean_parentdir: &Path = parentdir.strip_prefix("./").unwrap_or(&parentdir);

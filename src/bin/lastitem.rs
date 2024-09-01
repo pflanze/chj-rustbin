@@ -1,12 +1,7 @@
-#[macro_use]
-extern crate log; // `tracing` crate, huh?
-
-#[path = "../naturallanguagejoin.rs" ]
-mod naturallanguagejoin;
-use naturallanguagejoin::NaturalLanguageJoin;
 
 use anyhow::{Context, Result, bail, anyhow};
 use clap::Parser;
+use log::trace;
 use rayon::iter::ParallelIterator;
 use rayon::iter::IntoParallelIterator;
 use std::fmt::Debug;
@@ -21,6 +16,8 @@ use std::time::SystemTime;
 use std::path::PathBuf;
 use std::collections::hash_set::HashSet;
 use std::convert::From;
+
+use chj_rustbin::naturallanguagejoin::NaturalLanguageJoin;
 
 
 #[derive(Debug)]

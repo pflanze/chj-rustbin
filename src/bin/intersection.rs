@@ -1,11 +1,3 @@
-#[path = "../moreordering.rs"]
-mod moreordering;
-#[allow(unused_imports)] // polyfill only used with older compiler
-use moreordering::MoreOrdering;
-
-#[path = "../readwithcontext.rs"]
-mod readwithcontext;
-use readwithcontext::{easy_read_line, open_file, ReadWithContext};
 
 use anyhow::{Result, bail, Context, Error, anyhow};
 use clap::Parser;
@@ -18,6 +10,10 @@ use std::os::unix::prelude::{MetadataExt, FromRawFd};
 use std::path::PathBuf;
 use std::collections::{VecDeque, HashSet};
 use kstring::KString;
+
+use chj_rustbin::readwithcontext::{easy_read_line, open_file, ReadWithContext};
+#[allow(unused_imports)] // polyfill only used with older compiler
+use chj_rustbin::moreordering::MoreOrdering;
 
 #[derive(clap::Parser, Debug)]
 /// Print the lines that occur in all input files. By default, files

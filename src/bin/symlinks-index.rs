@@ -1,14 +1,9 @@
 // Same functionality as symlinks-index from
 // https://github.com/pflanze/chj-scripts
 
-#[macro_use]
-extern crate log;
-#[path = "../startswith.rs"]
-mod startswith;
-
 use anyhow::{Context, Result};
 use clap::Parser;
-use startswith::StartsWith;
+use log::trace;
 use std::collections::HashMap;
 use std::env;
 use std::ffi::{OsStr, OsString};
@@ -16,6 +11,9 @@ use std::fs;
 use std::io::{stdin, stdout, BufRead, BufWriter, Write};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
+
+use chj_rustbin::startswith::StartsWith;
+
 
 #[derive(clap::Parser, Debug)]
 /// On startup creates an in-memory index of the symlinks

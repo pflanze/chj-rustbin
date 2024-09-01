@@ -1,11 +1,7 @@
 /// This is a re-implementation and combination of the `e`, `r`, `_e`,
 /// and `_e-gnu` scripts from <https://github.com/pflanze/chj-scripts>
 
-#[path = "../rawfdreader.rs"]
-mod rawfdreader;
-use chj_rustbin::unix_fs::path_is_normal;
 use once_cell::sync::Lazy;
-use rawfdreader::RawFdReader;
 use anyhow::{Result, anyhow, bail}; 
 use std::fs::OpenOptions;
 use std::path::PathBuf;
@@ -28,6 +24,9 @@ use nix::errno::Errno;
 use thiserror::Error;
 use nix::unistd::Pid;
 use std::collections::HashMap;
+
+use chj_rustbin::rawfdreader::RawFdReader;
+use chj_rustbin::unix_fs::path_is_normal;
 
 fn do_debug() -> bool {
     false

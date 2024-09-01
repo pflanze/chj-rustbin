@@ -83,7 +83,8 @@ struct Opt {
     all: bool,
 
     /// do not ignore special file and dir names that are ignored by
-    /// default, like .git
+    /// default, like .git; you still need `--all` as well to lift its
+    /// ignores, too, if you want to not ignore anything
     #[clap(long)]
     no_ignore: bool,
 

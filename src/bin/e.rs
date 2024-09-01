@@ -1,5 +1,5 @@
 /// This is a re-implementation and combination of the `e`, `r`, `_e`,
-/// and `_e-gnu` scripts from https://github.com/pflanze/chj-scripts
+/// and `_e-gnu` scripts from <https://github.com/pflanze/chj-scripts>
 
 #[path = "../rawfdreader.rs"]
 mod rawfdreader;

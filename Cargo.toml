@@ -8,15 +8,9 @@ edition = "2018"
 
 [profile.dev.package."*"]
 opt-level = "s"
-debug = false
-debug-assertions = false
-overflow-checks = false
 
 [profile.release]
 opt-level = "s"
-debug = false
-debug-assertions = false
-overflow-checks = false
 
 [dependencies]
 clap = { version = "3", features = ["derive"] }

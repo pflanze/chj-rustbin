@@ -1,6 +1,6 @@
 use std::{path::PathBuf, convert::TryInto, time::Instant, collections::HashSet, sync::Arc};
 
-use anyhow::{Result, Context, anyhow};
+use anyhow::{Result, Context, anyhow, bail};
 use clap::Parser;
 
 
@@ -27,21 +27,48 @@ struct OpenInfo {
 
 /// Look for the first occurrence of `needle` in `haystack`, return
 /// the rest after it.
-fn str_match<'t>(haystack: &'t str, needle: &str) -> Option<&'t str> {
+fn str_matches<'t>(haystack: &'t str, needle: &str) -> Option<&'t str> {
     let pos = haystack.find(needle)?;
     Some(&haystack[pos + needle.len()..])
 }
 
+fn str_starts_with<'t>(haystack: &'t str, beginning: &str) -> Option<&'t str> {
+    if haystack.starts_with(beginning) {
+        Some(&haystack[beginning.len()..])
+    } else {
+        None
+    }
+}
+
+fn str_take_until<'t>(haystack: &'t str, needle: &str) -> Option<&'t str> {
+    println!("str_take_until({haystack:?}, {needle:?})");
+    let pos = haystack.find(needle)?;
+    Some(&haystack[0..pos])
+}
+
+
 fn parse_path(path: PathBuf) -> Result<Option<OpenInfo>> {
+    println!("parse_path({path:?})");
     let file_name_os = path.file_name().expect(
         "filename always present in path since we iterate over the dir and filter files");
     let file_name = file_name_os.to_str().ok_or_else(
         || anyhow!("the file name in path {path:?} is not valid UTF-8"))?;
     
-    if let Some(rest) = str_match(file_name, "OPEN") {
+    if let Some(rest) = str_matches(file_name, "OPEN") {
+        if let Some(rest) = str_starts_with(rest, "{") {
+            println!("OPEN with {{, rest={rest:?}");
+            if let Some(inside) = str_take_until(rest, "}") {
+                println!("inside = {inside:?}");
+            } else {
+                bail!("missing closing '}}' after 'OPEN{{'")
+            }
+        } else {
+            dbg!("have not");
+        }
         dbg!((file_name, rest));
         Ok(None)
     } else {
+        println!("no match for {file_name:?}");
         Ok(None)
     }
 }
@@ -58,8 +85,7 @@ fn main() -> Result<()> {
         let ft = item.file_type()?;
         if ft.is_file() {
             let path = item.path();
-            parse_path(path);
-
+            parse_path(path)?;
         }
         // XX: if it's a symlink, check if it has different OPEN info?
 

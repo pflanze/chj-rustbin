@@ -1,4 +1,4 @@
-use std::{path::PathBuf, convert::TryInto, time::Instant, collections::HashSet, sync::Arc};
+use std::{path::PathBuf, convert::TryInto, time::Instant, collections::{HashSet, HashMap}, sync::Arc};
 
 use anyhow::{Result, Context, anyhow, bail};
 use clap::Parser;
@@ -24,6 +24,17 @@ struct OpenInfo {
     dependencies: Vec<Arc<PathBuf>>,
 }
 
+fn parse_inside(s: &str) -> HashMap<&str, &str> {
+
+    fn parse_pair(s: &str) -> (&str, &str) {
+        todo!()
+    }
+    
+    // inside.split(',').map(parse_pair)
+    
+    todo!()
+}
+
 
 /// Look for the first occurrence of `needle` in `haystack`, return
 /// the rest after it.
@@ -46,6 +57,27 @@ fn str_take_until<'t>(haystack: &'t str, needle: &str) -> Option<&'t str> {
     Some(&haystack[0..pos])
 }
 
+fn str_take_while(haystack: &str, mut pred: impl FnMut(char) -> bool) -> &str {
+    let mut last_pos = 0;
+    for (cur_pos, c) in haystack.char_indices() {
+        last_pos = cur_pos;
+        if !pred(c) {
+            return &haystack[0..last_pos];
+        }
+    }
+    haystack
+}
+
+#[cfg(test)]
+#[test]
+fn t_str_take_while() {
+    assert_eq!(str_take_while(" abc def", |c| c.is_alphanumeric()), "");
+    assert_eq!(str_take_while("abc def", |c| c.is_alphanumeric()), "abc");
+    assert_eq!(str_take_while("abcdef", |c| c.is_alphanumeric()), "abcdef");
+}
+
+
+
 
 fn parse_path(path: PathBuf) -> Result<Option<OpenInfo>> {
     println!("parse_path({path:?})");
@@ -59,6 +91,8 @@ fn parse_path(path: PathBuf) -> Result<Option<OpenInfo>> {
             println!("OPEN with {{, rest={rest:?}");
             if let Some(inside) = str_take_until(rest, "}") {
                 println!("inside = {inside:?}");
+
+                    
             } else {
                 bail!("missing closing '}}' after 'OPEN{{'")
             }

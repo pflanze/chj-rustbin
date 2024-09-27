@@ -1,4 +1,4 @@
-use std::{path::PathBuf, convert::TryInto};
+use std::{path::PathBuf, convert::TryInto, time::Instant, collections::HashSet};
 
 use anyhow::Result;
 use clap::Parser;
@@ -13,6 +13,20 @@ struct Opts {
     directory: Option<PathBuf>
 }
 
+struct Priority {
+    
+}
+
+struct OpenInfo<'t> {
+    path: PathBuf,
+    mtime: Instant,
+    priority: Priority,
+    dependencies: Vec<&'t OpenInfo<'t>>,
+}
+
+fn parse_path(path: PathBuf) {
+    
+}
 
 
 fn main() -> Result<()> {
@@ -21,9 +35,18 @@ fn main() -> Result<()> {
     let directory = opts.directory.unwrap_or_else(|| ".".try_into().unwrap());
     // let directory = opts.directory.unwrap_or_default();
 
-    let r = std::fs::read_dir(&directory);
-    for path in r {
-        dbg!(path);
+    for item in std::fs::read_dir(&directory)? {
+        let item = item?;
+        let ft = item.file_type()?;
+        if ft.is_file() {
+            let path = item.path();
+            
+            path.file_name()
+            dbg!((path, ft));
+
+        }
+        // XX: if it's a symlink, check if it has different OPEN info?
+
     }
     
     

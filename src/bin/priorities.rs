@@ -28,11 +28,8 @@ struct OpenInfo {
 /// Look for the first occurrence of `needle` in `haystack`, return
 /// the rest after it.
 fn str_match<'t>(haystack: &'t str, needle: &str) -> Option<&'t str> {
-    if let Some(pos) = haystack.find(needle) {
-        Some(&haystack[pos + needle.len()..])
-    } else {
-        None
-    }
+    let pos = haystack.find(needle)?;
+    Some(&haystack[pos + needle.len()..])
 }
 
 fn parse_path(path: PathBuf) -> Result<Option<OpenInfo>> {
@@ -41,9 +38,8 @@ fn parse_path(path: PathBuf) -> Result<Option<OpenInfo>> {
     let file_name = file_name_os.to_str().ok_or_else(
         || anyhow!("the file name in path {path:?} is not valid UTF-8"))?;
     
-    if let Some(pos) = file_name.find("OPEN") {
-        let rest = &file_name[pos + 4 ..];
-        dbg!((file_name, pos, rest));
+    if let Some(rest) = str_match(file_name, "OPEN") {
+        dbg!((file_name, rest));
         Ok(None)
     } else {
         Ok(None)

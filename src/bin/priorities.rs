@@ -24,6 +24,17 @@ struct OpenInfo {
     dependencies: Vec<Arc<PathBuf>>,
 }
 
+
+/// Look for the first occurrence of `needle` in `haystack`, return
+/// the rest after it.
+fn str_match<'t>(haystack: &'t str, needle: &str) -> Option<&'t str> {
+    if let Some(pos) = haystack.find(needle) {
+        Some(&haystack[pos + needle.len()..])
+    } else {
+        None
+    }
+}
+
 fn parse_path(path: PathBuf) -> Result<Option<OpenInfo>> {
     let file_name_os = path.file_name().expect(
         "filename always present in path since we iterate over the dir and filter files");
@@ -31,7 +42,8 @@ fn parse_path(path: PathBuf) -> Result<Option<OpenInfo>> {
         || anyhow!("the file name in path {path:?} is not valid UTF-8"))?;
     
     if let Some(pos) = file_name.find("OPEN") {
-        dbg!((file_name, pos));
+        let rest = &file_name[pos + 4 ..];
+        dbg!((file_name, pos, rest));
         Ok(None)
     } else {
         Ok(None)

@@ -1,6 +1,6 @@
-use std::{path::PathBuf, convert::TryInto, time::Instant, collections::HashSet};
+use std::{path::PathBuf, convert::TryInto, time::Instant, collections::HashSet, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{Result, Context, anyhow};
 use clap::Parser;
 
 
@@ -17,15 +17,25 @@ struct Priority {
     
 }
 
-struct OpenInfo<'t> {
-    path: PathBuf,
+struct OpenInfo {
+    path: Arc<PathBuf>,
     mtime: Instant,
     priority: Priority,
-    dependencies: Vec<&'t OpenInfo<'t>>,
+    dependencies: Vec<Arc<PathBuf>>,
 }
 
-fn parse_path(path: PathBuf) {
+fn parse_path(path: PathBuf) -> Result<Option<OpenInfo>> {
+    let file_name_os = path.file_name().expect(
+        "filename always present in path since we iterate over the dir and filter files");
+    let file_name = file_name_os.to_str().ok_or_else(
+        || anyhow!("the file name in path {path:?} is not valid UTF-8"))?;
     
+    if let Some(pos) = file_name.find("OPEN") {
+        dbg!((file_name, pos));
+        Ok(None)
+    } else {
+        Ok(None)
+    }
 }
 
 
@@ -40,9 +50,7 @@ fn main() -> Result<()> {
         let ft = item.file_type()?;
         if ft.is_file() {
             let path = item.path();
-            
-            path.file_name()
-            dbg!((path, ft));
+            parse_path(path);
 
         }
         // XX: if it's a symlink, check if it has different OPEN info?

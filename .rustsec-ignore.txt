@@ -9,3 +9,6 @@ RUSTSEC-2022-0013
 
 # ansi_term 0.12.1 affected by RUSTSEC-2021-0139 (unmaintained)
 RUSTSEC-2021-0139
+
+# proc-macro-error 1.0.4 affected by RUSTSEC-2024-0370 (unmaintained)
+RUSTSEC-2024-0370

@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate extension_traits;
+
 pub mod parseutil;
 pub mod readwithcontext;
 pub mod fp;

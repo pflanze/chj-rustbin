@@ -93,6 +93,7 @@ dependencies = [
  "clap",
  "enumn",
  "env_logger",
+ "extension-traits",
  "genawaiter",
  "kstring",
  "libc",
@@ -292,6 +293,35 @@ dependencies = [
  "log",
  "regex",
  "termcolor",
+]
+
+[[package]]
+name = "ext-trait"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "703090345f7d5de48379b391c9dfe69967a3c1694730a3e53bf4c905f71069c0"
+dependencies = [
+ "ext-trait-proc_macros",
+]
+
+[[package]]
+name = "ext-trait-proc_macros"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd9f3f15f123dee4e8a6b14f033ba22904a48c5935505dc07225ce440e640d8b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.100",
+]
+
+[[package]]
+name = "extension-traits"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "360cbc11ebc403c8ebb731dfb4d3950835d40d3d9a20f0e89a27b17e991d0863"
+dependencies = [
+ "ext-trait",
 ]
 
 [[package]]

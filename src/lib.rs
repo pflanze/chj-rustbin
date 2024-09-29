@@ -13,3 +13,4 @@ pub mod unix_fs;
 pub mod naturallanguagejoin;
 pub mod rawfdreader;
 pub mod startswith;
+pub mod alist;

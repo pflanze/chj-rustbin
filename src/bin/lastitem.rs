@@ -100,7 +100,7 @@ impl From<&Opt> for ItemOptions {
 }
 
 fn lastitem(
-    dir_path: PathBuf, opt: &ItemOptions, excludes: &Excludes
+    dir_path: PathBuf, opt: ItemOptions, excludes: &Excludes
 ) -> Result<Option<Item<PathBuf>>> {
     let items = items(&dir_path, opt, excludes)?;
     let newest_item =
@@ -122,14 +122,14 @@ fn lastitem(
 }
 
 fn deeper_lastitem(
-    dir_path: PathBuf, depth: u8, opt: &ItemOptions, excludes: &Excludes
+    dir_path: PathBuf, depth: u8, opt: ItemOptions, excludes: &Excludes
 ) -> Result<Option<Item<PathBuf>>> {
     if depth == 0 {
         lastitem(dir_path, opt, excludes)
     } else {
         let dir_items = items(
             &dir_path,
-            &ItemOptions { all: opt.all, dirs: true, files: false, other: false },
+            ItemOptions { all: opt.all, dirs: true, files: false, other: false },
             excludes)?;
         dir_items.into_par_iter().map(|dir_item| {
             let path = dir_path.join(dir_item);
@@ -192,7 +192,7 @@ fn main() -> Result<()> {
 
     let last = deeper_lastitem(PathBuf::from("."),
                                opt.depth.unwrap_or(0),
-                               &ItemOptions::from(&opt),
+                               ItemOptions::from(&opt),
                                &excludes)?;
 
     match last {

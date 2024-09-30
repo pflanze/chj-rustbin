@@ -48,7 +48,7 @@ pub fn newer_item<P: Debug>(
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct ItemOptions {
     pub all: bool,
     pub dirs: bool,
@@ -56,12 +56,13 @@ pub struct ItemOptions {
     pub other: bool,
 }
 
-pub fn items(dir_path: &Path, opt: &ItemOptions, excludes: &Excludes) -> Result<Vec<OsString>> {
+pub fn items_iter<'t>(dir_path: &'t Path, opt: ItemOptions, excludes: &'t Excludes)
+                  -> Result<Box<dyn Iterator<Item = Result<OsString>> + 't>> {
     // eprintln!("items({dir_path:?}, {opt:?})");
-    fs::read_dir(dir_path).with_context(
+    let iterator = fs::read_dir(dir_path).with_context(
         || anyhow!("opening directory {dir_path:?} for reading"))?
     .filter_map(
-        |entry_result: Result<fs::DirEntry, std::io::Error>| -> Option<Result<OsString>> {
+        move |entry_result: Result<fs::DirEntry, std::io::Error>| -> Option<Result<OsString>> {
             match entry_result {
                 Ok(entry) => {
                     let ft = entry.file_type()
@@ -92,6 +93,10 @@ pub fn items(dir_path: &Path, opt: &ItemOptions, excludes: &Excludes) -> Result<
                 Err(e) =>
                     Some(Err(e).with_context(|| anyhow!("read_dir on {dir_path:?}")))
             }
-        })
-    .collect::<Result<_,_>>()
+        });
+    Ok(Box::new(iterator))
+}
+
+pub fn items(dir_path: &Path, opt: ItemOptions, excludes: &Excludes) -> Result<Vec<OsString>> {
+    items_iter(dir_path, opt, excludes)?.collect::<Result<_,_>>()
 }

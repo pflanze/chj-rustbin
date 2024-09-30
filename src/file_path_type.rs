@@ -23,9 +23,9 @@ pub struct ItemOptions {
 #[macro_export]
 macro_rules! impl_item_options_from {
     { $from:ty } => {
-        impl From<&$from> for chj_rustbin::item::ItemOptions {
+        impl From<&$from> for chj_rustbin::file_path_type::ItemOptions {
             fn from(o: &$from) -> Self {
-                chj_rustbin::item::ItemOptions {
+                chj_rustbin::file_path_type::ItemOptions {
                     all: o.all,
                     dirs: o.dirs,
                     files: o.files,

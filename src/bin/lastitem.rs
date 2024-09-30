@@ -4,7 +4,7 @@ use chj_rustbin::excludes::Excludes;
 use chj_rustbin::excludes::default_excludes;
 use chj_rustbin::excludes::empty_excludes;
 use chj_rustbin::item::Item;
-use chj_rustbin::item::LastitemOpt;
+use chj_rustbin::item::ItemOptions;
 use chj_rustbin::item::NoPath;
 use chj_rustbin::item::items;
 use chj_rustbin::item::newer_item;
@@ -88,9 +88,9 @@ struct Opt {
     verbose: bool,
 }
 
-impl From<&Opt> for LastitemOpt {
+impl From<&Opt> for ItemOptions {
     fn from(o: &Opt) -> Self {
-        LastitemOpt {
+        ItemOptions {
             all: o.all,
             dirs: o.dirs,
             files: o.files,
@@ -100,7 +100,7 @@ impl From<&Opt> for LastitemOpt {
 }
 
 fn lastitem(
-    dir_path: PathBuf, opt: &LastitemOpt, excludes: &Excludes
+    dir_path: PathBuf, opt: &ItemOptions, excludes: &Excludes
 ) -> Result<Option<Item<PathBuf>>> {
     let items = items(&dir_path, opt, excludes)?;
     let newest_item =
@@ -122,14 +122,14 @@ fn lastitem(
 }
 
 fn deeper_lastitem(
-    dir_path: PathBuf, depth: u8, opt: &LastitemOpt, excludes: &Excludes
+    dir_path: PathBuf, depth: u8, opt: &ItemOptions, excludes: &Excludes
 ) -> Result<Option<Item<PathBuf>>> {
     if depth == 0 {
         lastitem(dir_path, opt, excludes)
     } else {
         let dir_items = items(
             &dir_path,
-            &LastitemOpt { all: opt.all, dirs: true, files: false, other: false },
+            &ItemOptions { all: opt.all, dirs: true, files: false, other: false },
             excludes)?;
         dir_items.into_par_iter().map(|dir_item| {
             let path = dir_path.join(dir_item);
@@ -192,7 +192,7 @@ fn main() -> Result<()> {
 
     let last = deeper_lastitem(PathBuf::from("."),
                                opt.depth.unwrap_or(0),
-                               &LastitemOpt::from(&opt),
+                               &ItemOptions::from(&opt),
                                &excludes)?;
 
     match last {

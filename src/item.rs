@@ -49,14 +49,14 @@ pub fn newer_item<P: Debug>(
 
 
 #[derive(Debug)]
-pub struct LastitemOpt {
+pub struct ItemOptions {
     pub all: bool,
     pub dirs: bool,
     pub files: bool,
     pub other: bool,
 }
 
-pub fn items(dir_path: &Path, opt: &LastitemOpt, excludes: &Excludes) -> Result<Vec<OsString>> {
+pub fn items(dir_path: &Path, opt: &ItemOptions, excludes: &Excludes) -> Result<Vec<OsString>> {
     // eprintln!("items({dir_path:?}, {opt:?})");
     fs::read_dir(dir_path).with_context(
         || anyhow!("opening directory {dir_path:?} for reading"))?

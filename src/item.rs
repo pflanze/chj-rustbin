@@ -75,7 +75,7 @@ macro_rules! impl_item_options_from {
     }
 }
 
-pub fn items_iter<'t>(dir_path: &'t Path, opt: ItemOptions, excludes: &'t Excludes)
+pub fn file_names_iter<'t>(dir_path: &'t Path, opt: ItemOptions, excludes: &'t Excludes)
                   -> Result<Box<dyn Iterator<Item = Result<OsString>> + 't>> {
     // eprintln!("items({dir_path:?}, {opt:?})");
     let iterator = fs::read_dir(dir_path).with_context(
@@ -116,6 +116,6 @@ pub fn items_iter<'t>(dir_path: &'t Path, opt: ItemOptions, excludes: &'t Exclud
     Ok(Box::new(iterator))
 }
 
-pub fn items_vec(dir_path: &Path, opt: ItemOptions, excludes: &Excludes) -> Result<Vec<OsString>> {
-    items_iter(dir_path, opt, excludes)?.collect::<Result<_,_>>()
+pub fn file_names_vec(dir_path: &Path, opt: ItemOptions, excludes: &Excludes) -> Result<Vec<OsString>> {
+    file_names_iter(dir_path, opt, excludes)?.collect::<Result<_,_>>()
 }

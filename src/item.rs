@@ -56,6 +56,25 @@ pub struct ItemOptions {
     pub other: bool,
 }
 
+/// Implement conversion from the type `$from` to
+/// `ItemOptions`. Assumes the `all`, `dirs`, `files`, and `other`
+/// fields are present on `$from` as `bool`.
+#[macro_export]
+macro_rules! impl_item_options_from {
+    { $from:ty } => {
+        impl From<&$from> for chj_rustbin::item::ItemOptions {
+            fn from(o: &$from) -> Self {
+                chj_rustbin::item::ItemOptions {
+                    all: o.all,
+                    dirs: o.dirs,
+                    files: o.files,
+                    other: o.other
+                }
+            }
+        }
+    }
+}
+
 pub fn items_iter<'t>(dir_path: &'t Path, opt: ItemOptions, excludes: &'t Excludes)
                   -> Result<Box<dyn Iterator<Item = Result<OsString>> + 't>> {
     // eprintln!("items({dir_path:?}, {opt:?})");

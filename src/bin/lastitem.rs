@@ -3,6 +3,7 @@ use anyhow::{Context, Result, bail, anyhow};
 use chj_rustbin::excludes::Excludes;
 use chj_rustbin::excludes::default_excludes;
 use chj_rustbin::excludes::empty_excludes;
+use chj_rustbin::impl_item_options_from;
 use chj_rustbin::item::Item;
 use chj_rustbin::item::ItemOptions;
 use chj_rustbin::item::NoPath;
@@ -88,16 +89,7 @@ struct Opt {
     verbose: bool,
 }
 
-impl From<&Opt> for ItemOptions {
-    fn from(o: &Opt) -> Self {
-        ItemOptions {
-            all: o.all,
-            dirs: o.dirs,
-            files: o.files,
-            other: o.other
-        }
-    }
-}
+impl_item_options_from!(Opt);
 
 fn lastitem(
     dir_path: PathBuf, opt: ItemOptions, excludes: &Excludes

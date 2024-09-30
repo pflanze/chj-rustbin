@@ -3,9 +3,12 @@ use anyhow::{Context, Result, bail, anyhow};
 use chj_rustbin::excludes::Excludes;
 use chj_rustbin::excludes::default_excludes;
 use chj_rustbin::excludes::empty_excludes;
-use chj_rustbin::excludes::generic_ignore_filename;
+use chj_rustbin::item::Item;
+use chj_rustbin::item::LastitemOpt;
+use chj_rustbin::item::NoPath;
+use chj_rustbin::item::items;
+use chj_rustbin::item::newer_item;
 use clap::Parser;
-use log::trace;
 use rayon::iter::ParallelIterator;
 use rayon::iter::IntoParallelIterator;
 use std::fmt::Debug;
@@ -16,7 +19,6 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::ffi::OsString;
 use std::io::Write;
-use std::time::SystemTime;
 use std::path::PathBuf;
 use std::convert::From;
 
@@ -86,54 +88,6 @@ struct Opt {
     verbose: bool,
 }
 
-
-#[derive(Debug)]
-struct NoPath;
-
-#[derive(Debug)]
-struct Item<P: Debug> {
-    parentdir: P,
-    filename: OsString,
-    mtime: SystemTime,
-}
-
-impl Item<NoPath> {
-    fn with_parent(self, parentdir: PathBuf) -> Item<PathBuf> {
-        Item {
-            parentdir,
-            filename: self.filename,
-            mtime: self.mtime
-        }
-    }
-}
-
-fn newer_item<P: Debug>(
-    a: Option<Item<P>>, b: Option<Item<P>>
-) -> Option<Item<P>> {
-    match (a, b) {
-        (Some(a), Some(b)) => {
-            if (a.mtime < b.mtime) ||
-                ((a.mtime == b.mtime) && (a.filename > b.filename))
-            {
-                Some(b)
-            } else {
-                Some(a)
-            }
-        },
-        (a, None) => a,
-        (None, b) => b
-    }
-}
-
-
-#[derive(Debug)]
-struct LastitemOpt {
-    all: bool,
-    dirs: bool,
-    files: bool,
-    other: bool,
-}
-
 impl From<&Opt> for LastitemOpt {
     fn from(o: &Opt) -> Self {
         LastitemOpt {
@@ -143,46 +97,6 @@ impl From<&Opt> for LastitemOpt {
             other: o.other
         }
     }
-}
-
-fn items(dir_path: &Path, opt: &LastitemOpt, excludes: &Excludes) -> Result<Vec<OsString>> {
-    // eprintln!("items({dir_path:?}, {opt:?})");
-    fs::read_dir(dir_path).with_context(
-        || anyhow!("opening directory {dir_path:?} for reading"))?
-    .filter_map(
-        |entry_result: Result<fs::DirEntry, std::io::Error>| -> Option<Result<OsString>> {
-            match entry_result {
-                Ok(entry) => {
-                    let ft = entry.file_type()
-                        .expect("does this fail on OSes needing stat?");
-                    let filename = entry.file_name();
-                    if opt.all || ! generic_ignore_filename(&filename) {
-                        let handle_as_dir = ft.is_dir()
-                            && opt.dirs
-                            && !excludes.dirs.contains(&filename);
-                        let handle_as_file = ft.is_file()
-                            && opt.files
-                            && !excludes.files.contains(&filename);
-                        let handle_as_other = opt.other &&
-                            (!ft.is_dir() && !ft.is_file());
-                        if handle_as_dir || (
-                            handle_as_file || handle_as_other) {
-                            Some(Ok(filename))
-                        } else {
-                            trace!(
-                                "ignoring item '{:?}' (type {:?})",
-                                filename, ft);
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                },
-                Err(e) =>
-                    Some(Err(e).with_context(|| anyhow!("read_dir on {dir_path:?}")))
-            }
-        })
-    .collect::<Result<_,_>>()
 }
 
 fn lastitem(

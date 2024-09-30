@@ -4,11 +4,9 @@ use chj_rustbin::excludes::Excludes;
 use chj_rustbin::excludes::default_excludes;
 use chj_rustbin::excludes::empty_excludes;
 use chj_rustbin::impl_item_options_from;
-use chj_rustbin::item::Item;
+use chj_rustbin::item::FilePathType;
 use chj_rustbin::item::ItemOptions;
-use chj_rustbin::item::NoPath;
-use chj_rustbin::item::file_names_vec;
-use chj_rustbin::item::newer_item;
+use chj_rustbin::item::file_path_types_vec;
 use clap::Parser;
 use rayon::iter::ParallelIterator;
 use rayon::iter::IntoParallelIterator;
@@ -22,6 +20,7 @@ use std::ffi::OsString;
 use std::io::Write;
 use std::path::PathBuf;
 use std::convert::From;
+use std::time::SystemTime;
 
 use chj_rustbin::naturallanguagejoin::NaturalLanguageJoin;
 
@@ -91,21 +90,62 @@ struct Opt {
 
 impl_item_options_from!(Opt);
 
+
+#[derive(Debug)]
+pub struct NoPath;
+
+#[derive(Debug)]
+pub struct Item<P: Debug> {
+    pub parentdir: P,
+    pub filename: OsString,
+    pub mtime: SystemTime,
+}
+
+impl Item<NoPath> {
+    pub fn with_parent(self, parentdir: &PathBuf) -> Item<PathBuf> {
+        Item {
+            parentdir: parentdir.clone(),
+            filename: self.filename,
+            mtime: self.mtime
+        }
+    }
+}
+
+pub fn newer_item<P: Debug>(
+    a: Option<Item<P>>, b: Option<Item<P>>
+) -> Option<Item<P>> {
+    match (a, b) {
+        (Some(a), Some(b)) => {
+            if (a.mtime < b.mtime) ||
+                ((a.mtime == b.mtime) && (a.filename > b.filename))
+            {
+                Some(b)
+            } else {
+                Some(a)
+            }
+        },
+        (a, None) => a,
+        (None, b) => b
+    }
+}
+
+
 fn lastitem(
-    dir_path: PathBuf, opt: ItemOptions, excludes: &Excludes
+    dir_path: &PathBuf, opt: ItemOptions, excludes: &Excludes
 ) -> Result<Option<Item<PathBuf>>> {
-    let items = file_names_vec(&dir_path, opt, excludes)?;
+    let items = file_path_types_vec(dir_path, opt, excludes)?;
     let newest_item =
         items.into_par_iter().try_fold(
             || None,
-            |newest_item: Option<Item<NoPath>>, filename: OsString| -> Result<Option<Item<NoPath>>> {
-                let path = dir_path.join(&filename);
+            |newest_item: Option<Item<NoPath>>, FilePathType { file_name, .. }|
+                                                               -> Result<Option<Item<NoPath>>> {
+                let path = dir_path.join(&file_name);
                 let md = fs::symlink_metadata(&path)
-                    .with_context(|| anyhow!("symlink_metadata on {filename:?}"))?;
-                let mtime = md.modified().with_context(|| anyhow!("modified on {filename:?}"))?;
+                    .with_context(|| anyhow!("symlink_metadata on {file_name:?}"))?;
+                let mtime = md.modified().with_context(|| anyhow!("modified on {file_name:?}"))?;
                 Ok(newer_item(
                     newest_item,
-                    Some(Item { parentdir: NoPath, filename, mtime })))
+                    Some(Item { parentdir: NoPath, filename: file_name, mtime })))
             })
         .try_reduce(
             || None,
@@ -117,14 +157,14 @@ fn deeper_lastitem(
     dir_path: PathBuf, depth: u8, opt: ItemOptions, excludes: &Excludes
 ) -> Result<Option<Item<PathBuf>>> {
     if depth == 0 {
-        lastitem(dir_path, opt, excludes)
+        lastitem(&dir_path, opt, excludes)
     } else {
-        let dir_items = file_names_vec(
+        let dir_items = file_path_types_vec(
             &dir_path,
             ItemOptions { all: opt.all, dirs: true, files: false, other: false },
             excludes)?;
-        dir_items.into_par_iter().map(|dir_item| {
-            let path = dir_path.join(dir_item);
+        dir_items.into_par_iter().map(|FilePathType { file_name, .. }| {
+            let path = dir_path.join(file_name);
             deeper_lastitem(path, depth - 1, opt, excludes)
         }).try_fold(
             || None,

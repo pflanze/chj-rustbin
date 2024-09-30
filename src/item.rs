@@ -1,51 +1,12 @@
 /// Get filesystem items while making use of the excludes module.
 
-use std::{fmt::Debug, ffi::OsString, time::SystemTime, path::{PathBuf, Path}};
+use std::{fmt::Debug, ffi::OsString, path::PathBuf};
 use std::fs;
 
 use anyhow::{anyhow, Result, Context};
 use log::trace;
 
 use crate::excludes::{Excludes, generic_ignore_filename};
-
-
-#[derive(Debug)]
-pub struct NoPath;
-
-#[derive(Debug)]
-pub struct Item<P: Debug> {
-    pub parentdir: P,
-    pub filename: OsString,
-    pub mtime: SystemTime,
-}
-
-impl Item<NoPath> {
-    pub fn with_parent(self, parentdir: PathBuf) -> Item<PathBuf> {
-        Item {
-            parentdir,
-            filename: self.filename,
-            mtime: self.mtime
-        }
-    }
-}
-
-pub fn newer_item<P: Debug>(
-    a: Option<Item<P>>, b: Option<Item<P>>
-) -> Option<Item<P>> {
-    match (a, b) {
-        (Some(a), Some(b)) => {
-            if (a.mtime < b.mtime) ||
-                ((a.mtime == b.mtime) && (a.filename > b.filename))
-            {
-                Some(b)
-            } else {
-                Some(a)
-            }
-        },
-        (a, None) => a,
-        (None, b) => b
-    }
-}
 
 
 #[derive(Debug, Clone, Copy)]
@@ -75,34 +36,56 @@ macro_rules! impl_item_options_from {
     }
 }
 
-pub fn file_names_iter<'t>(dir_path: &'t Path, opt: ItemOptions, excludes: &'t Excludes)
-                  -> Result<Box<dyn Iterator<Item = Result<OsString>> + 't>> {
+#[derive(Debug)]
+pub enum FileType {
+    File,
+    Dir,
+    Other
+}
+
+impl From<&fs::FileType> for FileType {
+    fn from(ft: &fs::FileType) -> Self {
+        if ft.is_dir() { Self::Dir }
+        else if ft.is_file() { Self::File }
+        else { Self::Other }
+    }
+}
+
+pub struct FilePathType<'t> {
+    pub dir_path: &'t PathBuf,
+    pub file_name: OsString,
+    pub file_type: FileType,
+}
+
+pub fn file_path_types_iter<'t>(dir_path: &'t PathBuf, opt: ItemOptions, excludes: &'t Excludes)
+                  -> Result<Box<dyn Iterator<Item = Result<FilePathType<'t>>> + 't>> {
     // eprintln!("items({dir_path:?}, {opt:?})");
     let iterator = fs::read_dir(dir_path).with_context(
         || anyhow!("opening directory {dir_path:?} for reading"))?
     .filter_map(
-        move |entry_result: Result<fs::DirEntry, std::io::Error>| -> Option<Result<OsString>> {
+        move |entry_result: Result<fs::DirEntry, std::io::Error>| -> Option<Result<FilePathType>> {
             match entry_result {
                 Ok(entry) => {
                     let ft = entry.file_type()
                         .expect("does this fail on OSes needing stat?");
-                    let filename = entry.file_name();
-                    if opt.all || ! generic_ignore_filename(&filename) {
+                    let file_name = entry.file_name();
+                    if opt.all || ! generic_ignore_filename(&file_name) {
                         let handle_as_dir = ft.is_dir()
                             && opt.dirs
-                            && !excludes.dirs.contains(&filename);
+                            && !excludes.dirs.contains(&file_name);
                         let handle_as_file = ft.is_file()
                             && opt.files
-                            && !excludes.files.contains(&filename);
+                            && !excludes.files.contains(&file_name);
                         let handle_as_other = opt.other &&
                             (!ft.is_dir() && !ft.is_file());
                         if handle_as_dir || (
                             handle_as_file || handle_as_other) {
-                            Some(Ok(filename))
+                            let file_type = FileType::from(&ft);
+                            Some(Ok(FilePathType { dir_path, file_name, file_type }))
                         } else {
                             trace!(
                                 "ignoring item '{:?}' (type {:?})",
-                                filename, ft);
+                                file_name, ft);
                             None
                         }
                     } else {
@@ -116,6 +99,7 @@ pub fn file_names_iter<'t>(dir_path: &'t Path, opt: ItemOptions, excludes: &'t E
     Ok(Box::new(iterator))
 }
 
-pub fn file_names_vec(dir_path: &Path, opt: ItemOptions, excludes: &Excludes) -> Result<Vec<OsString>> {
-    file_names_iter(dir_path, opt, excludes)?.collect::<Result<_,_>>()
+pub fn file_path_types_vec<'t>(dir_path: &'t PathBuf, opt: ItemOptions, excludes: &'t Excludes)
+                           -> Result<Vec<FilePathType<'t>>> {
+    file_path_types_iter(dir_path, opt, excludes)?.collect::<Result<_,_>>()
 }

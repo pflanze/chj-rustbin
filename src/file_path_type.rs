@@ -36,11 +36,26 @@ macro_rules! impl_item_options_from {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileType {
     File,
     Dir,
     Other
+}
+
+impl FileType {
+    pub fn is_dir(self) -> bool {
+        match self {
+            FileType::Dir => true,
+            _ => false
+        }
+    }
+    pub fn is_file(self) -> bool {
+        match self {
+            FileType::File => true,
+            _ => false
+        }
+    }
 }
 
 impl From<&fs::FileType> for FileType {
@@ -51,10 +66,23 @@ impl From<&fs::FileType> for FileType {
     }
 }
 
+#[derive(Debug)]
 pub struct FilePathType<'t> {
     pub dir_path: &'t PathBuf,
     pub file_name: OsString,
     pub file_type: FileType,
+}
+
+impl<'t> FilePathType<'t> {
+    pub fn is_file(&self) -> bool {
+        self.file_type.is_file()
+    }
+    pub fn is_dir(&self) -> bool {
+        self.file_type.is_dir()
+    }
+    pub fn path(&self) -> PathBuf {
+        self.dir_path.join(&self.file_name)
+    }
 }
 
 pub fn file_path_types_iter<'t>(dir_path: &'t PathBuf, opt: ItemOptions, excludes: &'t Excludes)

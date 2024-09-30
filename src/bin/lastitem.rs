@@ -1,5 +1,9 @@
 
 use anyhow::{Context, Result, bail, anyhow};
+use chj_rustbin::excludes::Excludes;
+use chj_rustbin::excludes::default_excludes;
+use chj_rustbin::excludes::empty_excludes;
+use chj_rustbin::excludes::generic_ignore_filename;
 use clap::Parser;
 use log::trace;
 use rayon::iter::ParallelIterator;
@@ -14,46 +18,9 @@ use std::ffi::OsString;
 use std::io::Write;
 use std::time::SystemTime;
 use std::path::PathBuf;
-use std::collections::hash_set::HashSet;
 use std::convert::From;
 
 use chj_rustbin::naturallanguagejoin::NaturalLanguageJoin;
-
-
-#[derive(Debug)]
-struct Excludes {
-    files: HashSet<OsString>,
-    dirs: HashSet<OsString>
-}
-
-fn hashset_from(strs: &[&str]) -> HashSet<OsString> {
-    let mut h : HashSet<OsString> = HashSet::new();
-    for s in strs {
-        h.insert(OsString::from(s));
-    }
-    h
-}
-
-fn default_excludes() -> Excludes {
-    Excludes {
-        files: hashset_from(&["HEUTE", "CALENDAR"]),
-        dirs: hashset_from(&[".git", ".METADATA-v2"])
-    }
-}
-
-fn empty_excludes() -> Excludes {
-    Excludes {
-        files: HashSet::new(),
-        dirs: HashSet::new(),
-    }
-}
-
-fn generic_ignore_filename(filename: &OsString) -> bool {
-    let bs = filename.as_bytes();
-    let len = bs.len();
-    len >= 1 && (bs[0] == b'.') ||
-    len >= 2 && (bs[len-1] == b'~')
-}
 
 
 #[derive(clap::Parser, Debug)]

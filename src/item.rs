@@ -97,6 +97,6 @@ pub fn items_iter<'t>(dir_path: &'t Path, opt: ItemOptions, excludes: &'t Exclud
     Ok(Box::new(iterator))
 }
 
-pub fn items(dir_path: &Path, opt: ItemOptions, excludes: &Excludes) -> Result<Vec<OsString>> {
+pub fn items_vec(dir_path: &Path, opt: ItemOptions, excludes: &Excludes) -> Result<Vec<OsString>> {
     items_iter(dir_path, opt, excludes)?.collect::<Result<_,_>>()
 }

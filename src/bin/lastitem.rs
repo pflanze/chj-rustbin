@@ -6,7 +6,7 @@ use chj_rustbin::excludes::empty_excludes;
 use chj_rustbin::item::Item;
 use chj_rustbin::item::ItemOptions;
 use chj_rustbin::item::NoPath;
-use chj_rustbin::item::items;
+use chj_rustbin::item::items_vec;
 use chj_rustbin::item::newer_item;
 use clap::Parser;
 use rayon::iter::ParallelIterator;
@@ -102,7 +102,7 @@ impl From<&Opt> for ItemOptions {
 fn lastitem(
     dir_path: PathBuf, opt: ItemOptions, excludes: &Excludes
 ) -> Result<Option<Item<PathBuf>>> {
-    let items = items(&dir_path, opt, excludes)?;
+    let items = items_vec(&dir_path, opt, excludes)?;
     let newest_item =
         items.into_par_iter().try_fold(
             || None,
@@ -127,7 +127,7 @@ fn deeper_lastitem(
     if depth == 0 {
         lastitem(dir_path, opt, excludes)
     } else {
-        let dir_items = items(
+        let dir_items = items_vec(
             &dir_path,
             ItemOptions { all: opt.all, dirs: true, files: false, other: false },
             excludes)?;

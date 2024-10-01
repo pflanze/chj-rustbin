@@ -18,3 +18,4 @@ pub mod excludes;
 pub mod file_path_type;
 pub mod region;
 pub mod checked_mutex;
+pub mod scope;

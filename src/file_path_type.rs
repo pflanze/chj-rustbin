@@ -7,6 +7,7 @@ use log::trace;
 
 use crate::excludes::{Excludes, generic_ignore_filename};
 use crate::region::{RegionId, Region};
+use crate::scope;
 
 
 /// Get filesystem items while making use of the excludes module.
@@ -97,7 +98,7 @@ pub fn file_path_types_iter<'region, 't>(
     excludes: &'t Excludes
 ) -> Result<Box<dyn Iterator<Item = Result<FilePathType<'t>>> + 't>> {
     // eprintln!("items({dir_path:?}, {opt:?})");
-    let iterator = fs::read_dir(&*region.get(dir_path)).with_context(
+    let iterator = scope!{ fs::read_dir(&*region.get(dir_path)) }.with_context(
         || anyhow!("opening directory {:?} for reading", &*region.get(dir_path)))?
     .filter_map(
         move |entry_result: Result<fs::DirEntry, std::io::Error>| -> Option<Result<FilePathType>> {
@@ -207,24 +208,25 @@ pub fn recursive_file_path_types_iter<'region, 't>(
 
 #[cfg(test)]
 mod tests {
-    use crate::{excludes::empty_excludes, fp::on};
+    use crate::excludes::empty_excludes;
 
     use super::*;
 
     #[test]
     fn t_recursive_file_path_types_iter() {
-        let mut region = Region::new();
+        let region = Region::new();
         let excludes = empty_excludes();
-        let t = |opt| -> Result<Vec<FilePathType>, > {
+        let t = |opt| -> Result<Vec<PathBuf>, > {
             let iter = recursive_file_path_types_iter(
                 &region,
-                region.store("".into()),
+                region.store("test/file_path_type/".into()),
                 opt,
                 &excludes);
-            let mut v = iter.collect::<Result<Vec<_>, _>>()?;
-            v.sort_by(on(|i: &FilePathType| i.path(&region), |a, b| a.cmp(&b)));
+            let mut v = iter.map(|r| r.map(|s| s.path(&region))).collect::<Result<Vec<_>, _>>()?;
+            v.sort_by(|a, b| a.cmp(&b));
             Ok(v)
         };
+
         assert_eq!(
             t(
                 ItemOptions {
@@ -234,7 +236,42 @@ mod tests {
                     other: true,
                 }
             ).unwrap(),
-            &[]);
+            &[
+                "test/file_path_type/bar",
+                "test/file_path_type/foo"
+            ].map(PathBuf::from));
+
+        assert_eq!(
+            t(
+                ItemOptions {
+                    all: false,
+                    dirs: true,
+                    files: true,
+                    other: true,
+                }
+            ).unwrap(),
+            &[
+                "test/file_path_type/bar",
+                "test/file_path_type/bar/c",
+                "test/file_path_type/foo",
+                "test/file_path_type/foo/a",
+                "test/file_path_type/foo/b"
+            ].map(PathBuf::from));
+                   
+        assert_eq!(
+            t(
+                ItemOptions {
+                    all: false,
+                    dirs: false,
+                    files: true,
+                    other: true,
+                }
+            ).unwrap(),
+            &[
+                "test/file_path_type/bar/c",
+                "test/file_path_type/foo/a",
+                "test/file_path_type/foo/b"
+            ].map(PathBuf::from));
                    
     }
 }

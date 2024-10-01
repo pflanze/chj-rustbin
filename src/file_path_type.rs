@@ -2,6 +2,7 @@ use std::{fmt::Debug, ffi::OsString, path::PathBuf};
 use std::fs;
 
 use anyhow::{anyhow, Result, Context};
+use genawaiter::rc::Gen;
 use log::trace;
 
 use crate::excludes::{Excludes, generic_ignore_filename};
@@ -68,7 +69,7 @@ impl From<&fs::FileType> for FileType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct FilePathType<'region> {
     pub dir_path: RegionId<'region, PathBuf>,
     pub file_name: OsString,
@@ -143,4 +144,97 @@ pub fn file_path_types_vec<'region, 't>(
     excludes: &'t Excludes
 ) -> Result<Vec<FilePathType<'t>>> {
     file_path_types_iter(region, dir_path, opt, excludes)?.collect::<Result<_,_>>()
+}
+
+
+pub fn recursive_file_path_types_iter<'region, 't>(
+    region: &'t Region<'region, PathBuf>,
+    dir_path: RegionId<'region, PathBuf>,
+    opt: ItemOptions,
+    excludes: &'t Excludes
+) -> Box<dyn Iterator<Item = Result<FilePathType<'t>>> + 't> {
+    Box::new(Gen::new(|co| async move {
+        let orig_opt = opt;
+        let opt_with_dir = ItemOptions {
+            dirs: true,
+            ..orig_opt
+        };
+        match file_path_types_iter(region, dir_path, opt_with_dir, excludes) {
+            Ok(mut iter) => {
+                let mut stack = vec![];
+                loop {
+                    while let Some(item) = iter.next() {
+                        match item {
+                            Ok(item) => {
+                                if item.is_dir() {
+                                    let dir_path = region.store(item.path(region));
+                                    if orig_opt.dirs {
+                                        co.yield_(Ok(item)).await;
+                                    }
+                                    stack.push(iter);
+                                    match file_path_types_iter(
+                                        region, dir_path, opt_with_dir, excludes) {
+                                            Ok(new_iter) => iter = new_iter,
+                                        Err(e) => {
+                                            co.yield_(Err(e)).await;
+                                            return;
+                                        }
+                                    }
+                                } else {
+                                    co.yield_(Ok(item)).await;
+                                }
+                            }
+                            Err(e) => {
+                                co.yield_(Err(e)).await;
+                                return;
+                            }
+                        }
+                    }
+                    if let Some(old_iter) = stack.pop() {
+                        iter = old_iter;
+                    } else {
+                        return;
+                    }
+                }
+            }
+            Err(e) => {
+                co.yield_(Err(e)).await;
+                return;
+            }
+        }
+    }).into_iter())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{excludes::empty_excludes, fp::on};
+
+    use super::*;
+
+    #[test]
+    fn t_recursive_file_path_types_iter() {
+        let mut region = Region::new();
+        let excludes = empty_excludes();
+        let t = |opt| -> Result<Vec<FilePathType>, > {
+            let iter = recursive_file_path_types_iter(
+                &region,
+                region.store("".into()),
+                opt,
+                &excludes);
+            let mut v = iter.collect::<Result<Vec<_>, _>>()?;
+            v.sort_by(on(|i: &FilePathType| i.path(&region), |a, b| a.cmp(&b)));
+            Ok(v)
+        };
+        assert_eq!(
+            t(
+                ItemOptions {
+                    all: false,
+                    dirs: true,
+                    files: false,
+                    other: true,
+                }
+            ).unwrap(),
+            &[]);
+                   
+    }
 }

@@ -80,13 +80,16 @@ impl<'t, K: PartialEq, V> List<'t, (K, V)> {
     /// In a List of (K, V) pairs, get the first V for which the K ==
     /// key.
     pub fn alist_get(&self, key: &K) -> Option<&V> {
-        match self {
-            List::Pair((k, v), rest) => if k == key {
-                Some(v)
-            } else {
-                rest.alist_get(key)
-            },
-            List::Null => None,
+        let mut l = self;
+        loop {
+            match l {
+                List::Pair((k, v), rest) => if k == key {
+                    return Some(v)
+                } else {
+                    l = rest;
+                },
+                List::Null => return None,
+            }
         }
     }
 }

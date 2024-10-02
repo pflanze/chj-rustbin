@@ -76,6 +76,23 @@ impl<'t, T> List<'t, T> {
     }
 }
 
+impl<'t, T: PartialEq> List<'t, T> {
+    /// Report whether a List contains a particular value.
+    pub fn contains(&self, val: &T) -> bool {
+        let mut l = self;
+        loop {
+            match l {
+                List::Pair(v, rest) => if v == val {
+                    return true;
+                } else {
+                    l = rest;
+                },
+                List::Null => return false,
+            }
+        }
+    }
+}
+
 impl<'t, K: PartialEq, V> List<'t, (K, V)> {
     /// In a List of (K, V) pairs, get the first V for which the K ==
     /// key.
@@ -113,6 +130,10 @@ mod tests {
         assert_eq!(c.to_vec(), vec![9, 7, 5]);
         assert_eq!(d.to_vec(), vec![13, 7, 5]);
         assert_eq!(e.to_vec(), vec![14, 9, 7, 5]);
+
+        assert_eq!(e.contains(&14), true);
+        assert_eq!(e.contains(&13), false);
+        assert_eq!(e.contains(&5), true);
     }
 
     #[test]

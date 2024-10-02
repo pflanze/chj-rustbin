@@ -3,6 +3,10 @@
 use std::convert::TryInto;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
+
+#[cfg(debug_assertions)]
+use crate::checked_mutex::{CheckedMutex as Mutex, CheckedMutexGuard as MutexGuard};
+#[cfg(not(debug_assertions))]
 use std::sync::{Mutex, MutexGuard};
 
 

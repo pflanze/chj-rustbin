@@ -11,6 +11,10 @@ pub enum List<'t, T> {
     Null
 }
 
+pub fn cons<'l, T>(v: T, r: &'l List<T>) -> List<'l, T> {
+    List::Pair(v, r)
+}
+
 impl<'t, T> List<'t, T> {
     pub fn len(&self) -> usize {
         match self {
@@ -72,8 +76,19 @@ impl<'t, T> List<'t, T> {
     }
 }
 
-pub fn cons<'l, T>(v: T, r: &'l List<T>) -> List<'l, T> {
-    List::Pair(v, r)
+impl<'t, K: PartialEq, V> List<'t, (K, V)> {
+    /// In a List of (K, V) pairs, get the first V for which the K ==
+    /// key.
+    pub fn alist_get(&self, key: &K) -> Option<&V> {
+        match self {
+            List::Pair((k, v), rest) => if k == key {
+                Some(v)
+            } else {
+                rest.alist_get(key)
+            },
+            List::Null => None,
+        }
+    }
 }
 
 
@@ -82,7 +97,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn t_() {
+    fn t_general() {
         let a = List::Pair(5, &List::Null);
         let b = List::Pair(7, &a);
         let c = List::Pair(9, &b);
@@ -95,5 +110,15 @@ mod tests {
         assert_eq!(c.to_vec(), vec![9, 7, 5]);
         assert_eq!(d.to_vec(), vec![13, 7, 5]);
         assert_eq!(e.to_vec(), vec![14, 9, 7, 5]);
+    }
+
+    #[test]
+    fn t_alist() {
+        let a = cons((5, "five"), &List::Null);
+        let b = cons((2, "two"), &a);
+        let c = cons((3, "three"), &b);
+        assert_eq!(c.alist_get(&5), Some(&"five"));
+        assert_eq!(c.alist_get(&3), Some(&"three"));
+        assert_eq!(c.alist_get(&4), None);
     }
 }

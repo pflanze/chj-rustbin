@@ -5,7 +5,7 @@ use anyhow::{anyhow, Result, Context};
 use genawaiter::rc::Gen;
 use log::trace;
 
-use crate::excludes::{Excludes, generic_ignore_filename};
+use crate::excludes::Excludes;
 use crate::region::{RegionId, Region};
 use crate::scope;
 
@@ -15,22 +15,20 @@ use crate::scope;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ItemOptions {
-    pub all: bool,
     pub dirs: bool,
     pub files: bool,
     pub other: bool,
 }
 
 /// Implement conversion from the type `$from` to
-/// `ItemOptions`. Assumes the `all`, `dirs`, `files`, and `other`
-/// fields are present on `$from` as `bool`.
+/// `ItemOptions`. Assumes the `dirs`, `files`, and `other` fields are
+/// present on `$from` as `bool`.
 #[macro_export]
 macro_rules! impl_item_options_from {
     { $from:ty } => {
         impl From<&$from> for chj_rustbin::file_path_type::ItemOptions {
             fn from(o: &$from) -> Self {
                 chj_rustbin::file_path_type::ItemOptions {
-                    all: o.all,
                     dirs: o.dirs,
                     files: o.files,
                     other: o.other
@@ -107,26 +105,22 @@ pub fn file_path_types_iter<'region, 't>(
                     let ft = entry.file_type()
                         .expect("does this fail on OSes needing stat?");
                     let file_name = entry.file_name();
-                    if opt.all || ! generic_ignore_filename(&file_name) {
-                        let handle_as_dir = ft.is_dir()
-                            && opt.dirs
-                            && !excludes.dirs.contains(&file_name);
-                        let handle_as_file = ft.is_file()
-                            && opt.files
-                            && !excludes.files.contains(&file_name);
-                        let handle_as_other = opt.other &&
-                            (!ft.is_dir() && !ft.is_file());
-                        if handle_as_dir || (
-                            handle_as_file || handle_as_other) {
-                            let file_type = FileType::from(&ft);
-                            Some(Ok(FilePathType { dir_path, file_name, file_type }))
-                        } else {
-                            trace!(
-                                "ignoring item '{:?}' (type {:?})",
-                                file_name, ft);
-                            None
-                        }
+                    let handle_as_dir = ft.is_dir()
+                        && opt.dirs
+                        && ! excludes.filename_is_excluded(&file_name, true);
+                    let handle_as_file = ft.is_file()
+                        && opt.files
+                        && ! excludes.filename_is_excluded(&file_name, false);
+                    let handle_as_other = opt.other &&
+                        (!ft.is_dir() && !ft.is_file());
+                    if handle_as_dir || (
+                        handle_as_file || handle_as_other) {
+                        let file_type = FileType::from(&ft);
+                        Some(Ok(FilePathType { dir_path, file_name, file_type }))
                     } else {
+                        trace!(
+                            "ignoring item '{:?}' (type {:?})",
+                            file_name, ft);
                         None
                     }
                 },
@@ -215,7 +209,7 @@ mod tests {
     #[test]
     fn t_recursive_file_path_types_iter() {
         let region = Region::new();
-        let excludes = empty_excludes();
+        let excludes = empty_excludes(true);
         let t = |opt| -> Result<Vec<PathBuf>, > {
             let iter = recursive_file_path_types_iter(
                 &region,
@@ -230,7 +224,6 @@ mod tests {
         assert_eq!(
             t(
                 ItemOptions {
-                    all: false,
                     dirs: true,
                     files: false,
                     other: true,
@@ -244,7 +237,6 @@ mod tests {
         assert_eq!(
             t(
                 ItemOptions {
-                    all: false,
                     dirs: true,
                     files: true,
                     other: true,
@@ -261,7 +253,6 @@ mod tests {
         assert_eq!(
             t(
                 ItemOptions {
-                    all: false,
                     dirs: false,
                     files: true,
                     other: true,

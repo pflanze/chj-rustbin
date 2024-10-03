@@ -168,7 +168,7 @@ fn deeper_lastitem(
         let dir_items = file_path_types_vec(
             &region,
             dir_path,
-            ItemOptions { all: opt.all, dirs: true, files: false, other: false },
+            ItemOptions { dirs: true, files: false, other: false },
             excludes)?;
         dir_items.into_par_iter().map(|FilePathType { file_name, .. }| {
             let path = region.get(dir_path).join(file_name);
@@ -209,9 +209,9 @@ fn main() -> Result<()> {
 
     let mut excludes =
         if opt.no_ignore {
-            empty_excludes()
+            empty_excludes(opt.all)
         } else {
-            default_excludes()
+            default_excludes(opt.all)
         };
 
     for s in &opt.ignore_file {

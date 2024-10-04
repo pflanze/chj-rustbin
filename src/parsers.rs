@@ -1,5 +1,8 @@
 use genawaiter::rc::Gen;
 
+use crate::parse_error::ParseError;
+use crate::parse_error;
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParseableStr<'t> {
@@ -54,6 +57,26 @@ pub struct Expected<'d> {
     pub desc: &'d str,
     pub position: usize
 }
+
+impl<'t> From<Box<ExpectedString<'t>>> for ParseError {
+    fn from(e: Box<ExpectedString>) -> Self {
+        parse_error! {
+            message: e.to_string(),
+            position: e.position
+        }
+    }
+}
+
+impl<'t> From<Box<Expected<'t>>> for ParseError {
+    fn from(e: Box<Expected>) -> Self {
+        parse_error! {
+            message: e.to_string(),
+            position: e.position
+        }
+    }
+}
+
+
 
 #[derive(Debug, thiserror::Error)]
 pub enum ParseFailure {

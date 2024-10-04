@@ -1,5 +1,3 @@
-/// Get filesystem items while making use of the excludes module.
-
 use std::{fmt::Debug, ffi::OsString, path::PathBuf};
 use std::fs;
 
@@ -7,6 +5,10 @@ use anyhow::{anyhow, Result, Context};
 use log::trace;
 
 use crate::excludes::{Excludes, generic_ignore_filename};
+use crate::region::{RegionId, Region};
+
+
+/// Get filesystem items while making use of the excludes module.
 
 
 #[derive(Debug, Clone, Copy)]
@@ -67,29 +69,35 @@ impl From<&fs::FileType> for FileType {
 }
 
 #[derive(Debug)]
-pub struct FilePathType<'t> {
-    pub dir_path: &'t PathBuf,
+pub struct FilePathType<'region> {
+    pub dir_path: RegionId<'region, PathBuf>,
     pub file_name: OsString,
     pub file_type: FileType,
 }
 
-impl<'t> FilePathType<'t> {
+impl<'region> FilePathType<'region> {
     pub fn is_file(&self) -> bool {
         self.file_type.is_file()
     }
     pub fn is_dir(&self) -> bool {
         self.file_type.is_dir()
     }
-    pub fn path(&self) -> PathBuf {
-        self.dir_path.join(&self.file_name)
+    pub fn path(&self, region: &Region<'region, PathBuf>) -> PathBuf {
+        region.get(self.dir_path).join(&self.file_name)
     }
 }
 
-pub fn file_path_types_iter<'t>(dir_path: &'t PathBuf, opt: ItemOptions, excludes: &'t Excludes)
-                  -> Result<Box<dyn Iterator<Item = Result<FilePathType<'t>>> + 't>> {
+
+/// Does not descend into dirs.
+pub fn file_path_types_iter<'region, 't>(
+    region: &'t Region<'region, PathBuf>,
+    dir_path: RegionId<'region, PathBuf>,
+    opt: ItemOptions,
+    excludes: &'t Excludes
+) -> Result<Box<dyn Iterator<Item = Result<FilePathType<'t>>> + 't>> {
     // eprintln!("items({dir_path:?}, {opt:?})");
-    let iterator = fs::read_dir(dir_path).with_context(
-        || anyhow!("opening directory {dir_path:?} for reading"))?
+    let iterator = fs::read_dir(&*region.get(dir_path)).with_context(
+        || anyhow!("opening directory {:?} for reading", &*region.get(dir_path)))?
     .filter_map(
         move |entry_result: Result<fs::DirEntry, std::io::Error>| -> Option<Result<FilePathType>> {
             match entry_result {
@@ -127,7 +135,12 @@ pub fn file_path_types_iter<'t>(dir_path: &'t PathBuf, opt: ItemOptions, exclude
     Ok(Box::new(iterator))
 }
 
-pub fn file_path_types_vec<'t>(dir_path: &'t PathBuf, opt: ItemOptions, excludes: &'t Excludes)
-                           -> Result<Vec<FilePathType<'t>>> {
-    file_path_types_iter(dir_path, opt, excludes)?.collect::<Result<_,_>>()
+/// Does not descend into dirs.
+pub fn file_path_types_vec<'region, 't>(
+    region: &'t Region<'region, PathBuf>,
+    dir_path: RegionId<'region, PathBuf>,
+    opt: ItemOptions,
+    excludes: &'t Excludes
+) -> Result<Vec<FilePathType<'t>>> {
+    file_path_types_iter(region, dir_path, opt, excludes)?.collect::<Result<_,_>>()
 }

@@ -1,15 +1,3 @@
-
-use anyhow::{Context, Result, bail, anyhow};
-use chj_rustbin::excludes::Excludes;
-use chj_rustbin::excludes::default_excludes;
-use chj_rustbin::excludes::empty_excludes;
-use chj_rustbin::impl_item_options_from;
-use chj_rustbin::file_path_type::FilePathType;
-use chj_rustbin::file_path_type::ItemOptions;
-use chj_rustbin::file_path_type::file_path_types_vec;
-use clap::Parser;
-use rayon::iter::ParallelIterator;
-use rayon::iter::IntoParallelIterator;
 use std::fmt::Debug;
 use std::fs;
 use std::io;
@@ -21,6 +9,20 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::convert::From;
 use std::time::SystemTime;
+
+use anyhow::{Context, Result, bail, anyhow};
+use chj_rustbin::region::Region;
+use clap::Parser;
+use rayon::iter::ParallelIterator;
+use rayon::iter::IntoParallelIterator;
+
+use chj_rustbin::excludes::Excludes;
+use chj_rustbin::excludes::default_excludes;
+use chj_rustbin::excludes::empty_excludes;
+use chj_rustbin::impl_item_options_from;
+use chj_rustbin::file_path_type::FilePathType;
+use chj_rustbin::file_path_type::ItemOptions;
+use chj_rustbin::file_path_type::file_path_types_vec;
 
 use chj_rustbin::naturallanguagejoin::NaturalLanguageJoin;
 
@@ -133,7 +135,9 @@ pub fn newer_item<P: Debug>(
 fn lastitem(
     dir_path: &PathBuf, opt: ItemOptions, excludes: &Excludes
 ) -> Result<Option<Item<PathBuf>>> {
-    let items = file_path_types_vec(dir_path, opt, excludes)?;
+    let region = Region::new();
+    let dir_path_id = region.store(dir_path.clone());
+    let items = file_path_types_vec(&region, dir_path_id, opt, excludes)?;
     let newest_item =
         items.into_par_iter().try_fold(
             || None,
@@ -159,12 +163,15 @@ fn deeper_lastitem(
     if depth == 0 {
         lastitem(&dir_path, opt, excludes)
     } else {
+        let region = Region::new();
+        let dir_path = region.store(dir_path);
         let dir_items = file_path_types_vec(
-            &dir_path,
+            &region,
+            dir_path,
             ItemOptions { all: opt.all, dirs: true, files: false, other: false },
             excludes)?;
         dir_items.into_par_iter().map(|FilePathType { file_name, .. }| {
-            let path = dir_path.join(file_name);
+            let path = region.get(dir_path).join(file_name);
             deeper_lastitem(path, depth - 1, opt, excludes)
         }).try_fold(
             || None,

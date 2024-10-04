@@ -178,6 +178,15 @@ impl<'t> ParseableStr<'t> {
             }.into())
     }
 
+    fn expect_str_or_eof<'needle>(
+        self, beginning: &'needle str
+    ) -> Result<ParseableStr<'t>, Box<ExpectedString<'needle>>> {
+        if self.is_empty() {
+            return Ok(self);
+        }
+        self.expect_str(beginning)
+    }
+
     /// Find the first occurrence of `needle` in self, return the part
     /// left of it.
     fn take_until_str(self, needle: &str) -> Option<ParseableStr<'t>> {

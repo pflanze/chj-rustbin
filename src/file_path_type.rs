@@ -40,8 +40,10 @@ macro_rules! impl_item_options_from {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileType {
+    /// `File` does not include symlinks
     File,
     Dir,
+    Symlink,
     Other
 }
 
@@ -52,6 +54,7 @@ impl FileType {
             _ => false
         }
     }
+    /// Does not include symlinks
     pub fn is_file(self) -> bool {
         match self {
             FileType::File => true,
@@ -64,6 +67,7 @@ impl From<&fs::FileType> for FileType {
     fn from(ft: &fs::FileType) -> Self {
         if ft.is_dir() { Self::Dir }
         else if ft.is_file() { Self::File }
+        else if ft.is_symlink() { Self::Symlink }
         else { Self::Other }
     }
 }

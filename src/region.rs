@@ -32,19 +32,18 @@ impl<'region, T> Copy for RegionId<'region, T> {}
 
 
 // Have to do my own MappedMutexGuard since that is nightly only.
-// (XX Why not pass &T to the mapper function instead of a ref to MutexGuard<T>?)
-pub struct MutexRef<'m, T: 'm, R, M: for<'g> Fn(&'g MutexGuard<T>) -> &'g R>{
+pub struct MutexRef<'m, T: 'm, R, M: for<'g> Fn(&'g T) -> &'g R>{
     guard: MutexGuard<'m, T>,
     mapper: M
 }
 
-impl<'m, T: 'm, R, M: for<'g> Fn(&'g MutexGuard<T>) -> &'g R> MutexRef<'m, T, R, M> {
+impl<'m, T: 'm, R, M: for<'g> Fn(&'g T) -> &'g R> MutexRef<'m, T, R, M> {
     pub fn map(guard: MutexGuard<'m, T>, mapper: M) -> Self {
         MutexRef { guard, mapper }
     }
 }
 
-impl<'m, T: 'm, R, M: for<'g> Fn(&'g MutexGuard<T>) -> &'g R> Deref for MutexRef<'m, T, R, M> {
+impl<'m, T: 'm, R, M: for<'g> Fn(&'g T) -> &'g R> Deref for MutexRef<'m, T, R, M> {
     type Target = R;
 
     fn deref(&self) -> &Self::Target {
@@ -52,12 +51,12 @@ impl<'m, T: 'm, R, M: for<'g> Fn(&'g MutexGuard<T>) -> &'g R> Deref for MutexRef
     }
 }
 
-pub struct MutexRefMut<'m, T: 'm, R, M: for<'g> Fn(&'g mut MutexGuard<T>) -> &'g mut R>{
+pub struct MutexRefMut<'m, T: 'm, R, M: for<'g> Fn(&'g mut T) -> &'g mut R>{
     guard: MutexGuard<'m, T>,
     mapper: M
 }
 
-impl<'m, T: 'm, R, M: for<'g> Fn(&'g mut MutexGuard<T>) -> &'g mut R> MutexRefMut<'m, T, R, M> {
+impl<'m, T: 'm, R, M: for<'g> Fn(&'g mut T) -> &'g mut R> MutexRefMut<'m, T, R, M> {
     pub fn map(guard: MutexGuard<'m, T>, mapper: M) -> Self {
         MutexRefMut { guard, mapper }
     }
@@ -66,7 +65,7 @@ impl<'m, T: 'm, R, M: for<'g> Fn(&'g mut MutexGuard<T>) -> &'g mut R> MutexRefMu
 // XX ah ok,  is &mut variant enough?  returning as &  anyway. 'weakening' the closure but fine?
 // -> no.  worse, deref not implementable huh
 
-impl<'m, T: 'm, R, M: for<'g> Fn(&'g mut MutexGuard<T>) -> &'g mut R> Deref for MutexRefMut<'m, T, R, M> {
+impl<'m, T: 'm, R, M: for<'g> Fn(&'g mut T) -> &'g mut R> Deref for MutexRefMut<'m, T, R, M> {
     type Target = R;
 
     fn deref(&self) -> &Self::Target {
@@ -75,7 +74,7 @@ impl<'m, T: 'm, R, M: for<'g> Fn(&'g mut MutexGuard<T>) -> &'g mut R> Deref for 
     }
 }
 
-impl<'m, T: 'm, R, M: for<'g> Fn(&'g mut MutexGuard<T>) -> &'g mut R> DerefMut for MutexRefMut<'m, T, R, M> {
+impl<'m, T: 'm, R, M: for<'g> Fn(&'g mut T) -> &'g mut R> DerefMut for MutexRefMut<'m, T, R, M> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         (self.mapper)(&mut self.guard)
     }
@@ -107,7 +106,7 @@ impl<'region, T> Region<'region, T> {
     pub fn get<'m>(
         &'m self, id: RegionId<'m, T>
     ) -> MutexRef<'m, Vec<T>, T,
-                  impl for<'g> Fn(&'g MutexGuard<Vec<T>>) -> &'g T + 'm> {
+                  impl for<'g> Fn(&'g Vec<T>) -> &'g T + 'm> {
         MutexRef::map(self.region.lock().unwrap(), move |r| &r[id.id as usize])
     }
 
@@ -117,7 +116,7 @@ impl<'region, T> Region<'region, T> {
     pub fn get_mut<'m>(
         &'m self, id: RegionId<'m, T>
     ) -> MutexRefMut<'m, Vec<T>, T,
-                  impl for<'g> Fn(&'g mut MutexGuard<Vec<T>>) -> &'g mut T + 'm> {
+                  impl for<'g> Fn(&'g mut Vec<T>) -> &'g mut T + 'm> {
         MutexRefMut::map(self.region.lock().unwrap(), move |r| &mut r[id.id as usize])
     }
 

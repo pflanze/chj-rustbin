@@ -1,4 +1,6 @@
-use std::{hash::Hash, collections::{HashMap, hash_map::{Entry, OccupiedEntry}, BTreeMap, btree_map}, borrow::Borrow, time::Duration, fmt::Display, convert::TryInto, ops::Add};
+use std::{hash::Hash,
+          collections::{HashMap, hash_map::{Entry, OccupiedEntry}, BTreeMap, btree_map},
+          borrow::Borrow, time::Duration, fmt::Display, convert::TryInto, ops::Add};
 
 
 // A HashMap::get_mut variant that allows to work around the issue

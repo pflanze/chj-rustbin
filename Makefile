@@ -7,7 +7,7 @@ test_intersection: target/release/intersection
 test: test_intersection
 	cargo test --release
 
-target/release/%: src/bin/%.rs src/*.rs
+target/release/%: src/bin/%.rs src/*.rs src/io/%.rs src/parse/%.rs src/text/%.rs src/time/%.rs src/util/%.rs
 	cargo build --release
 	touch $@
 # ^ touch because cargo won't update binaries if they don't depend on

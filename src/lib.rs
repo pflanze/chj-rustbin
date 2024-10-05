@@ -23,3 +23,4 @@ pub mod scope;
 pub mod conslist;
 pub mod alternatively;
 pub mod parse_error;
+pub mod index_map;

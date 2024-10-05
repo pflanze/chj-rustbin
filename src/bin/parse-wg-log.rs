@@ -13,8 +13,8 @@ use chj_rustbin::gen_try_result;
 use chj_rustbin::numbers::{numbers_within, max_f64, nandropping_add};
 use chj_rustbin::sequences::try_group;
 use chj_rustbin::{io::readwithcontext::ReadWithContext,
-                  parseutil::{cleanwhite, parse_byte_multiplier, is_all_white,
-                              key_val, after_white},
+                  text::parseutil::{cleanwhite, parse_byte_multiplier, is_all_white,
+                                    key_val, after_white},
                   time::tai::{parse_timestamp, Tai64Format},
                   fp::on};
 

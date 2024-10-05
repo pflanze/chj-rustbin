@@ -41,7 +41,7 @@ impl FileLocation {
 #[macro_export]
 macro_rules! file_location {
     {} => {
-        $crate::parse_error::FileLocation {
+        $crate::parse::parse_error::FileLocation {
             file: file!(),
             line: line!(),
             column: column!(),
@@ -63,7 +63,7 @@ macro_rules! parse_error {
 macro_rules! T {
     { $e:expr } => {
         $e.map_err(|e| {
-            let mut e: $crate::parse_error::ParseError = e.into();
+            let mut e: $crate::parse::parse_error::ParseError = e.into();
             e.location.push($crate::file_location!());
             e
         })

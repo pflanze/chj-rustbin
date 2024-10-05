@@ -4,7 +4,7 @@ use anyhow::{Result, anyhow, bail};
 use tai64::Tai64N;
 use chrono::{DateTime, Local, Utc};
 
-use crate::{parseutil::{first_rest, take_while, char_is_white, parse_hex, drop_n},
+use crate::{text::parseutil::{first_rest, take_while, char_is_white, parse_hex, drop_n},
             fp::complement,
             time::excel::exceldays_from_unixtime};
 

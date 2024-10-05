@@ -1,6 +1,6 @@
 use genawaiter::rc::Gen;
 
-use crate::parse_error::ParseError;
+use crate::parse::parse_error::ParseError;
 use crate::parse_error;
 
 

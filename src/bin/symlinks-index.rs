@@ -12,7 +12,7 @@ use std::io::{stdin, stdout, BufRead, BufWriter, Write};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 
-use chj_rustbin::startswith::StartsWith;
+use chj_rustbin::text::startswith::StartsWith;
 
 
 #[derive(clap::Parser, Debug)]

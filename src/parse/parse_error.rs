@@ -25,6 +25,16 @@ impl ParseError {
     }
 }
 
+/// Only the message and position are compared (this is to allow for
+/// tests without breaking due to location changes; location should be
+/// just debugging information)
+impl PartialEq for ParseError {
+    fn eq(&self, other: &Self) -> bool {
+        self.message == other.message
+            && self.position == other.position
+    }
+}
+
 #[derive(Debug)]
 pub struct FileLocation {
     pub file: &'static str,

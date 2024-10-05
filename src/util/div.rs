@@ -156,9 +156,9 @@ macro_rules! loop_try {
                                {error_sleep_duration:?}");
                     thread::sleep(error_sleep_duration);
                     error_sleep_duration =
-                        crate::util::duration_mul_div(error_sleep_duration,
-                                         1200,
-                                         1000)
+                        $crate::util::duration_mul_div(error_sleep_duration,
+                                                       1200,
+                                                       1000)
                         .unwrap_or(default_error_sleep_duration);
                 }
             }

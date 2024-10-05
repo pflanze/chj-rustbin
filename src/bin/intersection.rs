@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::collections::{VecDeque, HashSet};
 use kstring::KString;
 
-use chj_rustbin::readwithcontext::{easy_read_line, open_file, ReadWithContext};
+use chj_rustbin::io::readwithcontext::{easy_read_line, open_file, ReadWithContext};
 
 
 #[derive(clap::Parser, Debug)]

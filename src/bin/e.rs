@@ -25,8 +25,8 @@ use thiserror::Error;
 use nix::unistd::Pid;
 use std::collections::HashMap;
 
-use chj_rustbin::rawfdreader::RawFdReader;
-use chj_rustbin::unix_fs::path_is_normal;
+use chj_rustbin::io::rawfdreader::RawFdReader;
+use chj_rustbin::io::unix_fs::path_is_normal;
 
 fn do_debug() -> bool {
     false

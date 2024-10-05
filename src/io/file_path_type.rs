@@ -5,7 +5,7 @@ use anyhow::{anyhow, Result, Context};
 use genawaiter::rc::Gen;
 use log::trace;
 
-use crate::excludes::Excludes;
+use crate::io::excludes::Excludes;
 use crate::region::{RegionId, Region};
 use crate::scope;
 
@@ -26,9 +26,9 @@ pub struct ItemOptions {
 #[macro_export]
 macro_rules! impl_item_options_from {
     { $from:ty } => {
-        impl From<&$from> for chj_rustbin::file_path_type::ItemOptions {
+        impl From<&$from> for $crate::io::file_path_type::ItemOptions {
             fn from(o: &$from) -> Self {
-                chj_rustbin::file_path_type::ItemOptions {
+                $crate::io::file_path_type::ItemOptions {
                     dirs: o.dirs,
                     files: o.files,
                     other: o.other
@@ -206,7 +206,7 @@ pub fn recursive_file_path_types_iter<'region, 't>(
 
 #[cfg(test)]
 mod tests {
-    use crate::excludes::empty_excludes;
+    use crate::io::excludes::empty_excludes;
 
     use super::*;
 

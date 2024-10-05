@@ -16,13 +16,9 @@ use clap::Parser;
 use rayon::iter::ParallelIterator;
 use rayon::iter::IntoParallelIterator;
 
-use chj_rustbin::excludes::Excludes;
-use chj_rustbin::excludes::default_excludes;
-use chj_rustbin::excludes::empty_excludes;
+use chj_rustbin::io::excludes::{Excludes, default_excludes, empty_excludes};
 use chj_rustbin::impl_item_options_from;
-use chj_rustbin::file_path_type::FilePathType;
-use chj_rustbin::file_path_type::ItemOptions;
-use chj_rustbin::file_path_type::file_path_types_vec;
+use chj_rustbin::io::file_path_type::{FilePathType, ItemOptions, file_path_types_vec};
 
 use chj_rustbin::naturallanguagejoin::NaturalLanguageJoin;
 

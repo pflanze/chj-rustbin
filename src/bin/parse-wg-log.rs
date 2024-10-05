@@ -1,4 +1,4 @@
-use chj_rustbin::util::{hashmap_add, hashmap_get_mut_vivify};
+use chj_rustbin::util::div::{hashmap_add, hashmap_get_mut_vivify};
 use chrono::{Timelike, NaiveDate, Datelike};
 use clap::Parser;
 use genawaiter::rc::Gen;

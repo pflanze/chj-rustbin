@@ -26,6 +26,14 @@ pub struct RegionId<'region, T> {
     id: u32
 }
 
+impl<'region, T> RegionId<'region, T> {
+    /// Use carefully.
+    pub fn as_index(self) -> usize {
+        self.id as usize
+    }
+}
+
+
 impl<'region, T> Clone for RegionId<'region, T> {
     fn clone(&self) -> Self {
         *self
@@ -111,7 +119,7 @@ impl<'region, T> Region<'region, T> {
         &'m self, id: RegionId<'m, T>
     ) -> MutexRef<'m, Vec<T>, T,
                   impl for<'g> Fn(&'g Vec<T>) -> &'g T + 'm> {
-        MutexRef::map(self.region.lock().unwrap(), move |r| &r[id.id as usize])
+        MutexRef::map(self.region.lock().unwrap(), move |r| &r[id.as_index()])
     }
 
     /// Takes a mutex lock for the life time of MutexRefMut. To avoid
@@ -121,7 +129,7 @@ impl<'region, T> Region<'region, T> {
         &'m self, id: RegionId<'m, T>
     ) -> MutexRefMut<'m, Vec<T>, T,
                   impl for<'g> Fn(&'g mut Vec<T>) -> &'g mut T + 'm> {
-        MutexRefMut::map(self.region.lock().unwrap(), move |r| &mut r[id.id as usize])
+        MutexRefMut::map(self.region.lock().unwrap(), move |r| &mut r[id.as_index()])
     }
 
     /// Lock access to the region for the life time of the
@@ -235,14 +243,14 @@ impl<'m, T> RegionGuard<'m, T> {
     pub fn get(
         &'m self, id: RegionId<'m, T>
     ) -> &'m T {
-        &(*self.region_guard)[id.id as usize]
+        &(*self.region_guard)[id.as_index()]
     }
 
     /// May panic on invalid ids.
     pub fn get_mut(
         &'m mut self, id: RegionId<'m, T>
     ) -> &'m mut T {
-        &mut (*self.region_guard)[id.id as usize]
+        &mut (*self.region_guard)[id.as_index()]
     }
 }
 

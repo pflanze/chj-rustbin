@@ -5,7 +5,8 @@ use tai64::Tai64N;
 use chrono::{DateTime, Local, Utc};
 
 use crate::{parseutil::{first_rest, take_while, char_is_white, parse_hex, drop_n},
-            fp::complement, excel::exceldays_from_unixtime};
+            fp::complement,
+            time::excel::exceldays_from_unixtime};
 
 
 pub fn parse_timestamp(s: &str) -> Result<(Tai64N, &str)> {

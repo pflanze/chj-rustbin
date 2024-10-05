@@ -15,7 +15,7 @@ use chj_rustbin::sequences::try_group;
 use chj_rustbin::{readwithcontext::ReadWithContext,
                   parseutil::{cleanwhite, parse_byte_multiplier, is_all_white,
                               key_val, after_white},
-                  tai::{parse_timestamp, Tai64Format},
+                  time::tai::{parse_timestamp, Tai64Format},
                   fp::on};
 
 

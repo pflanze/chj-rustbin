@@ -24,7 +24,7 @@ pub struct RegionId<'region, T> {
 
 impl<'region, T> Clone for RegionId<'region, T> {
     fn clone(&self) -> Self {
-        Self { region_phantom: Default::default(), id: self.id }
+        *self
     }
 }
 

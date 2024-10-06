@@ -108,6 +108,13 @@ pub trait FromParseableStr: Sized {
     fn from_parseable_str(s: ParseableStr) -> Result<Self, Self::Err>;
 }
 
+#[derive(Debug, Clone)]
+pub struct Separator {
+    /// Note: `required` does not matter if `alternatives` is empty
+    /// (no separator is actually expected in that case).
+    pub required: bool,
+    pub alternatives: &'static[&'static str]
+}
 
 #[extension(pub trait Parseable)]
 impl<'t> ParseableStr<'t> {
@@ -185,6 +192,28 @@ impl<'t> ParseableStr<'t> {
             return Ok(self);
         }
         self.expect_str(beginning)
+    }
+
+    fn expect_separator(
+        self, separator: &Separator
+    ) -> Result<ParseableStr<'t>, Box<ExpectedString<'static>>> {
+        let mut last_e = None;
+        for &sep in separator.alternatives {
+            match self.expect_str(sep) {
+                Ok(s) => return Ok(s),
+                Err(e) => last_e = Some(e),
+            }
+        }
+        if separator.required {
+            if let Some(last_e) = last_e {
+                // XX again should 'merge' error messages instead
+                Err(last_e)
+            } else {
+                Ok(self)
+            }
+        } else {
+            Ok(self)
+        }
     }
 
     /// Find the first occurrence of `needle` in self, return the part

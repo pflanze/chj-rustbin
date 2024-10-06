@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::{fmt::Debug, ffi::OsString, path::PathBuf};
 use std::fs;
 
@@ -72,38 +73,79 @@ impl From<&fs::FileType> for FileType {
     }
 }
 
+/// This trait is used to create parent nodes while walking
+/// directories/trees. You need to implement it for your type (it is
+/// already implemented for `PathBuf`).
+pub trait FileParent<'region>: Sized {
+    fn new(
+        region: &Region<'region, Self>,
+        item: &FilePathType<'region, Self>
+    ) -> Self;
+    fn path(&self) -> &Path;
+}
+
+impl<'region> FileParent<'region> for PathBuf {
+    fn new(
+        region: &Region<'region, Self>,
+        item: &FilePathType<'region, Self>
+    ) -> Self {
+        region.get(item.file_parent).clone().join(&item.file_name)
+    }
+
+    fn path(&self) -> &Path {
+        self
+    }
+}
+
+
 #[derive(Debug, PartialEq)]
-pub struct FilePathType<'region> {
-    pub dir_path: RegionId<'region, PathBuf>,
+pub struct FilePathType<'region, P: FileParent<'region> = PathBuf> {
+    pub file_parent: RegionId<'region, P>,
     pub file_name: OsString,
     pub file_type: FileType,
 }
 
-impl<'region> FilePathType<'region> {
+// Why do we need to impleemnt Clone manually, when RegionId already
+// does it, and P is the type about which the compiler complains; is
+// derive(Clone) intentionally restricting it?
+impl<'region, P: FileParent<'region>> Clone for FilePathType<'region, P> {
+    fn clone(&self) -> Self {
+        Self {
+            file_parent: self.file_parent,
+            file_name: self.file_name.clone(),
+            file_type: self.file_type
+        }
+    }
+}
+
+impl<'region, P: FileParent<'region>> FilePathType<'region, P> {
     pub fn is_file(&self) -> bool {
         self.file_type.is_file()
     }
     pub fn is_dir(&self) -> bool {
         self.file_type.is_dir()
     }
-    pub fn path(&self, region: &Region<'region, PathBuf>) -> PathBuf {
-        region.get(self.dir_path).join(&self.file_name)
+    pub fn to_path_buf(&self, region: &Region<'region, P>) -> PathBuf {
+        // XX cache value?
+        region.get(self.file_parent).path().join(&self.file_name)
     }
 }
 
-
-/// Does not descend into dirs.
-pub fn file_path_types_iter<'region, 't>(
-    region: &'t Region<'region, PathBuf>,
-    dir_path: RegionId<'region, PathBuf>,
+/// Does not descend into dirs. You'll want to use `PathBuf` for `P`
+/// unless you have a need to store additional data in the parent
+/// nodes.
+pub fn file_path_types_iter<'region, 't, P: FileParent<'t>>(
+    region: &'t Region<'region, P>,
+    file_parent: RegionId<'region, P>,
     opt: ItemOptions,
     excludes: &'t Excludes
-) -> Result<Box<dyn Iterator<Item = Result<FilePathType<'t>>> + 't>> {
+) -> Result<Box<dyn Iterator<Item = Result<FilePathType<'t, P>>> + 't>> {
     // eprintln!("items({dir_path:?}, {opt:?})");
-    let iterator = scope!{ fs::read_dir(&*region.get(dir_path)) }.with_context(
-        || anyhow!("opening directory {:?} for reading", &*region.get(dir_path)))?
+    let iterator = scope!{ fs::read_dir(region.get(file_parent).path()) }.with_context(
+        || anyhow!("opening directory {:?} for reading", region.get(file_parent).path()))?
     .filter_map(
-        move |entry_result: Result<fs::DirEntry, std::io::Error>| -> Option<Result<FilePathType>> {
+        move |entry_result: Result<fs::DirEntry, std::io::Error>|
+                                   -> Option<Result<FilePathType<P>>> {
             match entry_result {
                 Ok(entry) => {
                     let ft = entry.file_type()
@@ -120,7 +162,7 @@ pub fn file_path_types_iter<'region, 't>(
                     if handle_as_dir || (
                         handle_as_file || handle_as_other) {
                         let file_type = FileType::from(&ft);
-                        Some(Ok(FilePathType { dir_path, file_name, file_type }))
+                        Some(Ok(FilePathType { file_parent, file_name, file_type }))
                     } else {
                         trace!(
                             "ignoring item '{:?}' (type {:?})",
@@ -129,36 +171,39 @@ pub fn file_path_types_iter<'region, 't>(
                     }
                 },
                 Err(e) =>
-                    Some(Err(e).with_context(|| anyhow!("read_dir on {dir_path:?}")))
+                    Some(Err(e).with_context(|| anyhow!("read_dir on {:?}",
+                                                        region.get(file_parent).path())))
             }
         });
     Ok(Box::new(iterator))
 }
 
 /// Does not descend into dirs.
-pub fn file_path_types_vec<'region, 't>(
-    region: &'t Region<'region, PathBuf>,
-    dir_path: RegionId<'region, PathBuf>,
+pub fn file_path_types_vec<'region, 't, P: FileParent<'t>>(
+    region: &'t Region<'region, P>,
+    file_parent: RegionId<'region, P>,
     opt: ItemOptions,
     excludes: &'t Excludes
-) -> Result<Vec<FilePathType<'t>>> {
-    file_path_types_iter(region, dir_path, opt, excludes)?.collect::<Result<_,_>>()
+) -> Result<Vec<FilePathType<'t, P>>> {
+    file_path_types_iter(region, file_parent, opt, excludes)?.collect::<Result<_,_>>()
 }
 
-
-pub fn recursive_file_path_types_iter<'region, 't>(
-    region: &'t Region<'region, PathBuf>,
-    dir_path: RegionId<'region, PathBuf>,
+/// Descends into subdirs. You'll want to use `PathBuf` for `P`
+/// unless you have a need to store additional data in the parent
+/// nodes.
+pub fn recursive_file_path_types_iter<'region, 't, P: FileParent<'t>>(
+    region: &'t Region<'region, P>,
+    file_parent: RegionId<'region, P>,
     opt: ItemOptions,
     excludes: &'t Excludes
-) -> Box<dyn Iterator<Item = Result<FilePathType<'t>>> + 't> {
+) -> Box<dyn Iterator<Item = Result<FilePathType<'t, P>>> + 't> {
     Box::new(Gen::new(|co| async move {
         let orig_opt = opt;
         let opt_with_dir = ItemOptions {
             dirs: true,
             ..orig_opt
         };
-        match file_path_types_iter(region, dir_path, opt_with_dir, excludes) {
+        match file_path_types_iter(region, file_parent, opt_with_dir, excludes) {
             Ok(mut iter) => {
                 let mut stack = vec![];
                 loop {
@@ -166,13 +211,13 @@ pub fn recursive_file_path_types_iter<'region, 't>(
                         match item {
                             Ok(item) => {
                                 if item.is_dir() {
-                                    let dir_path = region.store(item.path(region));
+                                    let file_parent = region.store(P::new(region, &item));
                                     if orig_opt.dirs {
-                                        co.yield_(Ok(item)).await;
+                                        co.yield_(Ok(item.clone())).await;
                                     }
                                     stack.push(iter);
                                     match file_path_types_iter(
-                                        region, dir_path, opt_with_dir, excludes) {
+                                        region, file_parent, opt_with_dir, excludes) {
                                             Ok(new_iter) => iter = new_iter,
                                         Err(e) => {
                                             co.yield_(Err(e)).await;
@@ -212,7 +257,7 @@ mod tests {
 
     #[test]
     fn t_recursive_file_path_types_iter() {
-        let region = Region::new();
+        let region: Region<PathBuf> = Region::new();
         let excludes = empty_excludes(true);
         let t = |opt| -> Result<Vec<PathBuf>, > {
             let iter = recursive_file_path_types_iter(
@@ -220,7 +265,8 @@ mod tests {
                 region.store("test/file_path_type/".into()),
                 opt,
                 &excludes);
-            let mut v = iter.map(|r| r.map(|s| s.path(&region))).collect::<Result<Vec<_>, _>>()?;
+            let mut v = iter.map(|r| r.map(|s| s.to_path_buf(&region)))
+                .collect::<Result<Vec<_>, _>>()?;
             v.sort_by(|a, b| a.cmp(&b));
             Ok(v)
         };

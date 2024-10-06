@@ -1,0 +1,33 @@
+#!/bin/bash
+set -meuo pipefail
+IFS=
+
+out=$(mktemp)
+err=$(mktemp)
+
+#set -x
+
+if target/release/priorities test/priorities/ -w -t "2024/10/06 12:00:00" > "$out" 2> "$err"; then
+    echo "expecting exit code 1, got 0"
+    false
+else
+    e=$?
+    if [ $e -ne 1 ]; then
+        echo "expecting exit code 1, got $e"
+        false
+    fi
+fi
+
+
+set -x
+
+diff -u test/priorities.out "$out"
+
+# Remove the lines with \t indentation, since those are backtraces
+# that carry changing line numbers.
+filtered_err=$(mktemp)
+grep -P -v '^\t' < "$err" > "$filtered_err"
+
+diff -u test/priorities.err "$filtered_err"
+
+rm -f "$out" "$err" "$filtered_err"

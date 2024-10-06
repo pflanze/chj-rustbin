@@ -2,9 +2,12 @@ all:
 	cargo build --release
 
 test_intersection: target/release/intersection
-	test/run
+	test/intersection-run
 
-test: test_intersection
+test_priorities: target/release/priorities
+	test/priorities-run
+
+test: test_intersection test_priorities
 	cargo test --release
 
 target/release/%: src/bin/%.rs src/*.rs src/io/%.rs src/parse/%.rs src/text/%.rs src/time/%.rs src/util/%.rs

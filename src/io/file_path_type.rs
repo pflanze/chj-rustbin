@@ -183,19 +183,47 @@ pub fn file_path_types_vec<'region, 't, P: FileParent<'t>>(
     region: &'t Region<'region, P>,
     file_parent: RegionId<'region, P>,
     opt: ItemOptions,
-    excludes: &'t Excludes
+    excludes: &'t Excludes,
+    sorted: bool
 ) -> Result<Vec<FilePathType<'t, P>>> {
-    file_path_types_iter(region, file_parent, opt, excludes)?.collect::<Result<_,_>>()
+    let mut vec: Vec<FilePathType<'t, P>> =
+        file_path_types_iter(region, file_parent, opt, excludes)?
+        .collect::<Result<_,_>>()?;
+    if sorted {
+        vec.sort_by(|a, b| a.file_name.cmp(&b.file_name));
+    }
+    Ok(vec)
 }
 
-/// Descends into subdirs. You'll want to use `PathBuf` for `P`
-/// unless you have a need to store additional data in the parent
-/// nodes.
+/// Same API as `file_path_types_iter` but can yield sorted output
+/// (and in that case reports all file system errors directly from the
+/// call, items then always being Ok).
+pub fn file_path_types_sortable_iter<'region, 't, P: FileParent<'t>>(
+    region: &'t Region<'region, P>,
+    file_parent: RegionId<'region, P>,
+    opt: ItemOptions,
+    excludes: &'t Excludes,
+    sorted: bool
+) -> Result<Box<dyn Iterator<Item = Result<FilePathType<'t, P>>> + 't>> {
+    if sorted {
+        let vec = file_path_types_vec(region, file_parent, opt, excludes, true)?;
+        Ok(Box::new(vec.into_iter().map(|v| Ok(v))))
+    } else {
+        file_path_types_iter(region, file_parent, opt, excludes)
+    }
+}
+
+/// Descends into subdirs. You'll want to use `PathBuf` for `P` unless
+/// you have a need to store additional data in the parent nodes. When
+/// `sorted == true`, sorts every directory level individually,
+/// yielding sorted output at only the memory cost of the largest
+/// directory.
 pub fn recursive_file_path_types_iter<'region, 't, P: FileParent<'t>>(
     region: &'t Region<'region, P>,
     file_parent: RegionId<'region, P>,
     opt: ItemOptions,
-    excludes: &'t Excludes
+    excludes: &'t Excludes,
+    sorted: bool
 ) -> Box<dyn Iterator<Item = Result<FilePathType<'t, P>>> + 't> {
     Box::new(Gen::new(|co| async move {
         let orig_opt = opt;
@@ -203,46 +231,48 @@ pub fn recursive_file_path_types_iter<'region, 't, P: FileParent<'t>>(
             dirs: true,
             ..orig_opt
         };
-        match file_path_types_iter(region, file_parent, opt_with_dir, excludes) {
-            Ok(mut iter) => {
-                let mut stack = vec![];
-                loop {
-                    while let Some(item) = iter.next() {
-                        match item {
-                            Ok(item) => {
-                                if item.is_dir() {
-                                    let file_parent = region.store(P::new(region, &item));
-                                    if orig_opt.dirs {
-                                        co.yield_(Ok(item.clone())).await;
-                                    }
-                                    stack.push(iter);
-                                    match file_path_types_iter(
-                                        region, file_parent, opt_with_dir, excludes) {
-                                            Ok(new_iter) => iter = new_iter,
-                                        Err(e) => {
-                                            co.yield_(Err(e)).await;
-                                            return;
-                                        }
-                                    }
-                                } else {
-                                    co.yield_(Ok(item)).await;
+        let mut iter = match file_path_types_sortable_iter(
+            region, file_parent, opt_with_dir, excludes, sorted
+        ){
+            Ok(it) => it,
+            Err(e) => {
+                co.yield_(Err(e)).await;
+                return;
+            }
+        };
+        let mut stack = vec![];
+        loop {
+            while let Some(item) = iter.next() {
+                match item {
+                    Ok(item) => {
+                        if item.is_dir() {
+                            let file_parent = region.store(P::new(region, &item));
+                            if orig_opt.dirs {
+                                co.yield_(Ok(item.clone())).await;
+                            }
+                            stack.push(iter);
+                            match file_path_types_sortable_iter(
+                                region, file_parent, opt_with_dir, excludes, sorted
+                            ) {
+                                Ok(new_iter) => iter = new_iter,
+                                Err(e) => {
+                                    co.yield_(Err(e)).await;
+                                    return;
                                 }
                             }
-                            Err(e) => {
-                                co.yield_(Err(e)).await;
-                                return;
-                            }
+                        } else {
+                            co.yield_(Ok(item)).await;
                         }
                     }
-                    if let Some(old_iter) = stack.pop() {
-                        iter = old_iter;
-                    } else {
+                    Err(e) => {
+                        co.yield_(Err(e)).await;
                         return;
                     }
                 }
             }
-            Err(e) => {
-                co.yield_(Err(e)).await;
+            if let Some(old_iter) = stack.pop() {
+                iter = old_iter;
+            } else {
                 return;
             }
         }
@@ -264,7 +294,9 @@ mod tests {
                 &region,
                 region.store("test/file_path_type/".into()),
                 opt,
-                &excludes);
+                &excludes,
+                // XX try true, too?
+                false);
             let mut v = iter.map(|r| r.map(|s| s.to_path_buf(&region)))
                 .collect::<Result<Vec<_>, _>>()?;
             v.sort_by(|a, b| a.cmp(&b));

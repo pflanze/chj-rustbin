@@ -133,7 +133,7 @@ fn lastitem(
 ) -> Result<Option<Item<PathBuf>>> {
     let region = Region::new();
     let dir_path_id = region.store(dir_path.clone());
-    let items = file_path_types_vec(&region, dir_path_id, opt, excludes)?;
+    let items = file_path_types_vec(&region, dir_path_id, opt, excludes, false)?;
     let newest_item =
         items.into_par_iter().try_fold(
             || None,
@@ -165,7 +165,8 @@ fn deeper_lastitem(
             &region,
             dir_path,
             ItemOptions { dirs: true, files: false, other: false },
-            excludes)?;
+            excludes,
+            false)?;
         dir_items.into_par_iter().map(|FilePathType { file_name, .. }| {
             let path = region.get(dir_path).join(file_name);
             deeper_lastitem(path, depth - 1, opt, excludes)

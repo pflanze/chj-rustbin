@@ -129,6 +129,22 @@ impl<'t> ParseableStr<'t> {
         }
     }
 
+    /// Split at the given number of bytes from the beginning. Panics if
+    /// mid > len, or not pointing at a character boundary.
+    fn split_at(self, mid: usize) -> (ParseableStr<'t>, ParseableStr<'t>) {
+        let ParseableStr { position, s } = self;
+        (
+            Self {
+                position,
+                s: &s[..mid]
+            },
+            Self {
+                position: position + mid,
+                s: &s[mid..]
+            }
+        )
+    }
+
     /// Trim whitespace on both ends
     fn trim(self) -> ParseableStr<'t> {
         let s1 = self.s.trim_start();

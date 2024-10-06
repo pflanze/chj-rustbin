@@ -8,6 +8,15 @@ pub struct ParseError {
 }
 
 impl ParseError {
+    /// Shows the error with the context in the original string.
+    /// `original_input` must be the original string on which this
+    /// error is based (so that position matches up). Does *not*
+    /// include the backtrace.
+    pub fn to_string_in_context(&self, original_input: &str) -> String {
+        let ParseError { message, position, .. } = self;
+        format!("{message} at {:?}", &original_input[*position..])
+    }
+
     /// 'Backtrace' with the leaf location at the top, one location
     /// per line, indented by a tab.
     pub fn backtrace(&self) -> String {
@@ -19,6 +28,7 @@ impl ParseError {
         out
     }
 
+    /// Append `s` to the message in self (functionally).
     pub fn message_append(mut self, s: &str) -> Self {
         self.message.push_str(s);
         self

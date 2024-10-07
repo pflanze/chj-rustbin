@@ -793,7 +793,7 @@ fn parse_dat_without_year<'s>(
 
     let (digits, rest_after_digits) = rest.take_while(is_ascii_digit_char);
     let is_separator_less = match digits.len() {
-        4 | 8 => true,
+        4 | 6 => true,
         _ => false
     };
     let ((hh, mm, opt_ss), rest) = if is_separator_less {
@@ -809,12 +809,11 @@ fn parse_dat_without_year<'s>(
         let (mm, rest) = rest.split_at(2);
         match digits.len() {
             4 => {
-                assert_eq!(rest, rest_after_digits);
-                ((hh, mm, None), rest)
+                assert!(rest.is_empty());
+                ((hh, mm, None), rest_after_digits)
             }
-            8 => {
+            6 => {
                 let (ss, rest) = rest.split_at(2);
-                assert_eq!(rest, rest_after_digits);
                 ((hh, mm, Some(ss)), rest)
             }
             _ => unreachable!()

@@ -767,6 +767,7 @@ impl NaiveDateTimeWithoutYear {
 
 struct ParseDatOptions {
     now_for_default_year: Option<NaiveDate>,
+    time_is_optional: bool,
     weekday_is_optional: bool,
     /// Separator between year, month and mday
     date_separator: Separator,
@@ -774,6 +775,111 @@ struct ParseDatOptions {
     time_separator: Separator,
     /// Separator between date and time as well as between time and wday
     separator_between_parts: Separator,
+}
+
+enum ParseTimeWdayErrorKind {
+    NoProperTime,
+    NoProperWeekday
+}
+
+// This is really the continuation of parsing the date part of a
+// datetime value; it expects a separator at first.
+fn parse_time_wday<'s>(
+    s: ParseableStr<'s>,
+    options: &ParseDatOptions,
+    month: u8,
+    day: u8
+) -> Result<(NaiveDateTimeWithoutYear, Option<(Weekday, usize)>, ParseableStr<'s>),
+            (ParseTimeWdayErrorKind, ParseError)>
+{
+    let ((hour, minute, second), rest) =
+        (|| -> Result<((u8, u8, u8), ParseableStr<'s>),
+                      ParseError> {
+            let rest = T!(s.expect_separator(&options.separator_between_parts))?;
+
+            let (digits, rest_after_digits) = rest.take_while(is_ascii_digit_char);
+            let is_separator_less = match digits.len() {
+                4 | 6 => true,
+                _ => false
+            };
+            let ((hh, mm, opt_ss), rest) = if is_separator_less {
+                if options.time_separator.required {
+                    // XX actually take ':' from time_separator
+                    return Err(parse_error! {
+                            message: format!("got {} digits where time is expected, but expecting ':' \
+                                              separator between digit pairs", digits.len()),
+                            position: digits.position,
+                    })
+                }
+                let (hh, rest) = digits.split_at(2);
+                let (mm, rest) = rest.split_at(2);
+                match digits.len() {
+                    4 => {
+                        assert!(rest.is_empty());
+                        ((hh, mm, None), rest_after_digits)
+                    }
+                    6 => {
+                        let (ss, rest) = rest.split_at(2);
+                        assert!(rest.is_empty());
+                        ((hh, mm, Some(ss)), rest_after_digits)
+                    }
+                    _ => unreachable!()
+                }
+            } else {
+                let msg = "digit as part of time";
+                let (hh, rest) = T!(rest.take_n_while(2, is_ascii_digit_char, msg))?;
+                let rest = T!(rest.expect_separator(&options.time_separator))?;
+                let (mm, rest) = T!(rest.take_n_while(2, is_ascii_digit_char, msg))?;
+                let rest = T!(rest.expect_separator(&options.time_separator))?;
+                let (ss, rest) = T!(rest.take_n_while(2, is_ascii_digit_char, msg))?;
+                ((hh, mm, Some(ss)), rest)
+            };
+
+            let hour = u8::from_str(hh.s).map_err(|e| parse_error! {
+                message: format!("can't parse hour {:?}: {e}", hh.s),
+                position: hh.position
+            })?;
+            let minute = u8::from_str(mm.s).map_err(|e| parse_error! {
+                message: format!("can't parse minute {:?}: {e}", mm.s),
+                position: mm.position
+            })?;
+            let second = if let Some(ss) = opt_ss {
+                u8::from_str(ss.s).map_err(|e| parse_error! {
+                    message: format!("can't parse second {:?}: {e}", ss.s),
+                    position: ss.position
+                })?
+            } else {
+                0
+            };
+            Ok(((hour, minute, second), rest))
+        })().map_err(|e| (ParseTimeWdayErrorKind::NoProperTime, e))?;
+     
+    let datetime = NaiveDateTimeWithoutYear {
+        position: s.position, month, day, hour, minute, second
+    };
+
+    let weekday_result = (|| -> Result<((Weekday, usize), ParseableStr), ParseError> {
+        // "_Sun"
+        let rest = T!(rest.expect_separator(&options.separator_between_parts))?;
+        let (wdaystr, rest) = rest.take_while(|c: char| c.is_ascii_alphabetic());
+        match wdaystr.len() {
+            2 | 3 | 4 | 5 | 6 | 7 | 8 => (),
+            _ => Err(parse_error! { message: format!("no match for weekday name"),
+                                    position: wdaystr.position })?
+        }
+        let wday = Weekday::from_str(wdaystr.s).map_err(
+            |e| parse_error! { message: format!("unknown weekday name {:?}: {e}", wdaystr.s),
+                               position: wdaystr.position })?;
+        Ok(((wday, wdaystr.position), rest))
+    })();
+    match weekday_result {
+        Ok((weekday_and_position, rest)) => Ok((datetime, Some(weekday_and_position), rest)),
+        Err(e) => if options.weekday_is_optional {
+            Ok((datetime, None, rest))
+        } else {
+            Err((ParseTimeWdayErrorKind::NoProperWeekday, e))
+        }
+    }
 }
 
 /// "09-29_205249_Sun"; does not verify weekday (just returns it)
@@ -800,87 +906,32 @@ fn parse_dat_without_year<'s>(
         message: format!("can't parse day {:?}: {e}", day.s),
         position: day.position
     })?;
-    let rest = T!(rest.expect_separator(&options.separator_between_parts))?;
 
-    let (digits, rest_after_digits) = rest.take_while(is_ascii_digit_char);
-    let is_separator_less = match digits.len() {
-        4 | 6 => true,
-        _ => false
-    };
-    let ((hh, mm, opt_ss), rest) = if is_separator_less {
-        if options.time_separator.required {
-            // XX actually take ':' from time_separator
-            return Err(parse_error! {
-                message: format!("got {} digits where time is expected, but expecting ':' \
-                                  separator between digit pairs", digits.len()),
-                position: digits.position,
-            });
-        }
-        let (hh, rest) = digits.split_at(2);
-        let (mm, rest) = rest.split_at(2);
-        match digits.len() {
-            4 => {
-                assert!(rest.is_empty());
-                ((hh, mm, None), rest_after_digits)
-            }
-            6 => {
-                let (ss, rest) = rest.split_at(2);
-                ((hh, mm, Some(ss)), rest)
-            }
-            _ => unreachable!()
-        }
-    } else {
-        let msg = "digit as part of time";
-        let (hh, rest) = T!(rest.take_n_while(2, is_ascii_digit_char, msg))?;
-        let rest = T!(rest.expect_separator(&options.time_separator))?;
-        let (mm, rest) = T!(rest.take_n_while(2, is_ascii_digit_char, msg))?;
-        let rest = T!(rest.expect_separator(&options.time_separator))?;
-        let (ss, rest) = T!(rest.take_n_while(2, is_ascii_digit_char, msg))?;
-        ((hh, mm, Some(ss)), rest)
-    };
-    
-    let hour = u8::from_str(hh.s).map_err(|e| parse_error! {
-        message: format!("can't parse hour {:?}: {e}", hh.s),
-        position: hh.position
-    })?;
-    let minute = u8::from_str(mm.s).map_err(|e| parse_error! {
-        message: format!("can't parse minute {:?}: {e}", mm.s),
-        position: mm.position
-    })?;
-    let second = if let Some(ss) = opt_ss {
-        u8::from_str(ss.s).map_err(|e| parse_error! {
-            message: format!("can't parse second {:?}: {e}", ss.s),
-            position: ss.position
-        })?
-    } else {
-        0
-    };
-
-    let datetime = NaiveDateTimeWithoutYear {
-        position: s.position, month, day, hour, minute, second
-    };
-
-    let weekday_result = (|| -> Result<((Weekday, usize), ParseableStr), ParseError> {
-        // "_Sun"
-        let rest = T!(rest.expect_separator(&options.separator_between_parts))?;
-        let (wdaystr, rest) = rest.take_while(|c: char| c.is_ascii_alphabetic());
-        match wdaystr.len() {
-            2 | 3 | 4 | 5 | 6 | 7 | 8 => (),
-            _ => Err(parse_error! { message: format!("no match for weekday name"),
-                                    position: wdaystr.position })?
-        }
-        let wday = Weekday::from_str(wdaystr.s).map_err(
-            |e| parse_error! { message: format!("unknown weekday name {:?}: {e}", wdaystr.s),
-                               position: wdaystr.position })?;
-        Ok(((wday, wdaystr.position), rest))
-    })();
-    match weekday_result {
-        Ok((weekday_and_position, rest)) => Ok((datetime, Some(weekday_and_position), rest)),
-        Err(e) => if options.weekday_is_optional {
-            Ok((datetime, None, rest))
+    // Try parsing the time; it is allowed to fail if
+    // options.time_is_optional is true, but if time succeeds and
+    // options.weekday_is_optional is false and weekday fails, then
+    // the whole thing should fail, too!
+    match parse_time_wday(rest, options, month, day) {
+        Ok((ndt_no_year, opt_weekday_position, rest)) =>
+            Ok((ndt_no_year, opt_weekday_position, rest)),
+        Err((ParseTimeWdayErrorKind::NoProperTime, e)) => if options.time_is_optional {
+            let ndt_no_year = NaiveDateTimeWithoutYear {
+                position: e.position,
+                month,
+                day,
+                hour: 12, // XX OK?
+                minute: 0,
+                second: 0
+            };
+            Ok((ndt_no_year, None, rest))
         } else {
-            Err(e)
-        }
+            Err(parse_error! {
+                message: format!("time is required but missing after {:?}",
+                s.up_to(rest).s),
+                position: rest.position
+            })
+        },
+        Err((ParseTimeWdayErrorKind::NoProperWeekday, e)) => Err(e)
     }
 }
 
@@ -925,9 +976,10 @@ fn parse_dat<'s>(
 
 // For parsing user input, to allow "2024-09-29 20:52:49 Sun" and
 // similar formats (see tests).
-fn parse_date_time_argument(s: &str) -> Result<NaiveDateTime, ParseError> {
+fn parse_date_time_argument(s: &str, time_is_optional: bool) -> Result<NaiveDateTime, ParseError> {
     let options = ParseDatOptions {
         now_for_default_year: None,
+        time_is_optional,
         weekday_is_optional: true,
         date_separator: Separator {
             required: true,
@@ -957,19 +1009,56 @@ fn parse_date_time_argument(s: &str) -> Result<NaiveDateTime, ParseError> {
 #[cfg(test)]
 #[test]
 fn t_parse_date_time_argument() {
-    let ndt = NaiveDateTime::new(NaiveDate::from_ymd_opt(2024, 9, 29).unwrap(),
-                                 NaiveTime::from_hms_opt(20, 52, 49).unwrap());
-    let t = parse_date_time_argument;
-    assert_eq!(t("2024-09-29_205249_Sun"), Ok(ndt));
-    assert_eq!(t("2024-09-29 20:52:49 Sun"), Ok(ndt));
-    assert_eq!(t("2024/09/29 20:52:49 Sun"), Ok(ndt));
-    assert_eq!(t("2024/09/29 20:52:49"), Ok(ndt));
+    let ok = Ok(NaiveDateTime::new(NaiveDate::from_ymd_opt(2024, 9, 29).unwrap(),
+                                    NaiveTime::from_hms_opt(20, 52, 49).unwrap()));
+    let t = |s| parse_date_time_argument(s, false);
+    let te = |s| t(s).unwrap_err().to_string_in_context(s);
+    assert_eq!(t("2024-09-29_205249_Sun"), ok);
+    assert_eq!(t("2024-09-29 20:52:49 Sun"), ok);
+    assert_eq!(te("2024-09-29 20:52:49 Mon"),
+               "invalid weekday: given Mon, but date is for Sun at \"2024-09-29 20:52:49 Mon\"");
+    assert_eq!(t("2024/09/29 20:52:49 Sun"), ok);
+    assert_eq!(t("2024/09/29 20:52:49"), ok);
+    assert_eq!(te("2024/09/29 20:52:49 foo"),
+               "garbage after datetime string \"2024/09/29 20:52:49\" at \"foo\"");
+    assert_eq!(te("2024-09-29_205249_Mon"),
+               "invalid weekday: given Mon, but date is for Sun at \"2024-09-29_205249_Mon\"");
+    assert_eq!(t("2024-09-29_205249 Sun"), ok);
+    assert_eq!(t("2024-09-29_205249 Sun   "), ok);
+    assert_eq!(t("2024-09-29_205249 Sunday   "), ok);
+    assert_eq!(t("2024-09-29_20:52:49 Sun   "), ok);
+    assert_eq!(te("2024-09-29_2052:49 Sun   "),
+               "garbage after datetime string \"2024-09-29_2052\" at \":49 Sun   \"");
+    // disallow this one?
+    assert_eq!(t("2024-09-29_20:5249 Sun   "), ok);
+    // allow this one?
+    assert_eq!(te("2024-09-29_205249  Sun   "),
+               "garbage after datetime string \"2024-09-29_205249\" at \"Sun   \"");
+    assert_eq!(te("2024-09-29_205249 Sund"),
+               "garbage after datetime string \"2024-09-29_205249\" at \"Sund\"");
+    assert_eq!(te("2024-09-29_205249 Sun Sun"),
+               "garbage after datetime string \"2024-09-29_205249 Sun\" at \"Sun\"");
+    // XX say "unexpected end of input?"
+    assert_eq!(te("2024/09/29"),
+               "time is required but missing after \"09/29\" at \"\"");
+    assert_eq!(te("2024/09/29 foo"),
+               "time is required but missing after \"09/29\" at \" foo\"");
+
+    let ok2 = Ok(NaiveDateTime::new(NaiveDate::from_ymd_opt(2024, 9, 29).unwrap(),
+                                    NaiveTime::from_hms_opt(12, 0, 0).unwrap()));
+    let t = |s| parse_date_time_argument(s, true);
+    let te = |s| t(s).unwrap_err().to_string_in_context(s);
+    assert_eq!(t("2024/09/29"), ok2);
+    assert_eq!(t("2024/09/29 20:52:49 Sun"), ok);
+    assert_eq!(te("2024/09/29 foo"),
+               "garbage after datetime string \"2024/09/29\" at \"foo\"");
 }
 
 
 const fn parse_path_parse_dat_options(weekday_is_optional: bool) -> ParseDatOptions {
     ParseDatOptions {
         now_for_default_year: None,
+        time_is_optional: false,
         weekday_is_optional,
         date_separator: Separator {
             required: true,
@@ -1083,7 +1172,7 @@ fn parse_path(id: usize, verbose: bool, region: &Region<PathBuf>, item: &FilePat
 fn main() -> Result<()> {
     let opts: Opts = Opts::from_args();
     let now: NaiveDateTime = if let Some(time) = &opts.time {
-        parse_date_time_argument(&time).map_err(
+        parse_date_time_argument(&time, true).map_err(
             |e| anyhow!("can't parse --time option value: {}", e.to_string_in_context(&time)))?
     } else {
         let now_utc = Utc::now();

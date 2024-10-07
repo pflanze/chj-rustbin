@@ -1252,20 +1252,22 @@ fn main() -> Result<()> {
         
         // Need to recurse to update with the new base number; todo:
         // this is inefficient (O(n^2)).
-        let mut recur = |ti: &TaskInfo, seen| {
-            let seen = cons(ti.id, seen);
+        let mut recur = |ti: &TaskInfo, list_of_seen| {
+            let list_of_seen = cons(ti.id, list_of_seen);
             for dependency in ti.declarations.dependencies.iter() {
                 if let Some(dependency_ti) = taskinfo_by_key.get(dependency) {
-                    if ! seen.contains(&dependency_ti.id) {
+                    if ! list_of_seen.contains(&dependency_ti.id) {
                         dependency_ti.set_as_dependency_for_priority(ti.calculated_priority());
                     }
                 } else {
                     // XX hmm, done items should not give an error but be
                     // treated as done!
                     // XX also, "2024-09-27_201849" must be fine, use parsed version!
-                    warning!("unknown dependency {dependency:?}");
+                    warning!("unknown dependency {dependency:?} in: {:?}",
+                             ti.path);
                     errors += 1;
                 }
+                // XXX where is the recursive call to recur ??
             }
         };
         recur(ti, &List::Null)

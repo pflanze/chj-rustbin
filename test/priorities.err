@@ -1,12 +1,12 @@
 WARNING: error parsing the file name of path "test/priorities/erroneous/2024-09-29_231214_Sun-meta another task OPEN{depends: 2024-09-27_201849_Fri, 2024-09-27_201931_Fri}": expected [a-z_] followed by [a-z0-9_]* at: "2024-09-27_201931_Fri}"
 WARNING: duplicate task for key NaiveDateTime(2024-09-30T11:13:32): "test/priorities/erroneous/2024-09-30_111332_Mon-duplicate OPEN" "test/priorities/erroneous/2024-09-30_111332_Mon-duplicate 2 OPEN"
 WARNING: duplicate task for key NaiveDateTime(2024-09-30T11:13:32): "test/priorities/erroneous/2024-09-30_111332_Mon-foo OPEN{d: [2024-09-27]}" "test/priorities/erroneous/2024-09-30_111332_Mon-duplicate OPEN"
-WARNING: unknown dependency String(Owned("2024-09-27_201849"))
-WARNING: unknown dependency String(Inline("reprocessing"))
-WARNING: unknown dependency String(Owned("2024-09-27_201931_"))
-WARNING: unknown dependency String(Owned("2024-09-27_201931_Mon"))
-WARNING: unknown dependency String(Owned("2024-09-27_201931"))
-WARNING: unknown dependency String(Owned("2024-09-27_201931_"))
-WARNING: unknown dependency String(Inline("foobar"))
-WARNING: unknown dependency String(Inline("2024-09-27"))
+WARNING: unknown dependency String(Owned("2024-09-27_201849")) in: "test/priorities/2024-09-27_201910_Fri-do bar OPEN{prio: 1, depends: 2024-09-27_201849}"
+WARNING: unknown dependency String(Inline("reprocessing")) in: "test/priorities/2024-09-27_212233_Fri-do OPEN{d: reprocessing}"
+WARNING: unknown dependency String(Owned("2024-09-27_201931_")) in: "test/priorities/erroneous/2024-09-30_111329_Mon-foo OPEN{d: [2024-09-27_201931_,2024-09-27_201931_Mon]}"
+WARNING: unknown dependency String(Owned("2024-09-27_201931_Mon")) in: "test/priorities/erroneous/2024-09-30_111329_Mon-foo OPEN{d: [2024-09-27_201931_,2024-09-27_201931_Mon]}"
+WARNING: unknown dependency String(Owned("2024-09-27_201931")) in: "test/priorities/erroneous/2024-09-30_111330_Mon-foo OPEN{d: [2024-09-27_201931_,2024-09-27_201931]}"
+WARNING: unknown dependency String(Owned("2024-09-27_201931_")) in: "test/priorities/erroneous/2024-09-30_111330_Mon-foo OPEN{d: [2024-09-27_201931_,2024-09-27_201931]}"
+WARNING: unknown dependency String(Inline("foobar")) in: "test/priorities/erroneous/2024-09-30_111331_Mon-foo OPEN{d: [foobar]}"
+WARNING: unknown dependency String(Inline("2024-09-27")) in: "test/priorities/erroneous/2024-09-30_111332_Mon-foo OPEN{d: [2024-09-27]}"
 11 error(s) shown as warnings

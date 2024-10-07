@@ -14,7 +14,12 @@ impl ParseError {
     /// include the backtrace.
     pub fn to_string_in_context(&self, original_input: &str) -> String {
         let ParseError { message, position, .. } = self;
-        format!("{message} at {:?}", &original_input[*position..])
+        let remainder = &original_input[*position..];
+        if remainder.is_empty() {
+            format!("{message} at end of input")
+        } else {
+            format!("{message} at {:?}", remainder)
+        }
     }
 
     /// 'Backtrace' with the leaf location at the top, one location

@@ -1038,9 +1038,8 @@ fn t_parse_date_time_argument() {
                "garbage after datetime string \"2024-09-29_205249\" at \"Sund\"");
     assert_eq!(te("2024-09-29_205249 Sun Sun"),
                "garbage after datetime string \"2024-09-29_205249 Sun\" at \"Sun\"");
-    // XX say "unexpected end of input?"
     assert_eq!(te("2024/09/29"),
-               "time is required but missing after \"09/29\" at \"\"");
+               "time is required but missing after \"09/29\" at end of input");
     assert_eq!(te("2024/09/29 foo"),
                "time is required but missing after \"09/29\" at \" foo\"");
 

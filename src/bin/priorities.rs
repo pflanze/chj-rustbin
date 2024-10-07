@@ -765,6 +765,17 @@ impl NaiveDateTimeWithoutYear {
     }
 }
 
+struct ParseDatOptions {
+    now_for_default_year: Option<NaiveDate>,
+    weekday_is_optional: bool,
+    /// Separator between year, month and mday
+    date_separator: Separator,
+    /// Separator between hour, minute and seconds
+    time_separator: Separator,
+    /// Separator between date and time as well as between time and wday
+    separator_between_parts: Separator,
+}
+
 /// "09-29_205249_Sun"; does not verify weekday (just returns it)
 /// because it doesn't have the year. If `weekday_is_optional` is
 /// true, still parse weekday if present, but do not report match
@@ -873,15 +884,43 @@ fn parse_dat_without_year<'s>(
     }
 }
 
-struct ParseDatOptions {
-    now_for_default_year: Option<NaiveDate>,
-    weekday_is_optional: bool,
-    /// Separator between year, month and mday
-    date_separator: Separator,
-    /// Separator between hour, minute and seconds
-    time_separator: Separator,
-    /// Separator between date and time as well as between time and wday
-    separator_between_parts: Separator,
+// "2024-09-29_205249_Sun"
+fn parse_dat<'s>(
+    s: ParseableStr<'s>, options: &ParseDatOptions
+) -> Result<(NaiveDateTime, ParseableStr<'s>, ParseableStr<'s>), ParseError> {
+    match T!(s.take_n_while(4, is_ascii_digit_char, "digit as part of year number")) {
+        Ok((year, rest)) => {
+            let rest = T!(rest.expect_separator(&options.date_separator))?;
+            let (datetime_no_year, opt_weekday_and_position, rest) =
+                T!(parse_dat_without_year(rest, options))?;
+            let datetime = datetime_no_year.for_year(
+                u16::from_str(year.s).map_err(
+                    |e| parse_error! {
+                        message: e.to_string(),
+                        position: year.position
+                    })?)?;
+            if let Some((weekday, _weekday_position)) = opt_weekday_and_position {
+                let date_weekday = datetime.weekday();
+                if date_weekday != weekday {
+                    Err(parse_error! {
+                        message: format!("invalid weekday: given {weekday}, \
+                                          but date is for {date_weekday}"),
+                        position: s.position
+                    })?
+                }
+            }
+            Ok((datetime, s.up_to(rest), rest))
+        }
+        Err(e1) => {
+            if let Some(_now_for_default_year) = options.now_for_default_year {
+                // let (datetime_no_year, (weekday, weekday_position), rest) =
+                //   parse_dat_without_year(s)?;
+                todo!()
+            } else {
+                Err(e1)?
+            }
+        }
+    }
 }
 
 // For parsing user input, to allow "2024-09-29 20:52:49 Sun" and
@@ -927,45 +966,6 @@ fn t_parse_date_time_argument() {
     assert_eq!(t("2024/09/29 20:52:49"), Ok(ndt));
 }
 
-
-// "2024-09-29_205249_Sun"
-fn parse_dat<'s>(
-    s: ParseableStr<'s>, options: &ParseDatOptions
-) -> Result<(NaiveDateTime, ParseableStr<'s>, ParseableStr<'s>), ParseError> {
-    match T!(s.take_n_while(4, is_ascii_digit_char, "digit as part of year number")) {
-        Ok((year, rest)) => {
-            let rest = T!(rest.expect_separator(&options.date_separator))?;
-            let (datetime_no_year, opt_weekday_and_position, rest) =
-                T!(parse_dat_without_year(rest, options))?;
-            let datetime = datetime_no_year.for_year(
-                u16::from_str(year.s).map_err(
-                    |e| parse_error! {
-                        message: e.to_string(),
-                        position: year.position
-                    })?)?;
-            if let Some((weekday, _weekday_position)) = opt_weekday_and_position {
-                let date_weekday = datetime.weekday();
-                if date_weekday != weekday {
-                    Err(parse_error! {
-                        message: format!("invalid weekday: given {weekday}, \
-                                          but date is for {date_weekday}"),
-                        position: s.position
-                    })?
-                }
-            }
-            Ok((datetime, s.up_to(rest), rest))
-        }
-        Err(e1) => {
-            if let Some(_now_for_default_year) = options.now_for_default_year {
-                // let (datetime_no_year, (weekday, weekday_position), rest) =
-                //   parse_dat_without_year(s)?;
-                todo!()
-            } else {
-                Err(e1)?
-            }
-        }
-    }
-}
 
 const fn parse_path_parse_dat_options(weekday_is_optional: bool) -> ParseDatOptions {
     ParseDatOptions {

@@ -54,9 +54,9 @@ struct Opts {
     #[clap(short, long)]
     verbose: bool,
 
-    /// show calculated priority left of each path, separated by a '\t'
+    /// do not show calculated priority left of each path, separated by a '\t'
     #[clap(short, long)]
-    with_priority: bool,
+    no_priority: bool,
 
     /// calculate priorities for this date/time instead of for now
     // Don't use NaiveDateTime, its parser is bad
@@ -1290,7 +1290,7 @@ fn main() -> Result<()> {
             if ! ti.workflow_status.is_active() {
                 continue;
             }
-            if opts.with_priority {
+            if !opts.no_priority {
                 let s = format!("{:.2}", ti.calculated_priority());
                 out.write_all(s.as_bytes())?;
                 out.write_all(b"\t")?;

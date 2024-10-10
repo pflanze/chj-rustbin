@@ -177,7 +177,7 @@ pub fn priority_level(
 
             let time_secs = time_to_target.num_seconds().max(0);
             let programming_secs_per_week = 7.*60.*60.*24.*4.;
-            let time_weeks: f32 = (time_secs as f32) / programming_secs_per_week;
+            let time_weeks: f32 = (time_secs as f32) / programming_secs_per_week * 5.;// XXXXHACK
 
             let task_size_weeks = tasksize.in_weeks();
 

@@ -677,6 +677,22 @@ fn parse_inside(s: ParseableStr) -> Result<TaskInfoDeclarations, ParseError> {
                             // to make classes of things; but yeah,
                             // the only relevant information out of
                             // this is priority (and size).
+
+                            "chore" => {
+                                // Pick it up at times when doing mind
+                                // numbing things. Small.
+                                set!{tasksize, TaskSize::Minutes};
+                                set!{priority, Priority::Level(7)};
+                            }
+                            "decide" => {
+                                // Something small to decide on; but
+                                // somewhat higher priority since it
+                                // is still probably somewhat time
+                                // relevant (things in the future
+                                // depend on the decision).
+                                set!{tasksize, TaskSize::Minutes};
+                                set!{priority, Priority::Level(4)};
+                            }
                             "occasionally" => {
                                 // Pick it up when the right occasion
                                 // or state of mind happens.

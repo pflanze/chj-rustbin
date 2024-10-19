@@ -251,14 +251,13 @@ impl FromParseableStr for Priority {
         if let Ok(level) = ManualPriorityLevel::from_str(ss) {
             return Ok(Priority::Level(level))
         }
-        // XX oh, also parse "12-11" style dates? y -- update bail below
-        //  -- use parse_dat, with a default time of day?
-        if let Ok(date) = NaiveDate::from_str(ss) {
-            return Ok(Priority::Date(date.and_hms_opt(12,0,0).unwrap()))
+        if let Ok((ndt, _str, _rest)) = parse_dat(s.trim(), &flexible_parse_dat_options(
+            Some(NaiveTime::from_hms_opt(12, 0, 0).unwrap()))) {
+            return Ok(Priority::Date(ndt))
         }
         Err(parse_error! {
             message: format!("invalid priority string {s:?} \
-                              (valid are 'ongoing', 1..99, 2019-12-11 style date)"),
+                              (valid are 'ongoing', 1..99, 2019-12-11 style date (and time))"),
             position: s.position
         })
     }
@@ -878,7 +877,8 @@ impl NaiveDateTimeWithoutYear {
 
 struct ParseDatOptions {
     now_for_default_year: Option<NaiveDate>,
-    time_is_optional: bool,
+    /// If None, the time must be present in the input string
+    default_time: Option<NaiveTime>,
     weekday_is_optional: bool,
     /// Separator between year, month and mday
     date_separator: Separator,
@@ -1025,14 +1025,14 @@ fn parse_dat_without_year<'s>(
     match parse_time_wday(rest, options, month, day) {
         Ok((ndt_no_year, opt_weekday_position, rest)) =>
             Ok((ndt_no_year, opt_weekday_position, rest)),
-        Err((ParseTimeWdayErrorKind::NoProperTime, e)) => if options.time_is_optional {
+        Err((ParseTimeWdayErrorKind::NoProperTime, e)) => if let Some(dt) = options.default_time {
             let ndt_no_year = NaiveDateTimeWithoutYear {
                 position: e.position,
                 month,
                 day,
-                hour: 12, // XX OK?
-                minute: 0,
-                second: 0
+                hour: dt.hour() as u8,
+                minute: dt.minute() as u8,
+                second: dt.second() as u8
             };
             Ok((ndt_no_year, None, rest))
         } else {
@@ -1087,10 +1087,10 @@ fn parse_dat<'s>(
 
 // For parsing user input, to allow "2024-09-29 20:52:49 Sun" and
 // similar formats (see parse_date_time_argument tests).
-fn flexible_parse_dat_options(time_is_optional: bool) -> ParseDatOptions {
+fn flexible_parse_dat_options(default_time: Option<NaiveTime>) -> ParseDatOptions {
     ParseDatOptions {
         now_for_default_year: None,
-        time_is_optional,
+        default_time,
         weekday_is_optional: true,
         date_separator: Separator {
             required: true,
@@ -1110,8 +1110,13 @@ fn flexible_parse_dat_options(time_is_optional: bool) -> ParseDatOptions {
 // For command line arguments.
 fn parse_date_time_argument(s: ParseableStr, time_is_optional: bool)
                                 -> Result<NaiveDateTime, ParseError> {
-    let (ndt, ndt_string, rest) = parse_dat(s,
-                                            &flexible_parse_dat_options(time_is_optional))?;
+    let (ndt, ndt_string, rest) = parse_dat(
+        s, &flexible_parse_dat_options(
+            if time_is_optional {
+                Some(NaiveTime::from_hms_opt(12, 0, 0).unwrap())
+            } else {
+                None
+            }))?;
     let rest = rest.trim();
     if rest.is_empty() {
         Ok(ndt)
@@ -1175,7 +1180,7 @@ fn t_parse_date_time_argument() {
 const fn parse_path_parse_dat_options(weekday_is_optional: bool) -> ParseDatOptions {
     ParseDatOptions {
         now_for_default_year: None,
-        time_is_optional: false,
+        default_time: None,
         weekday_is_optional,
         date_separator: Separator {
             required: true,

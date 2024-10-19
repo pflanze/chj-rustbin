@@ -1030,7 +1030,7 @@ fn parse_date_time_argument(s: &str, time_is_optional: bool) -> Result<NaiveDate
 #[test]
 fn t_parse_date_time_argument() {
     let ok = Ok(NaiveDateTime::new(NaiveDate::from_ymd_opt(2024, 9, 29).unwrap(),
-                                    NaiveTime::from_hms_opt(20, 52, 49).unwrap()));
+                                   NaiveTime::from_hms_opt(20, 52, 49).unwrap()));
     let t = |s| parse_date_time_argument(s, false);
     let te = |s| t(s).unwrap_err().to_string_in_context(s);
     assert_eq!(t("2024-09-29_205249_Sun"), ok);

@@ -275,7 +275,7 @@ impl Dependencies {
                                 position: dstr.position
                             })?
                         }
-                        T!(expect_str_or_eof(rest, "-"))?;
+                        T!(expect_str_or_eos(rest, "-"))?;
                         Ok(Some(dk))
                     }
                 )()?.unwrap_or_else(
@@ -536,16 +536,16 @@ fn is_ascii_digit_char(c: char) -> bool {
     c.is_ascii_digit()
 }
 
-fn expect_str_or_eof<'s>(s: ParseableStr<'s>, needle: &str)
+fn expect_str_or_eos<'s>(s: ParseableStr<'s>, needle: &str)
                          -> Result<ParseableStr<'s>, ParseError> {
-    s.drop_whitespace().expect_str_or_eof(needle)
+    s.drop_whitespace().expect_str_or_eos(needle)
         .map(ParseableStr::drop_whitespace)
         .map_err(compose(ParseError::from,
                          |e| e.message_append(" or the end of the input segment")))
 }
 
-fn expect_comma_or_eof(s: ParseableStr) -> Result<ParseableStr, ParseError> {
-    T!(expect_str_or_eof(s, ","))
+fn expect_comma_or_eos(s: ParseableStr) -> Result<ParseableStr, ParseError> {
+    T!(expect_str_or_eos(s, ","))
 }
 
 fn take_value_drop_whitespace(s: ParseableStr)
@@ -559,7 +559,7 @@ fn take_value_drop_whitespace(s: ParseableStr)
 
 
 // The string representing one value after a key.  It is either a
-// single word/integer followed by a comma / whitespace / eof, or [ ]
+// single word/integer followed by a comma / whitespace / eos, or [ ]
 // with the same (but the trailing comma will be omitted, XX currently
 // not), followed by the same. Even in "list" case, the [ ] are not
 // part of it, `[single_value]` and `single_value` are treated the
@@ -582,11 +582,11 @@ fn take_one_value_from(s: ParseableStr) -> Result<(ParseableStr, ParseableStr), 
                 Ok(s) => rest = s,
                 Err(_) => match rest.expect_str("]") {
                     Ok(mut after) => {
-                        after = T!(expect_comma_or_eof(after))?;
+                        after = T!(expect_comma_or_eos(after))?;
                         return Ok((start.up_to(rest), after))
                     }
                     Err(e) => Err(parse_error! {
-                        // or eof, but in context? "or '}'"
+                        // or eos, but in context? "or '}'"
                         message: "expecting ',' or ']'".into(),
                         position: e.position,
                     })?
@@ -597,7 +597,7 @@ fn take_one_value_from(s: ParseableStr) -> Result<(ParseableStr, ParseableStr), 
     } else {
         // single value
         let (value, rest) = T!(take_value_drop_whitespace(rest))?;
-        let rest = T!(expect_comma_or_eof(rest))?;
+        let rest = T!(expect_comma_or_eos(rest))?;
         Ok((value, rest))
     }
 }
@@ -732,7 +732,7 @@ fn parse_inside(s: ParseableStr) -> Result<TaskInfoDeclarations, ParseError> {
                         // parsing as certain items  XXX
                         _ => return Err(parse_error! {
                             // XX if followed by ":" we can call
-                            // it a key. Followed by comma or eof,
+                            // it a key. Followed by comma or eos,
                             // it's a special value. Turn parsing
                             // sequence around!
                             message: format!("unknown XX key {:?}", key.s),
@@ -740,7 +740,7 @@ fn parse_inside(s: ParseableStr) -> Result<TaskInfoDeclarations, ParseError> {
                         })
                     }
 
-                    p = T!(expect_comma_or_eof(rest))?;
+                    p = T!(expect_comma_or_eos(rest))?;
                 }
             }
             Err(e) => if p.is_empty() {

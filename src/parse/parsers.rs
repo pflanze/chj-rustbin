@@ -85,7 +85,7 @@ impl<'t> From<Box<Expected<'t>>> for ParseError {
 #[derive(Debug, thiserror::Error)]
 pub enum ParseFailure {
     #[error("unexpected end of input")]
-    Eof,
+    Eos,
     #[error("invalid character")]
     InvalidCharacter,
 }
@@ -205,7 +205,7 @@ impl<'t> ParseableStr<'t> {
             }.into())
     }
 
-    fn expect_str_or_eof<'needle>(
+    fn expect_str_or_eos<'needle>(
         self, beginning: &'needle str
     ) -> Result<ParseableStr<'t>, Box<ExpectedString<'needle>>> {
         if self.is_empty() {
@@ -356,7 +356,7 @@ impl<'t> ParseableStr<'t> {
                     }.into())
                 }
             } else {
-                // Eof
+                // Eos
                 return Err(Expected {
                     desc,
                     position: position + s.len(),

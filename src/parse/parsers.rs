@@ -42,6 +42,10 @@ impl<'t> ParseableStr<'t> {
         self.s.len()
     }
     
+    // pub fn starts_with(&self, s: &str) -> bool {
+    //     self.s.starts_with(s)
+    // }
+    // Never needing it, you probably want `drop_str`.
 }
 
 #[derive(Debug, thiserror::Error)]

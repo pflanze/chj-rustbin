@@ -567,8 +567,6 @@ fn take_value_drop_whitespace(s: ParseableStr)
 fn take_one_value_from(s: ParseableStr) -> Result<(ParseableStr, ParseableStr), ParseError> {
     let mut rest = s;
     rest = rest.drop_whitespace();
-    rest = T!(rest.expect_str(":"))?;
-    rest = rest.drop_whitespace();
     if let Some(mut rest) = rest.drop_str("[") {
         // "list"
         rest = rest.drop_whitespace();
@@ -612,22 +610,19 @@ fn t_take_one_value_from() {
                                   ParseableStr { position: p2, s: s2 }));
     let err = |position, msg: &str| Err(parse_error! { message: msg.into(), position });
 
-    assert_eq!(t(": 1, b"), ok(2, "1", 5, "b"));
-    assert_eq!(t(":1 , b"), ok(1, "1", 5, "b"));
-    assert_eq!(t(": 1"), ok(2, "1", 3, ""));
-    assert_eq!(t(": 12"), ok(2, "12", 4, ""));
-    assert_eq!(t(":Abcd_X"), ok(1, "Abcd_X", 7, ""));
-    assert_eq!(t(":Abcd_X "), ok(1, "Abcd_X", 8, ""));
-    assert_eq!(t(" :1 , b"), ok(2, "1", 6, "b"));
-    assert_eq!(t("1 , b"), err(0, "expected \":\""));
-    assert_eq!(t(" 1 , b"), err(1, "expected \":\""));
-    assert_eq!(t(":1  b"), err(4, "expected \",\" or the end of the input segment"));
-    assert_eq!(t(":  "), err(3, "expected [a-zA-Z_0-9-]+"));
-    assert_eq!(t(": [a] "), ok(3, "a", 6, ""));
-    assert_eq!(t(": [a,b] "), ok(3, "a,b", 8, ""));
-    assert_eq!(t(": [a b] "), err(5, "expecting ',' or ']'"));
-    assert_eq!(t(": [a, b] "), ok(3, "a, b", 9, ""));
-    assert_eq!(t(": [ a , b ] "), ok(4, "a , b ", 12, ""));
+    assert_eq!(t(" 1, b"), ok(1, "1", 4, "b"));
+    assert_eq!(t("1 , b"), ok(0, "1", 4, "b"));
+    assert_eq!(t(" 1"), ok(1, "1", 2, ""));
+    assert_eq!(t(" 12"), ok(1, "12", 3, ""));
+    assert_eq!(t("Abcd_X"), ok(0, "Abcd_X", 6, ""));
+    assert_eq!(t("Abcd_X "), ok(0, "Abcd_X", 7, ""));
+    assert_eq!(t("1  b"), err(3, "expected \",\" or the end of the input segment"));
+    assert_eq!(t("  "), err(2, "expected [a-zA-Z_0-9-]+"));
+    assert_eq!(t(" [a] "), ok(2, "a", 5, ""));
+    assert_eq!(t(" [a,b] "), ok(2, "a,b", 7, ""));
+    assert_eq!(t(" [a b] "), err(4, "expecting ',' or ']'"));
+    assert_eq!(t(" [a, b] "), ok(2, "a, b", 8, ""));
+    assert_eq!(t(" [ a , b ] "), ok(3, "a , b ", 11, ""));
 }
 
 
@@ -645,98 +640,107 @@ fn parse_inside(s: ParseableStr) -> Result<TaskInfoDeclarations, ParseError> {
                         position: key.position
                     })
                 };
-                macro_rules! parse_to {
-                    { $field_name:ident, $type:ident } => { {
-                        if let Some(old) = builder.$field_name {
-                            return old_err(format!("{old:?}"))
-                        }
-                        let (value, rest) = T!(take_one_value_from(rest))?;
-                        builder.$field_name = Some($type::from_parseable_str(value)?);
-                        p = rest;
-                    } }
-                }
-                match key.s {
-                    "s"|"size"|"tasksize" => parse_to!(tasksize, TaskSize),
-                    // "due" should only accept a date?
-                    "p"|"prio"|"priority"|"due" => parse_to!(priority, Priority),
-                    "d"|"dep"|"depends"|"dependencies" => parse_to!(dependencies, Dependencies),
 
-                    s => {
-                        macro_rules! set {
-                            { $field_name:ident, $value:expr } => {
-                                if let Some(old) = builder.$field_name {
-                                    return old_err(format!("{old:?}"))
-                                }
-                                builder.$field_name = Some($value);
+                if let Some(rest) = rest.drop_str(":") {
+                    macro_rules! parse_to {
+                        { $field_name:ident, $type:ident } => { {
+                            if let Some(old) = builder.$field_name {
+                                return old_err(format!("{old:?}"))
                             }
-                        }
-                        match s {
-                            // Special keys that have no values
-
-                            // The idea with some of these was rather
-                            // to make classes of things; but yeah,
-                            // the only relevant information out of
-                            // this is priority (and size).
-
-                            "chore" => {
-                                // Pick it up at times when doing mind
-                                // numbing things. Small.
-                                set!{tasksize, TaskSize::Minutes};
-                                set!{priority, Priority::Level(7)};
-                            }
-                            "decide" => {
-                                // Something small to decide on; but
-                                // somewhat higher priority since it
-                                // is still probably somewhat time
-                                // relevant (things in the future
-                                // depend on the decision).
-                                set!{tasksize, TaskSize::Minutes};
-                                set!{priority, Priority::Level(4)};
-                            }
-                            "occasionally" => {
-                                // Pick it up when the right occasion
-                                // or state of mind happens.
-                                set!{tasksize, TaskSize::Hours};
-                                set!{priority, Priority::Level(7)};
-                            }
-                            "relaxed" => {
-                                // Things to do at some particular
-                                // time of week. Or as a filler? When
-                                // feeling relaxed?
-                                set!{tasksize, TaskSize::Hours};
-                                set!{priority, Priority::Level(8)};
-                            }
-                            "today" => {
-                                // Things to do today. Or if missed,
-                                // the next day..
-                                set!{tasksize, TaskSize::Hours};
-                                set!{priority, Priority::DaysFromToday(1)};
-                            }
-                            "ongoing" => {
-                                // Hmm, no due date, no priority? Or,
-                                // just expecting to work on this
-                                // 20-50% every (day or) week until
-                                // done? But I did give it a special
-                                // priority! -- XX should I just try
-                                // Priority::from? Actually try all
-                                // parsers in some sequence?
-                                set!{tasksize, TaskSize::Weeks};
-                                set!{priority, Priority::Ongoing}; 
-                            }
-                            // Will there be any other but
-                            // non-constant special values? Otherwise
-                            // error.
-                            _ => return Err(parse_error! {
-                                // XX if followed by ":" we can call
-                                // it a key. Followed by comma or eof,
-                                // it's a special value. Turn parsing
-                                // sequence around!
-                                message: format!("unknown key {:?}", key.s),
-                                position: key.position
-                            })
-                        }
-                        p = T!(expect_comma_or_eof(rest))?;
+                            let (value, rest) = T!(take_one_value_from(rest))?;
+                            builder.$field_name = Some($type::from_parseable_str(value)?);
+                            p = rest;
+                        } }
                     }
+
+                    match key.s {
+                        "s"|"size"|"tasksize" => parse_to!(tasksize, TaskSize),
+                        // "due" should only accept a date?
+                        "p"|"prio"|"priority"|"due" => parse_to!(priority, Priority),
+                        "d"|"dep"|"depends"|"dependencies" => parse_to!(dependencies, Dependencies),
+
+                        _ => return Err(parse_error! {
+                            message: format!("unknown key {:?}", key.s),
+                            position: key.position
+                        })
+                    }
+                } else {
+                    // Not a key-value pair
+                    macro_rules! set {
+                        { $field_name:ident, $value:expr } => {
+                            if let Some(old) = builder.$field_name {
+                                return old_err(format!("{old:?}"))
+                            }
+                            builder.$field_name = Some($value);
+                        }
+                    }
+                    match key.s {
+                        // Special keys that have no values
+
+                        // The idea with some of these was rather
+                        // to make classes of things; but yeah,
+                        // the only relevant information out of
+                        // this is priority (and size).
+
+                        "chore" => {
+                            // Pick it up at times when doing mind
+                            // numbing things. Small.
+                            set!{tasksize, TaskSize::Minutes};
+                            set!{priority, Priority::Level(7)};
+                        }
+                        "decide" => {
+                            // Something small to decide on; but
+                            // somewhat higher priority since it
+                            // is still probably somewhat time
+                            // relevant (things in the future
+                            // depend on the decision).
+                            set!{tasksize, TaskSize::Minutes};
+                            set!{priority, Priority::Level(4)};
+                        }
+                        "occasionally" => {
+                            // Pick it up when the right occasion
+                            // or state of mind happens.
+                            set!{tasksize, TaskSize::Hours};
+                            set!{priority, Priority::Level(7)};
+                        }
+                        "relaxed" => {
+                            // Things to do at some particular
+                            // time of week. Or as a filler? When
+                            // feeling relaxed?
+                            set!{tasksize, TaskSize::Hours};
+                            set!{priority, Priority::Level(8)};
+                        }
+                        "today" => {
+                            // Things to do today. Or if missed,
+                            // the next day..
+                            set!{tasksize, TaskSize::Hours};
+                            set!{priority, Priority::DaysFromToday(1)};
+                        }
+                        "ongoing" => {
+                            // Hmm, no due date, no priority? Or,
+                            // just expecting to work on this
+                            // 20-50% every (day or) week until
+                            // done? But I did give it a special
+                            // priority! -- XX should I just try
+                            // Priority::from? Actually try all
+                            // parsers in some sequence?
+                            set!{tasksize, TaskSize::Weeks};
+                            set!{priority, Priority::Ongoing}; 
+                        }
+
+                        // Non-constant non-key-pair values: try
+                        // parsing as certain items  XXX
+                        _ => return Err(parse_error! {
+                            // XX if followed by ":" we can call
+                            // it a key. Followed by comma or eof,
+                            // it's a special value. Turn parsing
+                            // sequence around!
+                            message: format!("unknown XX key {:?}", key.s),
+                            position: key.position
+                        })
+                    }
+
+                    p = T!(expect_comma_or_eof(rest))?;
                 }
             }
             Err(e) => if p.is_empty() {

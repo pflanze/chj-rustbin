@@ -19,15 +19,23 @@ else
 fi
 
 
-set -x
+errors=0
 
-diff -u test/priorities.out "$out"
+if ! diff -u test/priorities.out "$out"; then
+    errors=$(( errors + 1 ))
+fi
 
 # Remove the lines with \t indentation, since those are backtraces
 # that carry changing line numbers.
 filtered_err=$(mktemp)
 grep -P -v '^\t' < "$err" > "$filtered_err"
 
-diff -u test/priorities.err "$filtered_err"
+if ! diff -u test/priorities.err "$filtered_err"; then
+    errors=$(( errors + 1 ))
+fi
 
-rm -f "$out" "$err" "$filtered_err"
+if [ $errors -eq 0 ]; then
+    rm -f "$out" "$err" "$filtered_err"
+fi
+
+exit $errors

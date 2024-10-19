@@ -135,8 +135,6 @@ pub enum Priority {
     Unknown,
     /// 1 is highest priority (manually specified)
     Level(u8),
-    // /// 1 is highest priority (manually specified)
-    // LevelCalculated(f32),
 }
 
 // Calculate a priority purely from how much time is left and how much

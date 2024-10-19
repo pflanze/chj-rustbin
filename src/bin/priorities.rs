@@ -10,7 +10,7 @@ use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Weekday, Datelike, Duration, U
 use clap::Parser;
 use kstring::KString;
 
-use chj_rustbin::{parse::{parsers::{ParseableStr, IntoParseable, Parseable, FromParseableStr,
+use chj_rustbin::{parse::{parsers::{ParseableStr, IntoParseable, FromParseableStr,
                                     Separator},
                           parse_error::ParseError},
                   impl_item_options_from,

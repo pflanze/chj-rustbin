@@ -120,12 +120,11 @@ pub struct Separator {
     pub alternatives: &'static[&'static str]
 }
 
-#[extension(pub trait Parseable)]
 impl<'t> ParseableStr<'t> {
     /// Skip the given number of bytes from the beginning. Panics if
     /// num_bytes goes beyond the end of self, and will lead to later
     /// panics if the result is not pointing at a character boundary.
-    fn skip_bytes(self, num_bytes: usize) -> ParseableStr<'t> {
+    pub fn skip_bytes(self, num_bytes: usize) -> ParseableStr<'t> {
         let ParseableStr { position, s } = self;
         Self {
             position: position + num_bytes,
@@ -135,7 +134,7 @@ impl<'t> ParseableStr<'t> {
 
     /// Split at the given number of bytes from the beginning. Panics if
     /// mid > len, or not pointing at a character boundary.
-    fn split_at(self, mid: usize) -> (ParseableStr<'t>, ParseableStr<'t>) {
+    pub fn split_at(self, mid: usize) -> (ParseableStr<'t>, ParseableStr<'t>) {
         let ParseableStr { position, s } = self;
         (
             Self {
@@ -150,7 +149,7 @@ impl<'t> ParseableStr<'t> {
     }
 
     /// Trim whitespace on both ends
-    fn trim(self) -> ParseableStr<'t> {
+    pub fn trim(self) -> ParseableStr<'t> {
         let s1 = self.s.trim_start();
         Self {
             s: s1.trim_end(),
@@ -160,7 +159,7 @@ impl<'t> ParseableStr<'t> {
 
     /// Find the first occurrence of `needle` in self, return
     /// the needle and what follows.
-    fn find_str(self, needle: &str) -> Option<ParseableStr<'t>> {
+    pub fn find_str(self, needle: &str) -> Option<ParseableStr<'t>> {
         let ParseableStr { position, s } = self;
         let offset = s.find(needle)?;
         Some(ParseableStr {
@@ -171,7 +170,7 @@ impl<'t> ParseableStr<'t> {
 
     /// Find the first occurrence of `needle` in self, return
     /// the rest after it.
-    fn after_str(self, needle: &str) -> Option<ParseableStr<'t>> {
+    pub fn after_str(self, needle: &str) -> Option<ParseableStr<'t>> {
         let ParseableStr { position, s } = self;
         let pos = s.find(needle)?;
         let offset = pos + needle.len();
@@ -183,7 +182,7 @@ impl<'t> ParseableStr<'t> {
 
     /// Expect `beginning` at the start of self, if so return the
     /// remainder after it.
-    fn drop_str(self, beginning: &str) -> Option<ParseableStr<'t>> {
+    pub fn drop_str(self, beginning: &str) -> Option<ParseableStr<'t>> {
         let ParseableStr { position, s } = self;
         if s.starts_with(beginning) {
             Some(ParseableStr {
@@ -197,7 +196,7 @@ impl<'t> ParseableStr<'t> {
 
     /// Same as `drop_str` but returns an error mentioning
     /// `beginning` if it doesn't match
-    fn expect_str<'needle>(self, beginning: &'needle str)
+    pub fn expect_str<'needle>(self, beginning: &'needle str)
                            -> Result<ParseableStr<'t>, Box<ExpectedString<'needle>>> {
         self.drop_str(beginning).ok_or_else(
             || ExpectedString {
@@ -205,7 +204,7 @@ impl<'t> ParseableStr<'t> {
             }.into())
     }
 
-    fn expect_str_or_eos<'needle>(
+    pub fn expect_str_or_eos<'needle>(
         self, beginning: &'needle str
     ) -> Result<ParseableStr<'t>, Box<ExpectedString<'needle>>> {
         if self.is_empty() {
@@ -214,7 +213,7 @@ impl<'t> ParseableStr<'t> {
         self.expect_str(beginning)
     }
 
-    fn expect_separator(
+    pub fn expect_separator(
         self, separator: &Separator
     ) -> Result<ParseableStr<'t>, Box<ExpectedString<'static>>> {
         let mut last_e = None;
@@ -238,7 +237,7 @@ impl<'t> ParseableStr<'t> {
 
     /// Find the first occurrence of `needle` in self, return the part
     /// left of it.
-    fn take_until_str(self, needle: &str) -> Option<ParseableStr<'t>> {
+    pub fn take_until_str(self, needle: &str) -> Option<ParseableStr<'t>> {
         let ParseableStr { position, s } = self;
         let pos = s.find(needle)?;
         Some(ParseableStr {
@@ -249,7 +248,7 @@ impl<'t> ParseableStr<'t> {
 
     /// Split at the first occurrence of `needle`, returning the parts
     /// before and after it.
-    fn split_at_str(self, needle: &str) -> Option<(ParseableStr<'t>, ParseableStr<'t>)> {
+    pub fn split_at_str(self, needle: &str) -> Option<(ParseableStr<'t>, ParseableStr<'t>)> {
         let ParseableStr { position, s } = self;
         let pos = s.find(needle)?;
         Some((
@@ -266,7 +265,7 @@ impl<'t> ParseableStr<'t> {
 
     /// Take every character for which `pred` returns true, return the
     /// string making up those characters and the remainder.
-    fn take_while(self, mut pred: impl FnMut(char) -> bool)
+    pub fn take_while(self, mut pred: impl FnMut(char) -> bool)
                   -> (ParseableStr<'t>, ParseableStr<'t>) {
         let ParseableStr { position, s } = self;
         for (pos, c) in s.char_indices() {
@@ -291,7 +290,7 @@ impl<'t> ParseableStr<'t> {
 
     /// Expect 1 character for which `pred` must return true, return
     /// the string making up the remainder.
-    fn expect1_matching<'d>(self, pred: impl FnOnce(char) -> bool, desc: &'d str)
+    pub fn expect1_matching<'d>(self, pred: impl FnOnce(char) -> bool, desc: &'d str)
                         -> Result<ParseableStr<'t>, Box<Expected<'d>>> {
         let ParseableStr { position, s } = self;
         let err = || Err(Expected { desc, position }.into());
@@ -307,7 +306,7 @@ impl<'t> ParseableStr<'t> {
         Ok(ParseableStr { position: position + pos, s: &s[pos..] })
     }
 
-    fn take_identifier(self)
+    pub fn take_identifier(self)
                        -> Result<(ParseableStr<'t>, ParseableStr<'t>), Box<Expected<'static>>> {
         let rest = self.expect1_matching(
             |c| c.is_ascii_lowercase() && (c.is_ascii_alphabetic() || c == '_'),
@@ -322,7 +321,7 @@ impl<'t> ParseableStr<'t> {
         ))
     }
 
-    fn drop_while(self, mut pred: impl FnMut(char) -> bool) -> ParseableStr<'t> {
+    pub fn drop_while(self, mut pred: impl FnMut(char) -> bool) -> ParseableStr<'t> {
         let ParseableStr { position, s } = self;
         for (pos, c) in s.char_indices() {
             if !pred(c) {
@@ -338,7 +337,7 @@ impl<'t> ParseableStr<'t> {
         }
     }
 
-    fn take_n_while<'d>(self, n: usize, mut pred: impl FnMut(char) -> bool, desc: &'d str)
+    pub fn take_n_while<'d>(self, n: usize, mut pred: impl FnMut(char) -> bool, desc: &'d str)
                     -> Result<(ParseableStr<'t>, ParseableStr<'t>), Box<Expected<'d>>> {
         let ParseableStr { position, s } = self;
         let mut cs = s.char_indices();
@@ -376,7 +375,7 @@ impl<'t> ParseableStr<'t> {
         ))
     }
 
-    fn drop_whitespace(self) -> ParseableStr<'t> {
+    pub fn drop_whitespace(self) -> ParseableStr<'t> {
         self.drop_while(|c| c.is_whitespace())
     }
 
@@ -384,7 +383,7 @@ impl<'t> ParseableStr<'t> {
     /// is not included in the returned parts. If
     /// `omit_empty_last_item` is true, if there's an empty string
     /// after the last separator, it is not reported as an item.
-    fn split_str<'n>(self, separator: &'n str, omit_empty_last_item: bool)
+    pub fn split_str<'n>(self, separator: &'n str, omit_empty_last_item: bool)
                      -> Box<dyn Iterator<Item = ParseableStr> + 'n>
         where 't: 'n
     {

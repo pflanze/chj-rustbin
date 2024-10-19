@@ -694,7 +694,7 @@ fn parse_inside(s: ParseableStr) -> Result<TaskInfoDeclarations, ParseError> {
                                 // Things to do today. Or if missed,
                                 // the next day..
                                 set!{tasksize, TaskSize::Hours};
-                                set!{priority, Priority::DaysFromToday(0)};
+                                set!{priority, Priority::DaysFromToday(1)};
                             }
                             "ongoing" => {
                                 // Hmm, no due date, no priority? Or,

@@ -600,9 +600,9 @@ impl From<TaskInfoDeclarationsBuilder> for TaskInfoDeclarations {
     }
 }
 
-fn is_word_char(c: char) -> bool {
-    c == '_' || c == '-' || c.is_ascii_alphanumeric()
-}
+// fn is_word_char(c: char) -> bool {
+//     c == '_' || c == '-' || c.is_ascii_alphanumeric()
+// }
 
 fn is_ascii_digit_char(c: char) -> bool {
     c.is_ascii_digit()
@@ -620,16 +620,6 @@ fn expect_comma_or_eos(s: ParseableStr) -> Result<ParseableStr, ParseError> {
     T!(expect_str_or_eos(s, ","))
 }
 
-fn take_value_drop_whitespace(s: ParseableStr)
-                              -> Result<(ParseableStr, ParseableStr), ParseError> {
-    let mut rest = T!(s.expect1_matching(is_word_char, "[a-zA-Z_0-9-]+"))?;
-    rest = rest.drop_while(is_word_char);
-    let value = s.up_to(rest);
-    rest = rest.drop_whitespace();
-    Ok((value, rest))
-}
-
-
 // The string representing one value after a key.  It is either a
 // single word/integer followed by a comma / whitespace / eos, or [ ]
 // with the same (but the trailing comma will be omitted, XX currently
@@ -644,33 +634,31 @@ fn take_one_value_from(s: ParseableStr) -> Result<(ParseableStr, ParseableStr), 
         rest = rest.drop_whitespace();
         let start = rest;
         loop {
-            // first expect a value
-            (_, rest) = T!(take_value_drop_whitespace(rest))?;
+            // first expect a value -- ok, a bit of a joke, could
+            // simply scan all the way to ] then.
+            (_, rest) = rest.take_while(|c| c != ',' && c != ']');
             if rest.is_empty() {
                 return Ok((start.up_to(rest), rest))
             }
-            // then a separator or end marker
-            match rest.expect_str(",") {
-                Ok(s) => rest = s,
-                Err(_) => match rest.expect_str("]") {
-                    Ok(mut after) => {
-                        after = T!(expect_comma_or_eos(after))?;
-                        return Ok((start.up_to(rest), after))
-                    }
-                    Err(e) => Err(parse_error! {
-                        // or eos, but in context? "or '}'"
-                        message: "expecting ',' or ']'".into(),
-                        position: e.position,
-                    })?
-                }
+            if let Ok(s) = rest.expect_str(",") {
+                rest = s;
+            } else if let Ok(after) = rest.expect_str("]") {
+                let after = T!(expect_comma_or_eos(after))?;
+                return Ok((start.up_to(rest), after))
+            } else {
+                return Err(parse_error! {
+                    // or eos, but in context? "or '}'"
+                    message: "expecting ',' or ']'".into(),
+                    position: rest.position,
+                })
             }
             rest = rest.drop_whitespace();
         }
     } else {
         // single value
-        let (value, rest) = T!(take_value_drop_whitespace(rest))?;
+        let (value, rest) = s.take_while(|c| c != ',');
         let rest = T!(expect_comma_or_eos(rest))?;
-        Ok((value, rest))
+        Ok((value.trim(), rest))
     }
 }
 
@@ -680,7 +668,7 @@ fn t_take_one_value_from() {
     let t = |s| take_one_value_from(ParseableStr { position: 0, s });
     let ok = |p1, s1, p2, s2| Ok((ParseableStr { position: p1, s: s1 },
                                   ParseableStr { position: p2, s: s2 }));
-    let err = |position, msg: &str| Err(parse_error! { message: msg.into(), position });
+    // let err = |position, msg: &str| Err(parse_error! { message: msg.into(), position });
 
     assert_eq!(t(" 1, b"), ok(1, "1", 4, "b"));
     assert_eq!(t("1 , b"), ok(0, "1", 4, "b"));
@@ -688,11 +676,11 @@ fn t_take_one_value_from() {
     assert_eq!(t(" 12"), ok(1, "12", 3, ""));
     assert_eq!(t("Abcd_X"), ok(0, "Abcd_X", 6, ""));
     assert_eq!(t("Abcd_X "), ok(0, "Abcd_X", 7, ""));
-    assert_eq!(t("1  b"), err(3, "expected \",\" or the end of the input segment"));
-    assert_eq!(t("  "), err(2, "expected [a-zA-Z_0-9-]+"));
+    assert_eq!(t("1  b"), ok(0, "1  b", 4, ""));
+    assert_eq!(t("  "), ok(2, "", 2, ""));
     assert_eq!(t(" [a] "), ok(2, "a", 5, ""));
     assert_eq!(t(" [a,b] "), ok(2, "a,b", 7, ""));
-    assert_eq!(t(" [a b] "), err(4, "expecting ',' or ']'"));
+    assert_eq!(t(" [a b] "), ok(2, "a b", 7, ""));
     assert_eq!(t(" [a, b] "), ok(2, "a, b", 8, ""));
     assert_eq!(t(" [ a , b ] "), ok(3, "a , b ", 11, ""));
 }

@@ -1,13 +1,14 @@
-1.44	test/priorities/2024-09-27_201910_Fri-do bar OPEN{prio: 1, depends: 2024-09-27_201849}
-1.93	test/priorities/2024-09-29_231231_Sun-meta another task OPEN{d: [2024-09-27_201849_Fri-do, 2024-09-27_201931_Fri ], prio: 2024-11-01}
-2.03	test/priorities/2024-10-02_200923_Wed-some OPEN{ today , d:2024-09-29_231231_Sun-meta}
-2.41	test/priorities/reprocessing/2024-10-03_173610_Thu-README OPEN{prio: 2}
-5.42	test/priorities/2024-09-27_212233_Fri-do OPEN{d: reprocessing}
-5.44	test/priorities/2024-09-27_201849_Fri-do foo OPEN
-5.44	test/priorities/erroneous/2024-09-30_111329_Mon-foo OPEN{d: [2024-09-27_201931_,2024-09-27_201931_Mon]}
-5.44	test/priorities/erroneous/2024-09-30_111330_Mon-foo OPEN{d: [2024-09-27_201931_,2024-09-27_201931]}
-5.44	test/priorities/erroneous/2024-09-30_111331_Mon-foo OPEN{d: [foobar]}
-5.44	test/priorities/erroneous/2024-09-30_111332_Mon-duplicate 2 OPEN
-5.44	test/priorities/erroneous/2024-09-30_111332_Mon-duplicate OPEN
-5.44	test/priorities/erroneous/2024-09-30_111332_Mon-foo OPEN{d: [2024-09-27]}
-7.44	test/priorities/2024-10-02_193929_Wed-some OPEN{occasionally}
+-inf	test/priorities/2024-09-27_201849_Fri-do foo OPEN
+-inf	test/priorities/erroneous/2024-09-29_231214_Sun-meta another task OPEN{depends: 2024-09-27_201849_Fri, 2024-09-27_201931_Fri}
+-3.24	test/priorities/2024-09-29_231231_Sun-meta another task OPEN{d: [2024-09-27_201849_Fri-do, 2024-09-27_201931_Fri ], prio: 2024-11-01}
+-3.14	test/priorities/2024-10-02_200923_Wed-some OPEN{ today , d:2024-09-29_231231_Sun-meta}
+1.42	test/priorities/2024-09-27_201910_Fri-do bar OPEN{prio: 1, depends: 2024-09-27_201849}
+2.38	test/priorities/reprocessing/2024-10-03_173610_Thu-README OPEN{prio: 2}
+5.40	test/priorities/2024-09-27_212233_Fri-do OPEN{d: reprocessing}
+5.42	test/priorities/erroneous/2024-09-30_111329_Mon-foo OPEN{d: [2024-09-27_201931_,2024-09-27_201931_Mon]}
+5.42	test/priorities/erroneous/2024-09-30_111330_Mon-foo OPEN{d: [2024-09-27_201931_,2024-09-27_201931]}
+5.42	test/priorities/erroneous/2024-09-30_111331_Mon-foo OPEN{d: [foobar]}
+5.42	test/priorities/erroneous/2024-09-30_111332_Mon-duplicate 2 OPEN
+5.42	test/priorities/erroneous/2024-09-30_111332_Mon-duplicate OPEN
+5.42	test/priorities/erroneous/2024-09-30_111332_Mon-foo OPEN{d: [2024-09-27]}
+7.42	test/priorities/2024-10-02_193929_Wed-some OPEN{occasionally}

@@ -7,7 +7,7 @@ err=$(mktemp)
 
 #set -x
 
-if target/release/priorities test/priorities/ -t "2024/10/06 12:00:00" > "$out" 2> "$err"; then
+if target/release/priorities test/priorities/ -t "2024/10/06 08:00:00" > "$out" 2> "$err"; then
     echo "expecting exit code 1, got 0"
     false
 else

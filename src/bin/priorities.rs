@@ -6,7 +6,7 @@ use std::{path::{PathBuf, Path},
           os::unix::prelude::OsStrExt, cmp::Ordering};
 
 use anyhow::{Result, anyhow, Context};
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Weekday, Datelike, Duration, Utc, DateTime};
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Weekday, Datelike, Duration, Utc, DateTime, Timelike};
 use clap::Parser;
 use kstring::KString;
 
@@ -122,19 +122,24 @@ impl FromParseableStr for TaskSize {
     }
 }
 
+pub type ManualPriorityLevel = u8;
 
 #[derive(Debug, Clone)]
 pub enum Priority {
     /// Due on that date
-    Date(NaiveDate),
+    Date(NaiveDateTime),
     /// Relative due date
     DaysFromToday(u8),
+    /// Today at noon
+    Today,
+    /// Today at 6 PM
+    Tonight,
     /// No particular due date or priority
     Ongoing,
     /// None given
     Unknown,
     /// 1 is highest priority (manually specified)
-    Level(u8),
+    Level(ManualPriorityLevel),
 }
 
 // Calculate a priority purely from how much time is left and how much
@@ -194,14 +199,27 @@ pub fn priority_level(
         prio + age_sec * (1. / (60.*60.*24.*7.))
     };
     match priority {
-        Priority::Date(d) => {
-            let time_to_target: Duration =
-                d.and_hms_opt(12,0,0).unwrap().signed_duration_since(now);
+        Priority::Date(ndt) => {
+            let time_to_target: Duration = ndt.signed_duration_since(now);
             priority_for_time_left(time_to_target)
         }
         Priority::DaysFromToday(num_days) => {
             // (XX Base on noon on target day, too ?)
             priority_for_time_left(Duration::days((*num_days).into()))
+        }
+        Priority::Today => {
+            let target_time = now
+                .with_hour(12).unwrap()
+                .with_minute(0).unwrap()
+                .with_second(0).unwrap();
+            priority_for_time_left(target_time.signed_duration_since(now))
+        }
+        Priority::Tonight => {
+            let target_time = now
+                .with_hour(18).unwrap()
+                .with_minute(0).unwrap()
+                .with_second(0).unwrap();
+            priority_for_time_left(target_time.signed_duration_since(now))
         }
         // XX: what about mixing priorities, target date given *and* a priority level?
         Priority::Level(l) => modify_priority_with_mtime(f32::from(*l)),
@@ -217,6 +235,9 @@ impl Default for Priority {
     }
 }
 
+// If you're looking for an `impl From<NaiveDateTime> for Priority`,
+// just use `Priority::Date(ndt)`.
+
 impl FromParseableStr for Priority {
     type Err = ParseError;
 
@@ -224,14 +245,16 @@ impl FromParseableStr for Priority {
         let s = s.trim();
         let ss = s.s;
         if ss == "ongoing" {
+            // Note: now have `inside_parse_class`, too. XX inconsistent?
             return Ok(Priority::Ongoing)
         }
-        if let Ok(level) = u8::from_str(ss) {
+        if let Ok(level) = ManualPriorityLevel::from_str(ss) {
             return Ok(Priority::Level(level))
         }
         // XX oh, also parse "12-11" style dates? y -- update bail below
+        //  -- use parse_dat, with a default time of day?
         if let Ok(date) = NaiveDate::from_str(ss) {
-            return Ok(Priority::Date(date))
+            return Ok(Priority::Date(date.and_hms_opt(12,0,0).unwrap()))
         }
         Err(parse_error! {
             message: format!("invalid priority string {s:?} \
@@ -517,6 +540,32 @@ struct TaskInfoDeclarationsBuilder {
     dependencies: Option<Dependencies>,
 }
 
+macro_rules! def_builder_setter {
+    { $method_name:ident, $field_name:ident, $field_type:ty } => {
+        fn $method_name(&mut self, val: $field_type, came_from: ParseableStr)
+                        -> Result<(), ParseError> {
+            if let Some(old) = &self.$field_name {
+                return Self::old_err(format!("{old:?}"), came_from);
+            }
+            self.$field_name = Some(val);
+            Ok(())
+        }
+    }
+}
+    
+impl TaskInfoDeclarationsBuilder {
+    fn old_err(old: String, came_from: ParseableStr) -> Result<(), ParseError> {
+        Err(parse_error! {
+            message: format!("key {:?} occurred before with value {old}", came_from.s),
+            position: came_from.position
+        })
+    }
+
+    def_builder_setter!(set_tasksize, tasksize, TaskSize);
+    def_builder_setter!(set_priority, priority, Priority);
+    def_builder_setter!(set_dependencies, dependencies, Dependencies);
+}
+
 impl From<TaskInfoDeclarationsBuilder> for TaskInfoDeclarations {
     fn from(value: TaskInfoDeclarationsBuilder) -> Self {
         let tasksize = value.tasksize.unwrap_or_default();
@@ -623,131 +672,175 @@ fn t_take_one_value_from() {
     assert_eq!(t(" [ a , b ] "), ok(3, "a , b ", 11, ""));
 }
 
+// Tries to parse a key/value pair, returns the rest after the value
+// (which includes the comma and further arguments, to be handled by
+// the caller)
+fn inside_parse_key_val<'s>(
+    builder: &mut TaskInfoDeclarationsBuilder,
+    ident: ParseableStr,
+    rest: ParseableStr<'s>,
+) -> Result<ParseableStr<'s>, ParseError> {
+    if let Some(rest) = rest.drop_str(":") {
+        macro_rules! parse_to {
+            { $setter:ident, $type:ident } => {{
+                let (value, rest) = T!(take_one_value_from(rest))?;
+                builder.$setter($type::from_parseable_str(value)?, value)?;
+                Ok(rest)
+            }}
+        }
 
-fn parse_inside(s: ParseableStr) -> Result<TaskInfoDeclarations, ParseError> {
+        match ident.s {
+            "s"|"size"|"tasksize" => parse_to!(set_tasksize, TaskSize),
+            // "due" should only accept a date?
+            "p"|"prio"|"priority"|"due" => parse_to!(set_priority, Priority),
+            "d"|"dep"|"depends"|"dependencies" => parse_to!(set_dependencies, Dependencies),
+
+            _ => Err(parse_error! {
+                message: format!("unknown key {:?}", ident.s),
+                position: ident.position
+            })
+        }
+    } else {
+        Err(parse_error! {
+            message: "missing ':' after possible keyword".into(),
+            position: rest.position,
+        })
+    }
+}
+
+// Attempt to parse an identifier as a 'class' name; nothing must come
+// after `ident` (except comma or further arguments, to be checked by
+// the caller). Returns the values to be set.
+fn inside_parse_class(
+    ident: ParseableStr,
+) -> Option<(TaskSize, Priority)> {
+
+    match ident.s {
+        // Special keys that have no values
+
+        // The idea with some of these was rather
+        // to make classes of things; but yeah,
+        // the only relevant information out of
+        // this is priority (and size).
+
+        "chore" => {
+            // Pick it up at times when doing mind
+            // numbing things. Small.
+            Some((TaskSize::Minutes, Priority::Level(7)))
+        }
+        "decide" => {
+            // Something small to decide on; but
+            // somewhat higher priority since it
+            // is still probably somewhat time
+            // relevant (things in the future
+            // depend on the decision).
+            Some((TaskSize::Minutes, Priority::Level(4)))
+        }
+        "occasionally" => {
+            // Pick it up when the right occasion
+            // or state of mind happens.
+            Some((TaskSize::Hours, Priority::Level(7)))
+        }
+        "relaxed" => {
+            // Things to do at some particular
+            // time of week. Or as a filler? When
+            // feeling relaxed?
+            Some((TaskSize::Hours, Priority::Level(8)))
+        }
+        "today" => {
+            // Things to do today. Or if missed,
+            // the next day..
+            Some((TaskSize::Hours, Priority::Today))
+        }
+        "tonight" => {
+            // Things to do before going home or on the way.
+            Some((TaskSize::Minutes, Priority::Tonight))
+        }
+        "ongoing" => {
+            // Hmm, no due date, no priority? Or,
+            // just expecting to work on this
+            // 20-50% every (day or) week until
+            // done? But I did give it a special
+            // priority! -- XX should I just try
+            // Priority::from? Actually try all
+            // parsers in some sequence?
+            Some((TaskSize::Weeks, Priority::Ongoing))
+        }
+        _ => None
+    }
+}
+
+// Expect non-key-value-pair values which aren't one of the constant
+// 'class' strings.
+fn inside_parse_variable<'s>(
+    builder: &mut TaskInfoDeclarationsBuilder,
+    p: ParseableStr<'s>,
+) -> Result<ParseableStr<'s>, ParseError> {
+    let mut part;
+    let rest;
+    if let Some((part_, rest_)) = p.split_at_str(",") {
+        part = part_;
+        rest = rest_;
+    } else {
+        part = p;
+        rest = p.eos();
+    };
+    part = part.trim();
+
+    if let Some(prio) = part.opt_parse::<ManualPriorityLevel>() {
+        builder.set_priority(Priority::Level(prio), part)?;
+    } else {
+        let ndt = T!(parse_date_time_argument(part, true))?;
+        builder.set_priority(Priority::Date(ndt), part)?;
+    }
+    Ok(rest)
+}
+
+
+// Receives the whole string between '{' and '}'
+fn parse_inside<'s>(s: ParseableStr<'s>) -> Result<TaskInfoDeclarations, ParseError> {
     let mut builder = TaskInfoDeclarationsBuilder::default();
     let mut p = s;
     loop {
         p = p.drop_whitespace();
         match p.take_identifier() {
-            Ok((key, rest)) => {
-
-                let old_err = |old: String| {
-                    Err(parse_error! {
-                        message: format!("key {:?} occurred before with value {old}", key.s),
-                        position: key.position
-                    })
-                };
-
-                if let Some(rest) = rest.drop_str(":") {
-                    macro_rules! parse_to {
-                        { $field_name:ident, $type:ident } => { {
-                            if let Some(old) = builder.$field_name {
-                                return old_err(format!("{old:?}"))
-                            }
-                            let (value, rest) = T!(take_one_value_from(rest))?;
-                            builder.$field_name = Some($type::from_parseable_str(value)?);
-                            p = rest;
-                        } }
-                    }
-
-                    match key.s {
-                        "s"|"size"|"tasksize" => parse_to!(tasksize, TaskSize),
-                        // "due" should only accept a date?
-                        "p"|"prio"|"priority"|"due" => parse_to!(priority, Priority),
-                        "d"|"dep"|"depends"|"dependencies" => parse_to!(dependencies, Dependencies),
-
-                        _ => return Err(parse_error! {
-                            message: format!("unknown key {:?}", key.s),
-                            position: key.position
+            Ok((ident, rest)) => {
+                if rest.starts_with(":") {
+                    p = inside_parse_key_val(&mut builder, ident, rest)?;
+                } else if let Ok(rest) = expect_comma_or_eos(rest) {
+                    // The ident is a single value, not part of key-value pair
+                    if let Some((task_size, priority)) = inside_parse_class(ident) {
+                        builder.set_tasksize(task_size, ident)?;
+                        builder.set_priority(priority, ident)?;
+                        p = rest;
+                    } else {
+                        // Are there any identifiers that are not a
+                        // class? 
+                        // p = inside_parse_variable(&mut builder, p)?
+                        // But so far no (integer priorities are not identifiers), thus:    
+                        return Err(parse_error!{
+                            message: format!("unknown class {:?}", ident.s),
+                            position: ident.position
                         })
                     }
                 } else {
-                    // Not a key-value pair
-                    macro_rules! set {
-                        { $field_name:ident, $value:expr } => {
-                            if let Some(old) = builder.$field_name {
-                                return old_err(format!("{old:?}"))
-                            }
-                            builder.$field_name = Some($value);
-                        }
-                    }
-                    match key.s {
-                        // Special keys that have no values
-
-                        // The idea with some of these was rather
-                        // to make classes of things; but yeah,
-                        // the only relevant information out of
-                        // this is priority (and size).
-
-                        "chore" => {
-                            // Pick it up at times when doing mind
-                            // numbing things. Small.
-                            set!{tasksize, TaskSize::Minutes};
-                            set!{priority, Priority::Level(7)};
-                        }
-                        "decide" => {
-                            // Something small to decide on; but
-                            // somewhat higher priority since it
-                            // is still probably somewhat time
-                            // relevant (things in the future
-                            // depend on the decision).
-                            set!{tasksize, TaskSize::Minutes};
-                            set!{priority, Priority::Level(4)};
-                        }
-                        "occasionally" => {
-                            // Pick it up when the right occasion
-                            // or state of mind happens.
-                            set!{tasksize, TaskSize::Hours};
-                            set!{priority, Priority::Level(7)};
-                        }
-                        "relaxed" => {
-                            // Things to do at some particular
-                            // time of week. Or as a filler? When
-                            // feeling relaxed?
-                            set!{tasksize, TaskSize::Hours};
-                            set!{priority, Priority::Level(8)};
-                        }
-                        "today" => {
-                            // Things to do today. Or if missed,
-                            // the next day..
-                            set!{tasksize, TaskSize::Hours};
-                            set!{priority, Priority::DaysFromToday(1)};
-                        }
-                        "ongoing" => {
-                            // Hmm, no due date, no priority? Or,
-                            // just expecting to work on this
-                            // 20-50% every (day or) week until
-                            // done? But I did give it a special
-                            // priority! -- XX should I just try
-                            // Priority::from? Actually try all
-                            // parsers in some sequence?
-                            set!{tasksize, TaskSize::Weeks};
-                            set!{priority, Priority::Ongoing}; 
-                        }
-
-                        // Non-constant non-key-pair values: try
-                        // parsing as certain items  XXX
-                        _ => return Err(parse_error! {
-                            // XX if followed by ":" we can call
-                            // it a key. Followed by comma or eos,
-                            // it's a special value. Turn parsing
-                            // sequence around!
-                            message: format!("unknown XX key {:?}", key.s),
-                            position: key.position
-                        })
-                    }
-
-                    p = T!(expect_comma_or_eos(rest))?;
+                    // "ident non-colon": 
+                    // p = inside_parse_variable(&mut builder, p)?
+                    // currently not valid, even a date always starts
+                    // with a number, not identifier, thus:
+                    return Err(parse_error!{
+                        message: format!(
+                            "expecting a class (identifier), keyword, date or priority"),
+                        position: ident.position
+                    })
                 }
             }
-            Err(e) => if p.is_empty() {
+            Err(_e) => if p.is_empty() {
                 return Ok(builder.into())
             } else {
-                Err(parse_error! {
-                    message: e.to_string(),
-                    position: p.position
-                })?
+                // Not an identifier, so might be a date or number or
+                // similar variable thing.
+                p = inside_parse_variable(&mut builder, p)?
             }
         }
     }
@@ -993,9 +1086,9 @@ fn parse_dat<'s>(
 }
 
 // For parsing user input, to allow "2024-09-29 20:52:49 Sun" and
-// similar formats (see tests).
-fn parse_date_time_argument(s: &str, time_is_optional: bool) -> Result<NaiveDateTime, ParseError> {
-    let options = ParseDatOptions {
+// similar formats (see parse_date_time_argument tests).
+fn flexible_parse_dat_options(time_is_optional: bool) -> ParseDatOptions {
+    ParseDatOptions {
         now_for_default_year: None,
         time_is_optional,
         weekday_is_optional: true,
@@ -1011,8 +1104,14 @@ fn parse_date_time_argument(s: &str, time_is_optional: bool) -> Result<NaiveDate
             required: true,
             alternatives: &["_", " "],
         }
-    };
-    let (ndt, ndt_string, rest) = parse_dat(ParseableStr { position: 0, s }, &options)?;
+    }
+}
+
+// For command line arguments.
+fn parse_date_time_argument(s: ParseableStr, time_is_optional: bool)
+                                -> Result<NaiveDateTime, ParseError> {
+    let (ndt, ndt_string, rest) = parse_dat(s,
+                                            &flexible_parse_dat_options(time_is_optional))?;
     let rest = rest.trim();
     if rest.is_empty() {
         Ok(ndt)
@@ -1029,7 +1128,7 @@ fn parse_date_time_argument(s: &str, time_is_optional: bool) -> Result<NaiveDate
 fn t_parse_date_time_argument() {
     let ok = Ok(NaiveDateTime::new(NaiveDate::from_ymd_opt(2024, 9, 29).unwrap(),
                                    NaiveTime::from_hms_opt(20, 52, 49).unwrap()));
-    let t = |s| parse_date_time_argument(s, false);
+    let t = |s: &str| parse_date_time_argument(ParseableStr { position: 0, s }, false);
     let te = |s| t(s).unwrap_err().to_string_in_context(s);
     assert_eq!(t("2024-09-29_205249_Sun"), ok);
     assert_eq!(t("2024-09-29 20:52:49 Sun"), ok);
@@ -1063,7 +1162,8 @@ fn t_parse_date_time_argument() {
 
     let ok2 = Ok(NaiveDateTime::new(NaiveDate::from_ymd_opt(2024, 9, 29).unwrap(),
                                     NaiveTime::from_hms_opt(12, 0, 0).unwrap()));
-    let t = |s| parse_date_time_argument(s, true);
+    // This t is with value `true`
+    let t = |s: &str| parse_date_time_argument(ParseableStr { position: 0, s }, true);
     let te = |s| t(s).unwrap_err().to_string_in_context(s);
     assert_eq!(t("2024/09/29"), ok2);
     assert_eq!(t("2024/09/29 20:52:49 Sun"), ok);
@@ -1189,7 +1289,7 @@ fn parse_path(id: usize, verbose: bool, region: &Region<PathBuf>, item: &FilePat
 fn main() -> Result<()> {
     let opts: Opts = Opts::from_args();
     let now: NaiveDateTime = if let Some(time) = &opts.time {
-        parse_date_time_argument(&time, true).map_err(
+        parse_date_time_argument(ParseableStr::new(&time), true).map_err(
             |e| anyhow!("can't parse --time option value: {}", e.to_string_in_context(&time)))?
     } else {
         let now_utc = Utc::now();

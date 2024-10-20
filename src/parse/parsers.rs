@@ -1,3 +1,7 @@
+use std::any::type_name;
+use std::fmt::Display;
+use std::str::FromStr;
+
 use genawaiter::rc::Gen;
 
 use crate::parse::parse_error::ParseError;
@@ -32,6 +36,14 @@ impl<'t> ParseableStr<'t> {
         }
     }
 
+    /// Return the end of this string, with the correct position.
+    pub fn eos(&self) -> ParseableStr<'static> {
+        ParseableStr {
+            position: self.position + self.s.len(),
+            s: ""
+        }
+    }
+
     // just Deref? vs. accidental use of extracting methods.
 
     pub fn is_empty(&self) -> bool {
@@ -42,10 +54,10 @@ impl<'t> ParseableStr<'t> {
         self.s.len()
     }
     
-    // pub fn starts_with(&self, s: &str) -> bool {
-    //     self.s.starts_with(s)
-    // }
-    // Never needing it, you probably want `drop_str`.
+    /// You usually want `drop_str` instead.
+    pub fn starts_with(&self, s: &str) -> bool {
+        self.s.starts_with(s)
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -59,6 +71,16 @@ pub struct ExpectedString<'t> {
 #[error("expected {}", self.desc)]
 pub struct Expected<'d> {
     pub desc: &'d str,
+    pub position: usize
+}
+
+#[derive(Debug, PartialEq, thiserror::Error)]
+#[error("cannot parse as {type_}: {error}")]
+pub struct FromStrError {
+    // Don't be crazy and get the type name in the Error trait, as
+    // that would preclude passing FromStrError as dyn.
+    pub type_: &'static str,
+    pub error: String,
     pub position: usize
 }
 
@@ -121,6 +143,24 @@ pub struct Separator {
 }
 
 impl<'t> ParseableStr<'t> {
+    /// Parse the whole string via `FromStr`, returning error information.
+    pub fn parse<T: FromStr>(self) -> Result<T, Box<FromStrError>>
+        where T::Err: Display
+    {
+        self.s.parse().map_err(|e: T::Err| FromStrError {
+            type_: type_name::<T>(),
+            error: e.to_string(),
+            position: self.position,
+        }.into())
+    }
+
+    /// Try to parse the whole string via `FromStr`.
+    // try_ prefix is usually used for Result; use opt_, maybe_ ?
+    pub fn opt_parse<T: FromStr>(self) -> Option<T>
+    {
+        self.s.parse().ok()
+    }
+    
     /// Skip the given number of bytes from the beginning. Panics if
     /// num_bytes goes beyond the end of self, and will lead to later
     /// panics if the result is not pointing at a character boundary.

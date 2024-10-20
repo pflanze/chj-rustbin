@@ -124,7 +124,7 @@ impl FromParseableStr for TaskSize {
 
 pub type ManualPriorityLevel = u8;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Priority {
     /// Due on that date
     Date(NaiveDateTime),
@@ -251,9 +251,18 @@ impl FromParseableStr for Priority {
         if let Ok(level) = ManualPriorityLevel::from_str(ss) {
             return Ok(Priority::Level(level))
         }
-        if let Ok((ndt, _str, _rest)) = parse_dat(s.trim(), &flexible_parse_dat_options(
-            Some(NaiveTime::from_hms_opt(12, 0, 0).unwrap()))) {
-            return Ok(Priority::Date(ndt))
+        if let Ok((ndt, _str, rest)) = parse_dat(s.trim(), &flexible_parse_dat_options(
+            Some(NaiveTime::from_hms_opt(12, 0, 0).unwrap())))
+        {
+            let rest = rest.drop_whitespace();
+            if rest.is_empty() {
+                return Ok(Priority::Date(ndt))
+            } else {
+                return Err(parse_error!{
+                    message: format!("garbage after date/time"),
+                    position: rest.position
+                })
+            }
         }
         Err(parse_error! {
             message: format!("invalid priority string {s:?} \
@@ -261,6 +270,23 @@ impl FromParseableStr for Priority {
             position: s.position
         })
     }
+}
+
+#[cfg(test)]
+#[test]
+fn t_parse_priority() {
+    let t = |s: &str| Priority::from_parseable_str(ParseableStr::new(s)).unwrap();
+    let te = |s: &str| Priority::from_parseable_str(ParseableStr::new(s)).err().unwrap()
+        .to_string_in_context(s);
+    let ymd_hms = |y, m, d, h, min, s| {
+        Priority::Date(NaiveDate::from_ymd_opt(y, m, d).unwrap()
+                       .and_hms_opt(h, min, s).unwrap())
+    };
+    assert_eq!(t("2024-11-01 11:37"), ymd_hms(2024,11,01, 11,37,0));
+    assert_eq!(t("2024-11-01 11:37:13"), ymd_hms(2024,11,01, 11,37,13));
+    assert_eq!(te("2024-11-01 12:00}"), "garbage after date/time at \"}\"");
+    assert_eq!(te("2024-11-01 12:00:01 a"), "garbage after date/time at \"a\"");
+    assert_eq!(t("2024-11-01 12:00:01  "), ymd_hms(2024,11,01, 12,0,1));
 }
 
 #[derive(Default, Debug, Clone)]
@@ -942,8 +968,11 @@ fn parse_time_wday<'s>(
                 let rest = T!(rest.expect_separator(&options.time_separator))?;
                 let (mm, rest) = T!(rest.take_n_while(2, is_ascii_digit_char, msg))?;
                 let rest = T!(rest.expect_separator(&options.time_separator))?;
-                let (ss, rest) = T!(rest.take_n_while(2, is_ascii_digit_char, msg))?;
-                ((hh, mm, Some(ss)), rest)
+                if let Some((ss, rest)) = rest.take_n_while(2, is_ascii_digit_char, msg).ok() {
+                    ((hh, mm, Some(ss)), rest)
+                } else {
+                    ((hh, mm, None), rest)
+                }
             };
 
             let hour = u8::from_str(hh.s).map_err(|e| parse_error! {

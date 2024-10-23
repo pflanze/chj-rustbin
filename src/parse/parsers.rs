@@ -208,6 +208,24 @@ impl<'t> ParseableStr<'t> {
         })
     }
 
+    /// Find the first occurrence of `needle` in self, return the
+    /// needle itself (with the position information of where it was
+    /// found) and the rest after it.
+    pub fn find_str_rest(self, needle: &str) -> Option<(ParseableStr<'t>, ParseableStr<'t>)> {
+        let ParseableStr { position, s } = self;
+        let offset = s.find(needle)?;
+        Some((
+            ParseableStr {
+                position: position + offset,
+                s: &s[offset..offset + needle.len()]
+            },
+            ParseableStr {
+                position: position + offset + needle.len(),
+                s: &s[offset + needle.len()..]
+            }
+        ))
+    }
+
     /// Find the first occurrence of `needle` in self, return
     /// the rest after it.
     pub fn after_str(self, needle: &str) -> Option<ParseableStr<'t>> {

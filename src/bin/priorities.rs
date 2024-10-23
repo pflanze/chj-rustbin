@@ -32,7 +32,7 @@ macro_rules! warning {
 
 
 #[derive(clap::Parser, Debug)]
-/// Parse a folder with todo files with "OPEN.." markers.
+/// Parse a folder with todo files with "OPEN.." or "TODO.." markers.
 struct Opts {
     /// consider dirs
     #[clap(long)]
@@ -1217,6 +1217,30 @@ const fn parse_path_parse_dat_options(weekday_is_optional: bool) -> ParseDatOpti
 const PARSE_DAT_OPTIONS_FOR_PATH: ParseDatOptions = parse_path_parse_dat_options(true);
 const PARSE_DAT_OPTIONS_FOR_INSIDE: ParseDatOptions = parse_path_parse_dat_options(false);
 
+// Find either "OPEN" or "TODO" in s. Prioritizes the "OPEN" find (if
+// "TODO" comes before "OPEN", it will still report the "OPEN"
+// instead).
+fn after_open_or_todo<'s>(s: ParseableStr<'s>) -> Option<(ParseableStr<'s>, ParseableStr<'s>)> {
+    s.find_str_rest("OPEN").or_else(|| s.find_str_rest("TODO"))
+}
+
+#[test]
+fn t_after_open_or_todo() {
+    let t = |s: &'static str| after_open_or_todo(ParseableStr { position: 0, s });
+    let finds = |pos1, s1: &'static str, pos2, s2: &'static str| {
+        Some((
+            ParseableStr { position: pos1, s: s1 },
+            ParseableStr { position: pos2, s: s2 },
+        ))
+    };
+    assert_eq!(t("foo bar"), None);
+    assert_eq!(t("foo OPEN"), finds(4, "OPEN", 8, ""));
+    assert_eq!(t("foo OPEN TODO"), finds(4, "OPEN", 8, " TODO"));
+    assert_eq!(t("foo TODO OPEN"), finds(9, "OPEN", 13, ""));
+    assert_eq!(t("foo TODO a"), finds(4, "TODO", 8, " a"));
+}
+
+
 fn parse_path(id: usize, verbose: bool, region: &Region<PathBuf>, item: &FilePathType)
               -> Result<TaskInfo> {
     let path = item.to_path_buf(region);
@@ -1233,20 +1257,20 @@ fn parse_path(id: usize, verbose: bool, region: &Region<PathBuf>, item: &FilePat
         let declarations: TaskInfoDeclarations;
         let have_open: bool;
         let opt_datetime;
-        if let Some(rest) = file_name.after_str("OPEN") {
+        if let Some((open_or_todo, rest)) = after_open_or_todo(file_name) {
             have_open = true;
             if let Some(rest) = rest.drop_str("{") {
                 if let Some((inside, rest)) = rest.split_at_str("}") {
-                    if let Some(found) = rest.find_str("OPEN") {
+                    if let Some((_open_or_todo2, found)) = after_open_or_todo(rest) {
                         return Err(parse_error! {
-                            message: "more than one occurrence of 'OPEN'".into(),
+                            message: "more than one occurrence of 'OPEN' or 'TODO'".into(),
                             position: found.position
                         });
                     }
                     declarations = T!(parse_inside(inside))?;
                 } else {
                     return Err(parse_error! {
-                        message: "missing closing '}' after 'OPEN{'".into(),
+                        message: format!("missing closing '}}' after '{}{{'", open_or_todo.s),
                         position: rest.position
                     })
                 }

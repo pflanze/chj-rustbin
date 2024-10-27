@@ -28,7 +28,7 @@ fi
 # Remove the lines with \t indentation, since those are backtraces
 # that carry changing line numbers.
 filtered_err=$(mktemp)
-grep -P -v '^\t' < "$err" > "$filtered_err"
+grep -E -v '^\t' < "$err" > "$filtered_err"
 
 if ! diff -u test/priorities.err "$filtered_err"; then
     errors=$(( errors + 1 ))

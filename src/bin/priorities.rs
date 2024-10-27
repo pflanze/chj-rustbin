@@ -1,24 +1,40 @@
-use std::{path::{PathBuf, Path},
-          convert::TryFrom,
-          time::SystemTime,
-          str::FromStr, collections::{BTreeSet, BTreeMap},
-          rc::Rc, cell::Cell, ops::Deref, process::exit, io::{stdout, Write},
-          os::unix::prelude::OsStrExt, cmp::Ordering};
+use std::{
+    cell::Cell,
+    cmp::Ordering,
+    collections::{BTreeMap, BTreeSet},
+    convert::TryFrom,
+    io::{stdout, Write},
+    ops::Deref,
+    os::unix::prelude::OsStrExt,
+    path::{Path, PathBuf},
+    process::exit,
+    rc::Rc,
+    str::FromStr,
+    time::SystemTime,
+};
 
-use anyhow::{Result, anyhow, Context};
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Weekday, Datelike, Duration, Utc, DateTime, Timelike};
+use anyhow::{anyhow, Context, Result};
+use chrono::{
+    DateTime, Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime,
+    Timelike, Utc, Weekday,
+};
 use clap::Parser;
 use kstring::KString;
 
-use chj_rustbin::{parse::{parsers::{ParseableStr, IntoParseable, FromParseableStr,
-                                    Separator},
-                          parse_error::ParseError},
-                  impl_item_options_from,
-                  io::file_path_type::{ItemOptions, FilePathType, recursive_file_path_types_iter},
-                  io::excludes::default_excludes,
-                  region::Region,
-                  conslist::{cons, List},
-                  fp::compose};
+use chj_rustbin::{
+    conslist::{cons, List},
+    fp::compose,
+    impl_item_options_from,
+    io::excludes::default_excludes,
+    io::file_path_type::{
+        recursive_file_path_types_iter, FilePathType, ItemOptions,
+    },
+    parse::{
+        parse_error::ParseError,
+        parsers::{FromParseableStr, IntoParseable, ParseableStr, Separator},
+    },
+    region::Region,
+};
 use chj_rustbin::{parse_error, T};
 
 fn _warning(s: String) {
@@ -29,7 +45,6 @@ macro_rules! warning {
         _warning(format!($($fmt)*))
     }
 }
-
 
 #[derive(clap::Parser, Debug)]
 /// Parse a folder with todo files with "OPEN.." or "TODO.." markers.
@@ -62,14 +77,13 @@ struct Opts {
     // Don't use NaiveDateTime, its parser is bad
     #[clap(short, long)]
     time: Option<String>,
-    
+
     /// The base directories holding the todo files. If none given,
     /// uses `.`.
-    directories: Vec<PathBuf>
+    directories: Vec<PathBuf>,
 }
 
-impl_item_options_from!{Opts}
-
+impl_item_options_from! {Opts}
 
 #[derive(Debug, Clone, Copy)]
 pub enum TaskSize {
@@ -78,19 +92,19 @@ pub enum TaskSize {
     Days,
     Weeks,
     Months,
-    Unknown
+    Unknown,
 }
 
 impl TaskSize {
     pub fn in_weeks(self) -> f32 {
         match self {
-            TaskSize::Minutes => 1./48., // 1./12./4., 30 minutes = 1/12 day programming capacity
-            TaskSize::Hours => 1./8., // half a day, 4 work days a week
-            TaskSize::Days => 0.5, // 2 days, 4 work days a week
+            TaskSize::Minutes => 1. / 48., // 1./12./4., 30 minutes = 1/12 day programming capacity
+            TaskSize::Hours => 1. / 8.,    // half a day, 4 work days a week
+            TaskSize::Days => 0.5,         // 2 days, 4 work days a week
             TaskSize::Weeks => 2.,
             TaskSize::Months => 8.,
             // XX warn if it leads to large changes?
-            TaskSize::Unknown => 0.2 // assume it's small if I don't specify
+            TaskSize::Unknown => 0.2, // assume it's small if I don't specify
         }
     }
 }
@@ -107,17 +121,17 @@ impl FromParseableStr for TaskSize {
     fn from_parseable_str(s: ParseableStr) -> Result<Self, Self::Err> {
         let s = s.trim();
         match s.s {
-            "h"|"hour"|"hours" => Ok(TaskSize::Hours),
-            "d"|"day"|"days" => Ok(TaskSize::Days),
-            "w"|"week"|"weeks" => Ok(TaskSize::Weeks),
-            "mo"|"mon"|"month"|"months" => Ok(TaskSize::Months),
-            "mi"|"min"|"minute"|"minutes" => Ok(TaskSize::Minutes),
+            "h" | "hour" | "hours" => Ok(TaskSize::Hours),
+            "d" | "day" | "days" => Ok(TaskSize::Days),
+            "w" | "week" | "weeks" => Ok(TaskSize::Weeks),
+            "mo" | "mon" | "month" | "months" => Ok(TaskSize::Months),
+            "mi" | "min" | "minute" | "minutes" => Ok(TaskSize::Minutes),
             _ => Err(parse_error! {
                 message: format!("unknown task size {:?} (must be \
                                   h|d|w|mo|month|months|mi|min|minuteminutes",
                                  s.s),
                 position: s.position
-            })
+            }),
         }
     }
 }
@@ -147,7 +161,7 @@ pub enum Priority {
 fn priority_level_for(time_weeks: f32, task_size_weeks: f32) -> f32 {
     let relation = time_weeks / task_size_weeks;
     relation.log2() * 2. + 1.
-}    
+}
 
 #[cfg(test)]
 #[test]
@@ -162,7 +176,7 @@ fn t_priority_level() {
 
 // rough, hack. UTC. good enough when days are the main thing I want.
 fn naive_from_systemtime(st: SystemTime) -> NaiveDateTime {
-    let dt : DateTime<Utc> = DateTime::from(st);
+    let dt: DateTime<Utc> = DateTime::from(st);
     //dt.naive_local() // XX hmmm, local based on what zone???
     dt.naive_utc()
 }
@@ -174,17 +188,17 @@ pub fn priority_level(
     tasksize: &TaskSize,
     _key: &Option<DependencyKey>,
     mtime: SystemTime,
-    now: NaiveDateTime
+    now: NaiveDateTime,
 ) -> f32 {
     let priority_for_time_left = |time_to_target: Duration| {
+        let time_secs = time_to_target.num_seconds().max(0);
+        let programming_secs_per_week = 7. * 60. * 60. * 24. * 4.;
+        let time_weeks: f32 =
+            (time_secs as f32) / programming_secs_per_week * 5.; // XXXXHACK
 
-            let time_secs = time_to_target.num_seconds().max(0);
-            let programming_secs_per_week = 7.*60.*60.*24.*4.;
-            let time_weeks: f32 = (time_secs as f32) / programming_secs_per_week * 5.;// XXXXHACK
+        let task_size_weeks = tasksize.in_weeks();
 
-            let task_size_weeks = tasksize.in_weeks();
-
-            priority_level_for(time_weeks, task_size_weeks)
+        priority_level_for(time_weeks, task_size_weeks)
     };
     let modify_priority_with_mtime = |prio| {
         // the older the file, the lower the priority? (XX Except
@@ -196,7 +210,7 @@ pub fn priority_level(
         // prio * f32::powf(0.9999, age_sec)
         // but, prio itself is also in logarithmic space? So: for
         // every week, priority sinks by 1 point.
-        prio + age_sec * (1. / (60.*60.*24.*7.))
+        prio + age_sec * (1. / (60. * 60. * 24. * 7.))
     };
     match priority {
         Priority::Date(ndt) => {
@@ -209,16 +223,22 @@ pub fn priority_level(
         }
         Priority::Today => {
             let target_time = now
-                .with_hour(12).unwrap()
-                .with_minute(0).unwrap()
-                .with_second(0).unwrap();
+                .with_hour(12)
+                .unwrap()
+                .with_minute(0)
+                .unwrap()
+                .with_second(0)
+                .unwrap();
             priority_for_time_left(target_time.signed_duration_since(now))
         }
         Priority::Tonight => {
             let target_time = now
-                .with_hour(18).unwrap()
-                .with_minute(0).unwrap()
-                .with_second(0).unwrap();
+                .with_hour(18)
+                .unwrap()
+                .with_minute(0)
+                .unwrap()
+                .with_second(0)
+                .unwrap();
             priority_for_time_left(target_time.signed_duration_since(now))
         }
         // XX: what about mixing priorities, target date given *and* a priority level?
@@ -227,7 +247,6 @@ pub fn priority_level(
         Priority::Unknown => modify_priority_with_mtime(5.), // ?
     }
 }
-
 
 impl Default for Priority {
     fn default() -> Self {
@@ -246,22 +265,25 @@ impl FromParseableStr for Priority {
         let ss = s.s;
         if ss == "ongoing" {
             // Note: now have `inside_parse_class`, too. XX inconsistent?
-            return Ok(Priority::Ongoing)
+            return Ok(Priority::Ongoing);
         }
         if let Ok(level) = ManualPriorityLevel::from_str(ss) {
-            return Ok(Priority::Level(level))
+            return Ok(Priority::Level(level));
         }
-        if let Ok((ndt, _str, rest)) = parse_dat(s.trim(), &flexible_parse_dat_options(
-            Some(NaiveTime::from_hms_opt(12, 0, 0).unwrap())))
-        {
+        if let Ok((ndt, _str, rest)) = parse_dat(
+            s.trim(),
+            &flexible_parse_dat_options(Some(
+                NaiveTime::from_hms_opt(12, 0, 0).unwrap(),
+            )),
+        ) {
             let rest = rest.drop_whitespace();
             if rest.is_empty() {
-                return Ok(Priority::Date(ndt))
+                return Ok(Priority::Date(ndt));
             } else {
-                return Err(parse_error!{
+                return Err(parse_error! {
                     message: format!("garbage after date/time"),
                     position: rest.position
-                })
+                });
             }
         }
         Err(parse_error! {
@@ -275,64 +297,76 @@ impl FromParseableStr for Priority {
 #[cfg(test)]
 #[test]
 fn t_parse_priority() {
-    let t = |s: &str| Priority::from_parseable_str(ParseableStr::new(s)).unwrap();
-    let te = |s: &str| Priority::from_parseable_str(ParseableStr::new(s)).err().unwrap()
-        .to_string_in_context(s);
-    let ymd_hms = |y, m, d, h, min, s| {
-        Priority::Date(NaiveDate::from_ymd_opt(y, m, d).unwrap()
-                       .and_hms_opt(h, min, s).unwrap())
+    let t =
+        |s: &str| Priority::from_parseable_str(ParseableStr::new(s)).unwrap();
+    let te = |s: &str| {
+        Priority::from_parseable_str(ParseableStr::new(s))
+            .err()
+            .unwrap()
+            .to_string_in_context(s)
     };
-    assert_eq!(t("2024-11-01 11:37"), ymd_hms(2024,11,01, 11,37,0));
-    assert_eq!(t("2024-11-01 11:37:13"), ymd_hms(2024,11,01, 11,37,13));
+    let ymd_hms = |y, m, d, h, min, s| {
+        Priority::Date(
+            NaiveDate::from_ymd_opt(y, m, d)
+                .unwrap()
+                .and_hms_opt(h, min, s)
+                .unwrap(),
+        )
+    };
+    assert_eq!(t("2024-11-01 11:37"), ymd_hms(2024, 11, 01, 11, 37, 0));
+    assert_eq!(t("2024-11-01 11:37:13"), ymd_hms(2024, 11, 01, 11, 37, 13));
     assert_eq!(te("2024-11-01 12:00}"), "garbage after date/time at \"}\"");
-    assert_eq!(te("2024-11-01 12:00:01 a"), "garbage after date/time at \"a\"");
-    assert_eq!(t("2024-11-01 12:00:01  "), ymd_hms(2024,11,01, 12,0,1));
+    assert_eq!(
+        te("2024-11-01 12:00:01 a"),
+        "garbage after date/time at \"a\""
+    );
+    assert_eq!(t("2024-11-01 12:00:01  "), ymd_hms(2024, 11, 01, 12, 0, 1));
 }
 
 #[derive(Default, Debug, Clone)]
 struct Dependencies {
     // XX Arc for clone efficiency?
-    keys: BTreeSet<DependencyKey>
+    keys: BTreeSet<DependencyKey>,
 }
 
 impl Dependencies {
     pub fn from_parseable_str(s: ParseableStr) -> Result<Self, ParseError> {
         let mut keys = BTreeSet::new();
-        for s in s.split_str(",", true)
+        for s in s
+            .split_str(",", true)
             .map(|s| s.trim())
-            .filter(|s| !s.is_empty()) // optim: only the *last* segment can be empty
+            .filter(|s| !s.is_empty())
+        // optim: only the *last* segment can be empty
         {
             keys.insert(
-                (
-                    || -> Result<Option<DependencyKey>, ParseError> {
-                        let (d, dstr, rest) =
+                (|| -> Result<Option<DependencyKey>, ParseError> {
+                    let (d, dstr, rest) =
                         // It's OK to fail parsing here as we've got a
                         // fallback.
                             match parse_dat(s, &PARSE_DAT_OPTIONS_FOR_INSIDE) {
                                 Ok(v) => v,
                                 Err(_) => return Ok(None)
                             };
-                        let dk = DependencyKey::from(d);
-                        // Given we succeeded at getting a date, from
-                        // now on we report errors.
-                        if keys.contains(&dk) {
-                            Err(parse_error! {
-                                message: format!("duplicate dependency entry {d}"),
-                                position: dstr.position
-                            })?
-                        }
-                        T!(expect_str_or_eos(rest, "-"))?;
-                        Ok(Some(dk))
+                    let dk = DependencyKey::from(d);
+                    // Given we succeeded at getting a date, from
+                    // now on we report errors.
+                    if keys.contains(&dk) {
+                        Err(parse_error! {
+                            message: format!("duplicate dependency entry {d}"),
+                            position: dstr.position
+                        })?
                     }
-                )()?.unwrap_or_else(
-                    || {
-                        // We take the string as is. If the user meant
-                        // it to be a date after all, they should get
-                        // an error report later when the dependency
-                        // isn't found.
-                        DependencyKey::from(s.s)
-                    }
-                ));
+                    T!(expect_str_or_eos(rest, "-"))?;
+                    Ok(Some(dk))
+                })()?
+                .unwrap_or_else(|| {
+                    // We take the string as is. If the user meant
+                    // it to be a date after all, they should get
+                    // an error report later when the dependency
+                    // isn't found.
+                    DependencyKey::from(s.s)
+                }),
+            );
         }
         Ok(Dependencies { keys })
     }
@@ -345,7 +379,6 @@ impl Deref for Dependencies {
         &self.keys
     }
 }
-
 
 #[derive(Debug, Clone, Default)]
 struct TaskInfoDeclarations {
@@ -378,7 +411,7 @@ impl WorkflowStatus {
             WorkflowStatus::Open => true,
             WorkflowStatus::Done => false,
             WorkflowStatus::Obsolete => false,
-            WorkflowStatus::Dupe => false, // ?
+            WorkflowStatus::Dupe => false,  // ?
             WorkflowStatus::Future => true, // ?
             WorkflowStatus::Notforme => false,
             WorkflowStatus::Applied => true, // ?
@@ -397,7 +430,6 @@ impl FromStr for WorkflowStatus {
             // the `OPEN` string in the file name to introduce the `{
             // .. }` section anyway.
             // "open" => Ok(WorkflowStatus::Open),
-            
             "done" => Ok(WorkflowStatus::Done),
             "obsolete" => Ok(WorkflowStatus::Obsolete),
 
@@ -409,7 +441,7 @@ impl FromStr for WorkflowStatus {
             "active" => Ok(WorkflowStatus::Active),
             "rejected" => Ok(WorkflowStatus::Rejected),
 
-            _ => Err(())
+            _ => Err(()),
         }
     }
 }
@@ -423,12 +455,15 @@ impl TryFrom<&Path> for WorkflowStatus {
         for dir in anc {
             if let Some(file_name) = dir.file_name() {
                 match file_name.to_str() {
-                    Some(segment) =>
+                    Some(segment) => {
                         if let Ok(status) = WorkflowStatus::from_str(segment) {
-                            return Ok(status)
-                        },
-                    None => warning!("cannot decode file name {file_name:?} \
-                                      in path {dir:?} to string")
+                            return Ok(status);
+                        }
+                    }
+                    None => warning!(
+                        "cannot decode file name {file_name:?} \
+                                      in path {dir:?} to string"
+                    ),
                 }
             }
         }
@@ -451,12 +486,12 @@ impl PartialOrd for DependencyKey {
         match self {
             DependencyKey::String(s1) => match other {
                 DependencyKey::String(s2) => s1.partial_cmp(s2),
-                DependencyKey::NaiveDateTime(_) => Some(Ordering::Less)
-            }
+                DependencyKey::NaiveDateTime(_) => Some(Ordering::Less),
+            },
             DependencyKey::NaiveDateTime(t1) => match other {
                 DependencyKey::String(_) => Some(Ordering::Greater),
-                DependencyKey::NaiveDateTime(t2) => t1.partial_cmp(t2)
-            }
+                DependencyKey::NaiveDateTime(t2) => t1.partial_cmp(t2),
+            },
         }
     }
 }
@@ -466,16 +501,15 @@ impl Ord for DependencyKey {
         match self {
             DependencyKey::String(s1) => match other {
                 DependencyKey::String(s2) => s1.cmp(s2),
-                DependencyKey::NaiveDateTime(_) => Ordering::Less
-            }
+                DependencyKey::NaiveDateTime(_) => Ordering::Less,
+            },
             DependencyKey::NaiveDateTime(t1) => match other {
                 DependencyKey::String(_) => Ordering::Greater,
-                DependencyKey::NaiveDateTime(t2) => t1.cmp(t2)
-            }
+                DependencyKey::NaiveDateTime(t2) => t1.cmp(t2),
+            },
         }
     }
 }
-
 
 impl From<NaiveDateTime> for DependencyKey {
     fn from(d: NaiveDateTime) -> Self {
@@ -512,33 +546,37 @@ struct TaskInfo {
     calculated_priority: Cell<Option<f32>>,
     /// The information specified by the user after the `OPEN` (or,
     /// FUTURE, also `TODO`?) between curly braces.
-    declarations: TaskInfoDeclarations
+    declarations: TaskInfoDeclarations,
 }
 
 impl TaskInfo {
     fn priority_level_at(&self, now: NaiveDateTime) -> f32 {
-        priority_level(&self.declarations.priority,
-                       &self.declarations.tasksize,
-                       &self.dependency_key,
-                       self.mtime,
-                       now)
+        priority_level(
+            &self.declarations.priority,
+            &self.declarations.tasksize,
+            &self.dependency_key,
+            self.mtime,
+            now,
+        )
     }
 
     fn set_initial_priority_level_for(&self, now: NaiveDateTime) {
         assert!(self.calculated_priority.get().is_none());
-        self.calculated_priority.set(Some(self.priority_level_at(now)));
+        self.calculated_priority
+            .set(Some(self.priority_level_at(now)));
     }
 
     fn calculated_priority(&self) -> f32 {
         self.calculated_priority.get().expect(
             "calculated_priority field has been filled via a call to \
-             `set_initial_priority_level_for` earlier")
+             `set_initial_priority_level_for` earlier",
+        )
     }
 
     fn set_as_dependency_for_priority(&self, priority: f32) {
         let own_prio = self.calculated_priority.get().unwrap();
         let target_prio = priority - 0.1;
-        if own_prio > target_prio  {
+        if own_prio > target_prio {
             self.calculated_priority.set(Some(target_prio));
         }
     }
@@ -552,11 +590,12 @@ impl PartialEq for TaskInfo {
 
 impl PartialOrd for TaskInfo {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.calculated_priority.get().unwrap().partial_cmp(
-            &other.calculated_priority.get().unwrap())
+        self.calculated_priority
+            .get()
+            .unwrap()
+            .partial_cmp(&other.calculated_priority.get().unwrap())
     }
 }
-
 
 #[derive(Default)]
 struct TaskInfoDeclarationsBuilder {
@@ -577,7 +616,7 @@ macro_rules! def_builder_setter {
         }
     }
 }
-    
+
 impl TaskInfoDeclarationsBuilder {
     fn old_err(old: String, came_from: ParseableStr) -> Result<(), ParseError> {
         Err(parse_error! {
@@ -596,7 +635,11 @@ impl From<TaskInfoDeclarationsBuilder> for TaskInfoDeclarations {
         let tasksize = value.tasksize.unwrap_or_default();
         let priority = value.priority.unwrap_or_default();
         let dependencies = value.dependencies.unwrap_or_default();
-        Self { priority, dependencies, tasksize }
+        Self {
+            priority,
+            dependencies,
+            tasksize,
+        }
     }
 }
 
@@ -608,12 +651,16 @@ fn is_ascii_digit_char(c: char) -> bool {
     c.is_ascii_digit()
 }
 
-fn expect_str_or_eos<'s>(s: ParseableStr<'s>, needle: &str)
-                         -> Result<ParseableStr<'s>, ParseError> {
-    s.drop_whitespace().expect_str_or_eos(needle)
+fn expect_str_or_eos<'s>(
+    s: ParseableStr<'s>,
+    needle: &str,
+) -> Result<ParseableStr<'s>, ParseError> {
+    s.drop_whitespace()
+        .expect_str_or_eos(needle)
         .map(ParseableStr::drop_whitespace)
-        .map_err(compose(ParseError::from,
-                         |e| e.message_append(" or the end of the input segment")))
+        .map_err(compose(ParseError::from, |e| {
+            e.message_append(" or the end of the input segment")
+        }))
 }
 
 fn expect_comma_or_eos(s: ParseableStr) -> Result<ParseableStr, ParseError> {
@@ -626,7 +673,9 @@ fn expect_comma_or_eos(s: ParseableStr) -> Result<ParseableStr, ParseError> {
 // not), followed by the same. Even in "list" case, the [ ] are not
 // part of it, `[single_value]` and `single_value` are treated the
 // same. "List" context expects at least one value.
-fn take_one_value_from(s: ParseableStr) -> Result<(ParseableStr, ParseableStr), ParseError> {
+fn take_one_value_from(
+    s: ParseableStr,
+) -> Result<(ParseableStr, ParseableStr), ParseError> {
     let mut rest = s;
     rest = rest.drop_whitespace();
     if let Some(mut rest) = rest.drop_str("[") {
@@ -638,19 +687,19 @@ fn take_one_value_from(s: ParseableStr) -> Result<(ParseableStr, ParseableStr), 
             // simply scan all the way to ] then.
             (_, rest) = rest.take_while(|c| c != ',' && c != ']');
             if rest.is_empty() {
-                return Ok((start.up_to(rest), rest))
+                return Ok((start.up_to(rest), rest));
             }
             if let Ok(s) = rest.expect_str(",") {
                 rest = s;
             } else if let Ok(after) = rest.expect_str("]") {
                 let after = T!(expect_comma_or_eos(after))?;
-                return Ok((start.up_to(rest), after))
+                return Ok((start.up_to(rest), after));
             } else {
                 return Err(parse_error! {
                     // or eos, but in context? "or '}'"
                     message: "expecting ',' or ']'".into(),
                     position: rest.position,
-                })
+                });
             }
             rest = rest.drop_whitespace();
         }
@@ -666,8 +715,18 @@ fn take_one_value_from(s: ParseableStr) -> Result<(ParseableStr, ParseableStr), 
 #[test]
 fn t_take_one_value_from() {
     let t = |s| take_one_value_from(ParseableStr { position: 0, s });
-    let ok = |p1, s1, p2, s2| Ok((ParseableStr { position: p1, s: s1 },
-                                  ParseableStr { position: p2, s: s2 }));
+    let ok = |p1, s1, p2, s2| {
+        Ok((
+            ParseableStr {
+                position: p1,
+                s: s1,
+            },
+            ParseableStr {
+                position: p2,
+                s: s2,
+            },
+        ))
+    };
     // let err = |position, msg: &str| Err(parse_error! { message: msg.into(), position });
 
     assert_eq!(t(" 1, b"), ok(1, "1", 4, "b"));
@@ -703,15 +762,19 @@ fn inside_parse_key_val<'s>(
         }
 
         match ident.s {
-            "s"|"size"|"tasksize" => parse_to!(set_tasksize, TaskSize),
+            "s" | "size" | "tasksize" => parse_to!(set_tasksize, TaskSize),
             // "due" should only accept a date?
-            "p"|"prio"|"priority"|"due" => parse_to!(set_priority, Priority),
-            "d"|"dep"|"depends"|"dependencies" => parse_to!(set_dependencies, Dependencies),
+            "p" | "prio" | "priority" | "due" => {
+                parse_to!(set_priority, Priority)
+            }
+            "d" | "dep" | "depends" | "dependencies" => {
+                parse_to!(set_dependencies, Dependencies)
+            }
 
             _ => Err(parse_error! {
                 message: format!("unknown key {:?}", ident.s),
                 position: ident.position
-            })
+            }),
         }
     } else {
         Err(parse_error! {
@@ -724,10 +787,7 @@ fn inside_parse_key_val<'s>(
 // Attempt to parse an identifier as a 'class' name; nothing must come
 // after `ident` (except comma or further arguments, to be checked by
 // the caller). Returns the values to be set.
-fn inside_parse_class(
-    ident: ParseableStr,
-) -> Option<(TaskSize, Priority)> {
-
+fn inside_parse_class(ident: ParseableStr) -> Option<(TaskSize, Priority)> {
     match ident.s {
         // Special keys that have no values
 
@@ -735,7 +795,6 @@ fn inside_parse_class(
         // to make classes of things; but yeah,
         // the only relevant information out of
         // this is priority (and size).
-
         "chore" => {
             // Pick it up at times when doing mind
             // numbing things. Small.
@@ -779,7 +838,7 @@ fn inside_parse_class(
             // parsers in some sequence?
             Some((TaskSize::Weeks, Priority::Ongoing))
         }
-        _ => None
+        _ => None,
     }
 }
 
@@ -809,9 +868,10 @@ fn inside_parse_variable<'s>(
     Ok(rest)
 }
 
-
 // Receives the whole string between '{' and '}'
-fn parse_inside<'s>(s: ParseableStr<'s>) -> Result<TaskInfoDeclarations, ParseError> {
+fn parse_inside<'s>(
+    s: ParseableStr<'s>,
+) -> Result<TaskInfoDeclarations, ParseError> {
     let mut builder = TaskInfoDeclarationsBuilder::default();
     let mut p = s;
     loop {
@@ -822,38 +882,42 @@ fn parse_inside<'s>(s: ParseableStr<'s>) -> Result<TaskInfoDeclarations, ParseEr
                     p = inside_parse_key_val(&mut builder, ident, rest)?;
                 } else if let Ok(rest) = expect_comma_or_eos(rest) {
                     // The ident is a single value, not part of key-value pair
-                    if let Some((task_size, priority)) = inside_parse_class(ident) {
+                    if let Some((task_size, priority)) =
+                        inside_parse_class(ident)
+                    {
                         builder.set_tasksize(task_size, ident)?;
                         builder.set_priority(priority, ident)?;
                         p = rest;
                     } else {
                         // Are there any identifiers that are not a
-                        // class? 
+                        // class?
                         // p = inside_parse_variable(&mut builder, p)?
-                        // But so far no (integer priorities are not identifiers), thus:    
-                        return Err(parse_error!{
+                        // But so far no (integer priorities are not identifiers), thus:
+                        return Err(parse_error! {
                             message: format!("unknown class {:?}", ident.s),
                             position: ident.position
-                        })
+                        });
                     }
                 } else {
-                    // "ident non-colon": 
+                    // "ident non-colon":
                     // p = inside_parse_variable(&mut builder, p)?
                     // currently not valid, even a date always starts
                     // with a number, not identifier, thus:
-                    return Err(parse_error!{
+                    return Err(parse_error! {
                         message: format!(
                             "expecting a class (identifier), keyword, date or priority"),
                         position: ident.position
-                    })
+                    });
                 }
             }
-            Err(_e) => if p.is_empty() {
-                return Ok(builder.into())
-            } else {
-                // Not an identifier, so might be a date or number or
-                // similar variable thing.
-                p = inside_parse_variable(&mut builder, p)?
+            Err(_e) => {
+                if p.is_empty() {
+                    return Ok(builder.into());
+                } else {
+                    // Not an identifier, so might be a date or number or
+                    // similar variable thing.
+                    p = inside_parse_variable(&mut builder, p)?
+                }
             }
         }
     }
@@ -865,12 +929,19 @@ struct NaiveDateTimeWithoutYear {
     day: u8,
     hour: u8,
     minute: u8,
-    second: u8
+    second: u8,
 }
 
 impl NaiveDateTimeWithoutYear {
     pub fn for_year(self, year: u16) -> Result<NaiveDateTime, ParseError> {
-        let NaiveDateTimeWithoutYear { position, month, day, hour, minute, second } = self;
+        let NaiveDateTimeWithoutYear {
+            position,
+            month,
+            day,
+            hour,
+            minute,
+            second,
+        } = self;
         let nd = NaiveDate::from_ymd_opt(year.into(), month.into(), day.into())
             .ok_or_else(|| {
                 parse_error! {
@@ -904,7 +975,7 @@ struct ParseDatOptions {
 
 enum ParseTimeWdayErrorKind {
     NoProperTime,
-    NoProperWeekday
+    NoProperWeekday,
 }
 
 // This is really the continuation of parsing the date part of a
@@ -913,10 +984,15 @@ fn parse_time_wday<'s>(
     s: ParseableStr<'s>,
     options: &ParseDatOptions,
     month: u8,
-    day: u8
-) -> Result<(NaiveDateTimeWithoutYear, Option<(Weekday, usize)>, ParseableStr<'s>),
-            (ParseTimeWdayErrorKind, ParseError)>
-{
+    day: u8,
+) -> Result<
+    (
+        NaiveDateTimeWithoutYear,
+        Option<(Weekday, usize)>,
+        ParseableStr<'s>,
+    ),
+    (ParseTimeWdayErrorKind, ParseError),
+> {
     let ((hour, minute, second), rest) =
         (|| -> Result<((u8, u8, u8), ParseableStr<'s>),
                       ParseError> {
@@ -981,31 +1057,45 @@ fn parse_time_wday<'s>(
             };
             Ok(((hour, minute, second), rest))
         })().map_err(|e| (ParseTimeWdayErrorKind::NoProperTime, e))?;
-     
+
     let datetime = NaiveDateTimeWithoutYear {
-        position: s.position, month, day, hour, minute, second
+        position: s.position,
+        month,
+        day,
+        hour,
+        minute,
+        second,
     };
 
-    let weekday_result = (|| -> Result<((Weekday, usize), ParseableStr), ParseError> {
-        // "_Sun"
-        let rest = T!(rest.expect_separator(&options.separator_between_parts))?;
-        let (wdaystr, rest) = rest.take_while(|c: char| c.is_ascii_alphabetic());
-        match wdaystr.len() {
-            2 | 3 | 4 | 5 | 6 | 7 | 8 => (),
-            _ => Err(parse_error! { message: format!("no match for weekday name"),
-                                    position: wdaystr.position })?
-        }
-        let wday = Weekday::from_str(wdaystr.s).map_err(
+    let weekday_result =
+        (|| -> Result<((Weekday, usize), ParseableStr), ParseError> {
+            // "_Sun"
+            let rest =
+                T!(rest.expect_separator(&options.separator_between_parts))?;
+            let (wdaystr, rest) =
+                rest.take_while(|c: char| c.is_ascii_alphabetic());
+            match wdaystr.len() {
+                2 | 3 | 4 | 5 | 6 | 7 | 8 => (),
+                _ => Err(
+                    parse_error! { message: format!("no match for weekday name"),
+                    position: wdaystr.position },
+                )?,
+            }
+            let wday = Weekday::from_str(wdaystr.s).map_err(
             |e| parse_error! { message: format!("unknown weekday name {:?}: {e}", wdaystr.s),
                                position: wdaystr.position })?;
-        Ok(((wday, wdaystr.position), rest))
-    })();
+            Ok(((wday, wdaystr.position), rest))
+        })();
     match weekday_result {
-        Ok((weekday_and_position, rest)) => Ok((datetime, Some(weekday_and_position), rest)),
-        Err(e) => if options.weekday_is_optional {
-            Ok((datetime, None, rest))
-        } else {
-            Err((ParseTimeWdayErrorKind::NoProperWeekday, e))
+        Ok((weekday_and_position, rest)) => {
+            Ok((datetime, Some(weekday_and_position), rest))
+        }
+        Err(e) => {
+            if options.weekday_is_optional {
+                Ok((datetime, None, rest))
+            } else {
+                Err((ParseTimeWdayErrorKind::NoProperWeekday, e))
+            }
         }
     }
 }
@@ -1016,23 +1106,38 @@ fn parse_time_wday<'s>(
 /// failures.
 fn parse_dat_without_year<'s>(
     s: ParseableStr<'s>,
-    options: &ParseDatOptions
-) -> Result<(NaiveDateTimeWithoutYear, Option<(Weekday, usize)>, ParseableStr<'s>),
-            ParseError>
-{
+    options: &ParseDatOptions,
+) -> Result<
+    (
+        NaiveDateTimeWithoutYear,
+        Option<(Weekday, usize)>,
+        ParseableStr<'s>,
+    ),
+    ParseError,
+> {
     let rest = s;
     let (month, rest) = T!(rest.take_n_while(
-        2, is_ascii_digit_char, "digit as part of month number"))?;
-    let month = u8::from_str(month.s).map_err(|e| parse_error! {
-        message: format!("can't parse month {:?}: {e}", month.s),
-        position: month.position
+        2,
+        is_ascii_digit_char,
+        "digit as part of month number"
+    ))?;
+    let month = u8::from_str(month.s).map_err(|e| {
+        parse_error! {
+            message: format!("can't parse month {:?}: {e}", month.s),
+            position: month.position
+        }
     })?;
     let rest = T!(rest.expect_separator(&options.date_separator))?;
     let (day, rest) = T!(rest.take_n_while(
-        2, is_ascii_digit_char, "digit as part of day number"))?;
-    let day = u8::from_str(day.s).map_err(|e| parse_error! {
-        message: format!("can't parse day {:?}: {e}", day.s),
-        position: day.position
+        2,
+        is_ascii_digit_char,
+        "digit as part of day number"
+    ))?;
+    let day = u8::from_str(day.s).map_err(|e| {
+        parse_error! {
+            message: format!("can't parse day {:?}: {e}", day.s),
+            position: day.position
+        }
     })?;
 
     // Try parsing the time; it is allowed to fail if
@@ -1040,45 +1145,56 @@ fn parse_dat_without_year<'s>(
     // options.weekday_is_optional is false and weekday fails, then
     // the whole thing should fail, too!
     match parse_time_wday(rest, options, month, day) {
-        Ok((ndt_no_year, opt_weekday_position, rest)) =>
-            Ok((ndt_no_year, opt_weekday_position, rest)),
-        Err((ParseTimeWdayErrorKind::NoProperTime, e)) => if let Some(dt) = options.default_time {
-            let ndt_no_year = NaiveDateTimeWithoutYear {
-                position: e.position,
-                month,
-                day,
-                hour: dt.hour() as u8,
-                minute: dt.minute() as u8,
-                second: dt.second() as u8
-            };
-            Ok((ndt_no_year, None, rest))
-        } else {
-            Err(parse_error! {
-                message: format!("time is required but missing after {:?}",
-                s.up_to(rest).s),
-                position: rest.position
-            })
-        },
-        Err((ParseTimeWdayErrorKind::NoProperWeekday, e)) => Err(e)
+        Ok((ndt_no_year, opt_weekday_position, rest)) => {
+            Ok((ndt_no_year, opt_weekday_position, rest))
+        }
+        Err((ParseTimeWdayErrorKind::NoProperTime, e)) => {
+            if let Some(dt) = options.default_time {
+                let ndt_no_year = NaiveDateTimeWithoutYear {
+                    position: e.position,
+                    month,
+                    day,
+                    hour: dt.hour() as u8,
+                    minute: dt.minute() as u8,
+                    second: dt.second() as u8,
+                };
+                Ok((ndt_no_year, None, rest))
+            } else {
+                Err(parse_error! {
+                    message: format!("time is required but missing after {:?}",
+                    s.up_to(rest).s),
+                    position: rest.position
+                })
+            }
+        }
+        Err((ParseTimeWdayErrorKind::NoProperWeekday, e)) => Err(e),
     }
 }
 
 // "2024-09-29_205249_Sun"
 fn parse_dat<'s>(
-    s: ParseableStr<'s>, options: &ParseDatOptions
+    s: ParseableStr<'s>,
+    options: &ParseDatOptions,
 ) -> Result<(NaiveDateTime, ParseableStr<'s>, ParseableStr<'s>), ParseError> {
-    match T!(s.take_n_while(4, is_ascii_digit_char, "digit as part of year number")) {
+    match T!(s.take_n_while(
+        4,
+        is_ascii_digit_char,
+        "digit as part of year number"
+    )) {
         Ok((year, rest)) => {
             let rest = T!(rest.expect_separator(&options.date_separator))?;
             let (datetime_no_year, opt_weekday_and_position, rest) =
                 T!(parse_dat_without_year(rest, options))?;
             let datetime = datetime_no_year.for_year(
-                u16::from_str(year.s).map_err(
-                    |e| parse_error! {
+                u16::from_str(year.s).map_err(|e| {
+                    parse_error! {
                         message: e.to_string(),
                         position: year.position
-                    })?)?;
-            if let Some((weekday, _weekday_position)) = opt_weekday_and_position {
+                    }
+                })?,
+            )?;
+            if let Some((weekday, _weekday_position)) = opt_weekday_and_position
+            {
                 let date_weekday = datetime.weekday();
                 if date_weekday != weekday {
                     Err(parse_error! {
@@ -1104,7 +1220,9 @@ fn parse_dat<'s>(
 
 // For parsing user input, to allow "2024-09-29 20:52:49 Sun" and
 // similar formats (see parse_date_time_argument tests).
-fn flexible_parse_dat_options(default_time: Option<NaiveTime>) -> ParseDatOptions {
+fn flexible_parse_dat_options(
+    default_time: Option<NaiveTime>,
+) -> ParseDatOptions {
     ParseDatOptions {
         now_for_default_year: None,
         default_time,
@@ -1120,25 +1238,28 @@ fn flexible_parse_dat_options(default_time: Option<NaiveTime>) -> ParseDatOption
         separator_between_parts: Separator {
             required: true,
             alternatives: &["_", " "],
-        }
+        },
     }
 }
 
 // For command line arguments.
-fn parse_date_time_argument(s: ParseableStr, time_is_optional: bool)
-                                -> Result<NaiveDateTime, ParseError> {
+fn parse_date_time_argument(
+    s: ParseableStr,
+    time_is_optional: bool,
+) -> Result<NaiveDateTime, ParseError> {
     let (ndt, ndt_string, rest) = parse_dat(
-        s, &flexible_parse_dat_options(
-            if time_is_optional {
-                Some(NaiveTime::from_hms_opt(12, 0, 0).unwrap())
-            } else {
-                None
-            }))?;
+        s,
+        &flexible_parse_dat_options(if time_is_optional {
+            Some(NaiveTime::from_hms_opt(12, 0, 0).unwrap())
+        } else {
+            None
+        }),
+    )?;
     let rest = rest.trim();
     if rest.is_empty() {
         Ok(ndt)
     } else {
-        Err(parse_error!{
+        Err(parse_error! {
             message: format!("garbage after datetime string {:?}", ndt_string.s),
             position: rest.position
         })
@@ -1148,9 +1269,13 @@ fn parse_date_time_argument(s: ParseableStr, time_is_optional: bool)
 #[cfg(test)]
 #[test]
 fn t_parse_date_time_argument() {
-    let ok = Ok(NaiveDateTime::new(NaiveDate::from_ymd_opt(2024, 9, 29).unwrap(),
-                                   NaiveTime::from_hms_opt(20, 52, 49).unwrap()));
-    let t = |s: &str| parse_date_time_argument(ParseableStr { position: 0, s }, false);
+    let ok = Ok(NaiveDateTime::new(
+        NaiveDate::from_ymd_opt(2024, 9, 29).unwrap(),
+        NaiveTime::from_hms_opt(20, 52, 49).unwrap(),
+    ));
+    let t = |s: &str| {
+        parse_date_time_argument(ParseableStr { position: 0, s }, false)
+    };
     let te = |s| t(s).unwrap_err().to_string_in_context(s);
     assert_eq!(t("2024-09-29_205249_Sun"), ok);
     assert_eq!(t("2024-09-29 20:52:49 Sun"), ok);
@@ -1158,43 +1283,64 @@ fn t_parse_date_time_argument() {
                "invalid weekday: given Mon, but date is for Sun at \"2024-09-29 20:52:49 Mon\"");
     assert_eq!(t("2024/09/29 20:52:49 Sun"), ok);
     assert_eq!(t("2024/09/29 20:52:49"), ok);
-    assert_eq!(te("2024/09/29 20:52:49 foo"),
-               "garbage after datetime string \"2024/09/29 20:52:49\" at \"foo\"");
+    assert_eq!(
+        te("2024/09/29 20:52:49 foo"),
+        "garbage after datetime string \"2024/09/29 20:52:49\" at \"foo\""
+    );
     assert_eq!(te("2024-09-29_205249_Mon"),
                "invalid weekday: given Mon, but date is for Sun at \"2024-09-29_205249_Mon\"");
     assert_eq!(t("2024-09-29_205249 Sun"), ok);
     assert_eq!(t("2024-09-29_205249 Sun   "), ok);
     assert_eq!(t("2024-09-29_205249 Sunday   "), ok);
     assert_eq!(t("2024-09-29_20:52:49 Sun   "), ok);
-    assert_eq!(te("2024-09-29_2052:49 Sun   "),
-               "garbage after datetime string \"2024-09-29_2052\" at \":49 Sun   \"");
+    assert_eq!(
+        te("2024-09-29_2052:49 Sun   "),
+        "garbage after datetime string \"2024-09-29_2052\" at \":49 Sun   \""
+    );
     // disallow this one?
     assert_eq!(t("2024-09-29_20:5249 Sun   "), ok);
     // allow this one?
-    assert_eq!(te("2024-09-29_205249  Sun   "),
-               "garbage after datetime string \"2024-09-29_205249\" at \"Sun   \"");
-    assert_eq!(te("2024-09-29_205249 Sund"),
-               "garbage after datetime string \"2024-09-29_205249\" at \"Sund\"");
-    assert_eq!(te("2024-09-29_205249 Sun Sun"),
-               "garbage after datetime string \"2024-09-29_205249 Sun\" at \"Sun\"");
-    assert_eq!(te("2024/09/29"),
-               "time is required but missing after \"09/29\" at end of input");
-    assert_eq!(te("2024/09/29 foo"),
-               "time is required but missing after \"09/29\" at \" foo\"");
+    assert_eq!(
+        te("2024-09-29_205249  Sun   "),
+        "garbage after datetime string \"2024-09-29_205249\" at \"Sun   \""
+    );
+    assert_eq!(
+        te("2024-09-29_205249 Sund"),
+        "garbage after datetime string \"2024-09-29_205249\" at \"Sund\""
+    );
+    assert_eq!(
+        te("2024-09-29_205249 Sun Sun"),
+        "garbage after datetime string \"2024-09-29_205249 Sun\" at \"Sun\""
+    );
+    assert_eq!(
+        te("2024/09/29"),
+        "time is required but missing after \"09/29\" at end of input"
+    );
+    assert_eq!(
+        te("2024/09/29 foo"),
+        "time is required but missing after \"09/29\" at \" foo\""
+    );
 
-    let ok2 = Ok(NaiveDateTime::new(NaiveDate::from_ymd_opt(2024, 9, 29).unwrap(),
-                                    NaiveTime::from_hms_opt(12, 0, 0).unwrap()));
+    let ok2 = Ok(NaiveDateTime::new(
+        NaiveDate::from_ymd_opt(2024, 9, 29).unwrap(),
+        NaiveTime::from_hms_opt(12, 0, 0).unwrap(),
+    ));
     // This t is with value `true`
-    let t = |s: &str| parse_date_time_argument(ParseableStr { position: 0, s }, true);
+    let t = |s: &str| {
+        parse_date_time_argument(ParseableStr { position: 0, s }, true)
+    };
     let te = |s| t(s).unwrap_err().to_string_in_context(s);
     assert_eq!(t("2024/09/29"), ok2);
     assert_eq!(t("2024/09/29 20:52:49 Sun"), ok);
-    assert_eq!(te("2024/09/29 foo"),
-               "garbage after datetime string \"2024/09/29\" at \"foo\"");
+    assert_eq!(
+        te("2024/09/29 foo"),
+        "garbage after datetime string \"2024/09/29\" at \"foo\""
+    );
 }
 
-
-const fn parse_path_parse_dat_options(weekday_is_optional: bool) -> ParseDatOptions {
+const fn parse_path_parse_dat_options(
+    weekday_is_optional: bool,
+) -> ParseDatOptions {
     ParseDatOptions {
         now_for_default_year: None,
         default_time: None,
@@ -1214,23 +1360,34 @@ const fn parse_path_parse_dat_options(weekday_is_optional: bool) -> ParseDatOpti
     }
 }
 
-const PARSE_DAT_OPTIONS_FOR_PATH: ParseDatOptions = parse_path_parse_dat_options(true);
-const PARSE_DAT_OPTIONS_FOR_INSIDE: ParseDatOptions = parse_path_parse_dat_options(false);
+const PARSE_DAT_OPTIONS_FOR_PATH: ParseDatOptions =
+    parse_path_parse_dat_options(true);
+const PARSE_DAT_OPTIONS_FOR_INSIDE: ParseDatOptions =
+    parse_path_parse_dat_options(false);
 
 // Find either "OPEN" or "TODO" in s. Prioritizes the "OPEN" find (if
 // "TODO" comes before "OPEN", it will still report the "OPEN"
 // instead).
-fn after_open_or_todo<'s>(s: ParseableStr<'s>) -> Option<(ParseableStr<'s>, ParseableStr<'s>)> {
+fn after_open_or_todo<'s>(
+    s: ParseableStr<'s>,
+) -> Option<(ParseableStr<'s>, ParseableStr<'s>)> {
     s.find_str_rest("OPEN").or_else(|| s.find_str_rest("TODO"))
 }
 
 #[test]
 fn t_after_open_or_todo() {
-    let t = |s: &'static str| after_open_or_todo(ParseableStr { position: 0, s });
+    let t =
+        |s: &'static str| after_open_or_todo(ParseableStr { position: 0, s });
     let finds = |pos1, s1: &'static str, pos2, s2: &'static str| {
         Some((
-            ParseableStr { position: pos1, s: s1 },
-            ParseableStr { position: pos2, s: s2 },
+            ParseableStr {
+                position: pos1,
+                s: s1,
+            },
+            ParseableStr {
+                position: pos2,
+                s: s2,
+            },
         ))
     };
     assert_eq!(t("foo bar"), None);
@@ -1240,13 +1397,24 @@ fn t_after_open_or_todo() {
     assert_eq!(t("foo TODO a"), finds(4, "TODO", 8, " a"));
 }
 
-
-fn parse_path(id: usize, verbose: bool, region: &Region<PathBuf>, item: &FilePathType)
-              -> Result<TaskInfo> {
+fn parse_path(
+    id: usize,
+    verbose: bool,
+    region: &Region<PathBuf>,
+    item: &FilePathType,
+) -> Result<TaskInfo> {
     let path = item.to_path_buf(region);
-    if verbose { eprintln!("parse_path({path:?})") };
-    let file_name = item.file_name.to_str().ok_or_else(
-        || anyhow!("the file name in path {path:?} does not have valid encoding"))?
+    if verbose {
+        eprintln!("parse_path({path:?})")
+    };
+    let file_name = item
+        .file_name
+        .to_str()
+        .ok_or_else(|| {
+            anyhow!(
+                "the file name in path {path:?} does not have valid encoding"
+            )
+        })?
         .into_parseable();
 
     let (dependency_key_ndt, declarations, have_open
@@ -1309,9 +1477,11 @@ fn parse_path(id: usize, verbose: bool, region: &Region<PathBuf>, item: &FilePat
                 &file_name.s[*position..], e.backtrace())
     })?;
 
-    let meta = path.metadata()
+    let meta = path
+        .metadata()
         .with_context(|| anyhow!("getting metadata of file {path:?}"))?;
-    let mtime = meta.modified()
+    let mtime = meta
+        .modified()
         .with_context(|| anyhow!("getting modified time of file {path:?}"))?;
 
     let workflow_status = if have_open {
@@ -1331,12 +1501,17 @@ fn parse_path(id: usize, verbose: bool, region: &Region<PathBuf>, item: &FilePat
     })
 }
 
-
 fn main() -> Result<()> {
     let opts: Opts = Opts::from_args();
     let now: NaiveDateTime = if let Some(time) = &opts.time {
         parse_date_time_argument(ParseableStr::new(&time), true).map_err(
-            |e| anyhow!("can't parse --time option value: {}", e.to_string_in_context(&time)))?
+            |e| {
+                anyhow!(
+                    "can't parse --time option value: {}",
+                    e.to_string_in_context(&time)
+                )
+            },
+        )?
     } else {
         let now_utc = Utc::now();
         now_utc.naive_local()
@@ -1363,15 +1538,21 @@ fn main() -> Result<()> {
     };
 
     let mut taskinfos: Vec<Rc<TaskInfo>> = Default::default();
-    let mut taskinfo_by_key: BTreeMap<DependencyKey, Rc<TaskInfo>> = Default::default();
+    let mut taskinfo_by_key: BTreeMap<DependencyKey, Rc<TaskInfo>> =
+        Default::default();
 
     let region = Region::new();
     let mut errors = 0;
 
     for directory in directories {
         for (id, item) in recursive_file_path_types_iter(
-            &region, region.store(directory.clone()), itemopts, &excludes, true
-        ).enumerate()
+            &region,
+            region.store(directory.clone()),
+            itemopts,
+            &excludes,
+            true,
+        )
+        .enumerate()
         {
             let item = item?; // XX context?
             if item.is_file() || item.is_dir() {
@@ -1379,13 +1560,17 @@ fn main() -> Result<()> {
                     Ok(taskinfo) => {
                         let taskinfo = Rc::new(taskinfo);
                         if let Some(key) = &taskinfo.dependency_key {
-                            if let Some(old_taskinfo) = taskinfo_by_key.get(key) {
-                                warning!("duplicate task for key {key:?}: {:?} {:?}",
-                                         taskinfo.path,
-                                         old_taskinfo.path);
+                            if let Some(old_taskinfo) = taskinfo_by_key.get(key)
+                            {
+                                warning!(
+                                    "duplicate task for key {key:?}: {:?} {:?}",
+                                    taskinfo.path,
+                                    old_taskinfo.path
+                                );
                                 errors += 1;
                             }
-                            taskinfo_by_key.insert(key.clone(), taskinfo.clone());
+                            taskinfo_by_key
+                                .insert(key.clone(), taskinfo.clone());
                         }
                         taskinfos.push(taskinfo);
                     }
@@ -1409,25 +1594,29 @@ fn main() -> Result<()> {
         // Do not make priorities on dependencies relevant for (a)
         // files which are not obviously tasks, (b) tasks which
         // are not open.
-        if ! ti.workflow_status.is_active() {
+        if !ti.workflow_status.is_active() {
             continue;
         }
-        
+
         // Need to recurse to update with the new base number; todo:
         // this is inefficient (O(n^2)).
         let mut recur = |ti: &TaskInfo, list_of_seen| {
             let list_of_seen = cons(ti.id, list_of_seen);
             for dependency in ti.declarations.dependencies.iter() {
                 if let Some(dependency_ti) = taskinfo_by_key.get(dependency) {
-                    if ! list_of_seen.contains(&dependency_ti.id) {
-                        dependency_ti.set_as_dependency_for_priority(ti.calculated_priority());
+                    if !list_of_seen.contains(&dependency_ti.id) {
+                        dependency_ti.set_as_dependency_for_priority(
+                            ti.calculated_priority(),
+                        );
                     }
                 } else {
                     // XX hmm, done items should not give an error but be
                     // treated as done!
                     // XX also, "2024-09-27_201849" must be fine, use parsed version!
-                    warning!("unknown dependency {dependency:?} in: {:?}",
-                             ti.path);
+                    warning!(
+                        "unknown dependency {dependency:?} in: {:?}",
+                        ti.path
+                    );
                     errors += 1;
                 }
                 // XXX where is the recursive call to recur ??
@@ -1442,16 +1631,21 @@ fn main() -> Result<()> {
 
     // Sort them
     taskinfos.sort_by(|a, b| {
-        a.calculated_priority().partial_cmp(&b.calculated_priority()).expect("no NaN")
-            .then_with(
-                || a.path.partial_cmp(&b.path).expect("path comparisons never fail"))
+        a.calculated_priority()
+            .partial_cmp(&b.calculated_priority())
+            .expect("no NaN")
+            .then_with(|| {
+                a.path
+                    .partial_cmp(&b.path)
+                    .expect("path comparisons never fail")
+            })
     });
 
     // Print them
     (|| -> std::io::Result<()> {
         let mut out = stdout().lock();
         for ti in &taskinfos {
-            if ! ti.workflow_status.is_active() {
+            if !ti.workflow_status.is_active() {
                 continue;
             }
             if !opts.no_priority {
@@ -1463,12 +1657,13 @@ fn main() -> Result<()> {
             out.write_all(b"\n")?;
         }
         Ok(())
-    })().context("printing to stdout")?;
+    })()
+    .context("printing to stdout")?;
 
     if errors > 0 {
         eprintln!("{errors} error(s) shown as warnings");
         exit(1);
     }
-    
+
     Ok(())
 }

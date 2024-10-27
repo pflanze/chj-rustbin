@@ -1,7 +1,16 @@
-use std::{hash::Hash,
-          collections::{HashMap, hash_map::{Entry, OccupiedEntry}, BTreeMap, btree_map},
-          borrow::Borrow, time::Duration, fmt::Display, convert::TryInto, ops::Add};
-
+use std::{
+    borrow::Borrow,
+    collections::{
+        btree_map,
+        hash_map::{Entry, OccupiedEntry},
+        BTreeMap, HashMap,
+    },
+    convert::TryInto,
+    fmt::Display,
+    hash::Hash,
+    ops::Add,
+    time::Duration,
+};
 
 // A HashMap::get_mut variant that allows to work around the issue
 // that rustc (pre polonius) does not let go of the reference in the
@@ -10,18 +19,18 @@ use std::{hash::Hash,
 pub fn hashmap_get_mut<'m, K: Eq + Hash, P: Eq + Hash + ?Sized, V>(
     m: &'m mut HashMap<K, V>,
     k: &P,
-) -> Result<&'m mut V,
-            &'m mut HashMap<K, V>>
-where K: Borrow<P>
+) -> Result<&'m mut V, &'m mut HashMap<K, V>>
+where
+    K: Borrow<P>,
 {
     let pm: *mut _ = m;
     // Safe because in the true branch we track using the lifetimes
     // (just like in the original get_mut), and in the false branch we
     // just pass the input value.
-    if let Some(v) = unsafe{&mut *pm}.get_mut(k) {
+    if let Some(v) = unsafe { &mut *pm }.get_mut(k) {
         Ok(v)
     } else {
-        Err(unsafe{&mut *pm})
+        Err(unsafe { &mut *pm })
     }
 }
 
@@ -29,21 +38,20 @@ where K: Borrow<P>
 pub fn btreemap_get_mut<'m, K: Ord, P: Ord + ?Sized, V>(
     m: &'m mut BTreeMap<K, V>,
     k: &P,
-) -> Result<&'m mut V,
-            &'m mut BTreeMap<K, V>>
-where K: Borrow<P>
+) -> Result<&'m mut V, &'m mut BTreeMap<K, V>>
+where
+    K: Borrow<P>,
 {
     let pm: *mut _ = m;
     // Safe because in the true branch we track using the lifetimes
     // (just like in the original get_mut), and in the false branch we
     // just pass the input value.
-    if let Some(v) = unsafe{&mut *pm}.get_mut(k) {
+    if let Some(v) = unsafe { &mut *pm }.get_mut(k) {
         Ok(v)
     } else {
-        Err(unsafe{&mut *pm})
+        Err(unsafe { &mut *pm })
     }
 }
-
 
 // Modified copy of #[unstable(feature = "map_try_insert", issue =
 // "82766")] from
@@ -53,15 +61,13 @@ where K: Borrow<P>
 pub fn hashmap_try_insert<'m, K: Eq + Hash, V>(
     m: &'m mut HashMap<K, V>,
     key: K,
-    value: V
-) -> Result<&mut V, OccupiedEntry<K, V>>
-{
+    value: V,
+) -> Result<&mut V, OccupiedEntry<K, V>> {
     match m.entry(key) {
         Entry::Occupied(entry) => Err(entry),
         Entry::Vacant(entry) => Ok(entry.insert(value)),
     }
 }
-
 
 // Modified copy of #[unstable(feature = "map_try_insert", issue =
 // "82766")] from
@@ -70,22 +76,19 @@ pub fn hashmap_try_insert<'m, K: Eq + Hash, V>(
 pub fn btreemap_try_insert<'m, K: Ord, V>(
     m: &'m mut BTreeMap<K, V>,
     key: K,
-    value: V
-) -> Result<&'m mut V, btree_map::OccupiedEntry<K, V>>
-{
+    value: V,
+) -> Result<&'m mut V, btree_map::OccupiedEntry<K, V>> {
     match m.entry(key) {
         btree_map::Entry::Occupied(entry) => Err(entry),
         btree_map::Entry::Vacant(entry) => Ok(entry.insert(value)),
     }
 }
 
-
 pub fn hashmap_get_mut_vivify<'m, K: Eq + Hash + Clone, V>(
     m: &'m mut HashMap<K, V>,
     k: &K,
-    create: impl FnOnce() -> V
-) -> &'m mut V
-{
+    create: impl FnOnce() -> V,
+) -> &'m mut V {
     match hashmap_get_mut(m, k) {
         Ok(val) => val,
         Err(m) => {
@@ -95,11 +98,12 @@ pub fn hashmap_get_mut_vivify<'m, K: Eq + Hash + Clone, V>(
     }
 }
 
-
 /// Insert a key-value mapping, or if already existing, add the value
 /// to the existing value via Add trait.
 pub fn hashmap_add<K: Hash + Eq, V: Add<Output = V> + Copy>(
-    m: &mut HashMap<K, V>, k: K, v: V
+    m: &mut HashMap<K, V>,
+    k: K,
+    v: V,
 ) {
     match hashmap_get_mut(m, &k) {
         Ok(oldv) => {
@@ -112,18 +116,20 @@ pub fn hashmap_add<K: Hash + Eq, V: Add<Output = V> + Copy>(
     }
 }
 
-
-
 // Sigh, for exponential backoff, everybody doing this for themselves?
-pub fn duration_mul_div(orig: Duration, multiplier: u64, divider: u64)
-                        -> Option<Duration>
-{
-    let nanos: u64 = orig.as_nanos().checked_mul(multiplier as u128)?
+pub fn duration_mul_div(
+    orig: Duration,
+    multiplier: u64,
+    divider: u64,
+) -> Option<Duration> {
+    let nanos: u64 = orig
+        .as_nanos()
+        .checked_mul(multiplier as u128)?
         .checked_div(divider as u128)?
-        .try_into().ok()?;
+        .try_into()
+        .ok()?;
     Some(Duration::from_nanos(nanos))
 }
-
 
 pub fn first<T>(items: &[T]) -> &T {
     &items[0]
@@ -133,12 +139,9 @@ pub fn rest<T>(items: &[T]) -> &[T] {
     &items[1..]
 }
 
-
-
 pub fn debug_stringlikes<S: Display>(v: &[S]) -> Vec<String> {
     v.iter().map(|s| s.to_string()).collect()
 }
-
 
 /// A loop that caches errors and retries with exponential
 /// backoff. (Backoff parameters and error messaging hard coded for
@@ -168,7 +171,6 @@ macro_rules! loop_try {
     }}
 }
 
-
 // For cases where the context is not Option, hence `?` does not
 // work. -- vs. try_option ?!
 #[macro_export]
@@ -178,9 +180,9 @@ macro_rules! tryoption {
         if let Some(val) = res {
             val
         } else {
-            return Ok(None)
+            return Ok(None);
         }
-    }}
+    }};
 }
 
 #[macro_export]
@@ -209,5 +211,5 @@ macro_rules! gen_try_result {
                 return;
             }
         }
-    }
+    };
 }

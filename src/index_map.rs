@@ -3,8 +3,10 @@
 
 // Also offer a variant that requires T to implement Default?
 
-use std::{mem::replace, ops::{Index, IndexMut}};
-
+use std::{
+    mem::replace,
+    ops::{Index, IndexMut},
+};
 
 #[derive(Debug)]
 pub struct IndexMap<T>(Vec<Option<T>>);
@@ -58,7 +60,6 @@ impl<T> IndexMut<usize> for IndexMap<T> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,7 +85,7 @@ mod tests {
         assert_eq!(m[10], 101);
 
         m[10] = 10101;
-        
+
         assert_eq!(m.get(10), Some(&10101));
     }
 

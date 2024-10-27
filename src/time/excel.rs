@@ -23,8 +23,8 @@ mod tests {
         fn t(ut: f64, et: f64) {
             assert_relative_eq!(exceldays_from_unixtime(ut, 0.), et);
             assert_relative_eq!(ut, unixtime_from_exceldays(et, 0.));
-            assert_relative_eq!(exceldays_from_unixtime(ut, 1.), et + 1./24.);
-            assert_relative_eq!(ut, unixtime_from_exceldays(et + 1./24., 1.));
+            assert_relative_eq!(exceldays_from_unixtime(ut, 1.), et + 1. / 24.);
+            assert_relative_eq!(ut, unixtime_from_exceldays(et + 1. / 24., 1.));
         }
         t(1538352000., 43374.);
     }

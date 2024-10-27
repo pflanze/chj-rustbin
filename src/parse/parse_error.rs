@@ -1,10 +1,8 @@
-
-
 #[derive(Debug)]
 pub struct ParseError {
     pub message: String,
     pub position: usize,
-    pub location: Vec<FileLocation>
+    pub location: Vec<FileLocation>,
 }
 
 impl ParseError {
@@ -13,7 +11,9 @@ impl ParseError {
     /// error is based (so that position matches up). Does *not*
     /// include the backtrace.
     pub fn to_string_in_context(&self, original_input: &str) -> String {
-        let ParseError { message, position, .. } = self;
+        let ParseError {
+            message, position, ..
+        } = self;
         let remainder = &original_input[*position..];
         if remainder.is_empty() {
             format!("{message} at end of input")
@@ -45,8 +45,7 @@ impl ParseError {
 /// just debugging information)
 impl PartialEq for ParseError {
     fn eq(&self, other: &Self) -> bool {
-        self.message == other.message
-            && self.position == other.position
+        self.message == other.message && self.position == other.position
     }
 }
 
@@ -54,7 +53,7 @@ impl PartialEq for ParseError {
 pub struct FileLocation {
     pub file: &'static str,
     pub line: u32,
-    pub column: u32
+    pub column: u32,
 }
 
 impl FileLocation {

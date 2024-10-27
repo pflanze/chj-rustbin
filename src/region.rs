@@ -5,15 +5,16 @@ use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
 #[cfg(debug_assertions)]
-use crate::checked_mutex::{CheckedMutex as Mutex, CheckedMutexGuard as MutexGuard};
+use crate::checked_mutex::{
+    CheckedMutex as Mutex, CheckedMutexGuard as MutexGuard,
+};
 #[cfg(not(debug_assertions))]
 use std::sync::{Mutex, MutexGuard};
-
 
 #[derive(Debug)]
 pub struct Region<'region, T> {
     region_phantom: PhantomData<&'region T>,
-    region: Mutex<Vec<T>>
+    region: Mutex<Vec<T>>,
 }
 
 // Do not implement Hash or Ordering, it would be confusing (this is
@@ -23,7 +24,7 @@ pub struct Region<'region, T> {
 #[derive(Debug, PartialEq)]
 pub struct RegionId<'region, T> {
     region_phantom: PhantomData<&'region T>,
-    id: u32
+    id: u32,
 }
 
 impl<'region, T> RegionId<'region, T> {
@@ -33,7 +34,6 @@ impl<'region, T> RegionId<'region, T> {
     }
 }
 
-
 impl<'region, T> Clone for RegionId<'region, T> {
     fn clone(&self) -> Self {
         *self
@@ -42,11 +42,10 @@ impl<'region, T> Clone for RegionId<'region, T> {
 
 impl<'region, T> Copy for RegionId<'region, T> {}
 
-
 // Have to do my own MappedMutexGuard since that is nightly only.
-pub struct MutexRef<'m, T: 'm, R, M: for<'g> Fn(&'g T) -> &'g R>{
+pub struct MutexRef<'m, T: 'm, R, M: for<'g> Fn(&'g T) -> &'g R> {
     guard: MutexGuard<'m, T>,
-    mapper: M
+    mapper: M,
 }
 
 impl<'m, T: 'm, R, M: for<'g> Fn(&'g T) -> &'g R> MutexRef<'m, T, R, M> {
@@ -55,7 +54,9 @@ impl<'m, T: 'm, R, M: for<'g> Fn(&'g T) -> &'g R> MutexRef<'m, T, R, M> {
     }
 }
 
-impl<'m, T: 'm, R, M: for<'g> Fn(&'g T) -> &'g R> Deref for MutexRef<'m, T, R, M> {
+impl<'m, T: 'm, R, M: for<'g> Fn(&'g T) -> &'g R> Deref
+    for MutexRef<'m, T, R, M>
+{
     type Target = R;
 
     fn deref(&self) -> &Self::Target {
@@ -63,12 +64,14 @@ impl<'m, T: 'm, R, M: for<'g> Fn(&'g T) -> &'g R> Deref for MutexRef<'m, T, R, M
     }
 }
 
-pub struct MutexRefMut<'m, T: 'm, R, M: for<'g> Fn(&'g mut T) -> &'g mut R>{
+pub struct MutexRefMut<'m, T: 'm, R, M: for<'g> Fn(&'g mut T) -> &'g mut R> {
     guard: MutexGuard<'m, T>,
-    mapper: M
+    mapper: M,
 }
 
-impl<'m, T: 'm, R, M: for<'g> Fn(&'g mut T) -> &'g mut R> MutexRefMut<'m, T, R, M> {
+impl<'m, T: 'm, R, M: for<'g> Fn(&'g mut T) -> &'g mut R>
+    MutexRefMut<'m, T, R, M>
+{
     pub fn map(guard: MutexGuard<'m, T>, mapper: M) -> Self {
         MutexRefMut { guard, mapper }
     }
@@ -77,7 +80,9 @@ impl<'m, T: 'm, R, M: for<'g> Fn(&'g mut T) -> &'g mut R> MutexRefMut<'m, T, R, 
 // XX ah ok,  is &mut variant enough?  returning as &  anyway. 'weakening' the closure but fine?
 // -> no.  worse, deref not implementable huh
 
-impl<'m, T: 'm, R, M: for<'g> Fn(&'g mut T) -> &'g mut R> Deref for MutexRefMut<'m, T, R, M> {
+impl<'m, T: 'm, R, M: for<'g> Fn(&'g mut T) -> &'g mut R> Deref
+    for MutexRefMut<'m, T, R, M>
+{
     type Target = R;
 
     fn deref(&self) -> &Self::Target {
@@ -86,18 +91,19 @@ impl<'m, T: 'm, R, M: for<'g> Fn(&'g mut T) -> &'g mut R> Deref for MutexRefMut<
     }
 }
 
-impl<'m, T: 'm, R, M: for<'g> Fn(&'g mut T) -> &'g mut R> DerefMut for MutexRefMut<'m, T, R, M> {
+impl<'m, T: 'm, R, M: for<'g> Fn(&'g mut T) -> &'g mut R> DerefMut
+    for MutexRefMut<'m, T, R, M>
+{
     fn deref_mut(&mut self) -> &mut Self::Target {
         (self.mapper)(&mut self.guard)
     }
 }
 
-
 impl<'region, T> Region<'region, T> {
     pub fn new() -> Self {
         Self {
             region_phantom: Default::default(),
-            region: Mutex::new(Vec::new())
+            region: Mutex::new(Vec::new()),
         }
     }
 
@@ -106,7 +112,7 @@ impl<'region, T> Region<'region, T> {
         let mut region = self.region.lock().unwrap();
         let id = RegionId {
             region_phantom: Default::default(),
-            id: region.len().try_into().expect("fewer than 2^32 items")
+            id: region.len().try_into().expect("fewer than 2^32 items"),
         };
         region.push(value);
         id
@@ -116,9 +122,10 @@ impl<'region, T> Region<'region, T> {
     /// this cost for every access, use `lock` instead.  May panic on
     /// invalid ids.
     pub fn get<'m>(
-        &'m self, id: RegionId<'m, T>
-    ) -> MutexRef<'m, Vec<T>, T,
-                  impl for<'g> Fn(&'g Vec<T>) -> &'g T + 'm> {
+        &'m self,
+        id: RegionId<'m, T>,
+    ) -> MutexRef<'m, Vec<T>, T, impl for<'g> Fn(&'g Vec<T>) -> &'g T + 'm>
+    {
         MutexRef::map(self.region.lock().unwrap(), move |r| &r[id.as_index()])
     }
 
@@ -126,10 +133,17 @@ impl<'region, T> Region<'region, T> {
     /// this cost for every access, use `lock` instead.  May panic on
     /// invalid ids.
     pub fn get_mut<'m>(
-        &'m self, id: RegionId<'m, T>
-    ) -> MutexRefMut<'m, Vec<T>, T,
-                  impl for<'g> Fn(&'g mut Vec<T>) -> &'g mut T + 'm> {
-        MutexRefMut::map(self.region.lock().unwrap(), move |r| &mut r[id.as_index()])
+        &'m self,
+        id: RegionId<'m, T>,
+    ) -> MutexRefMut<
+        'm,
+        Vec<T>,
+        T,
+        impl for<'g> Fn(&'g mut Vec<T>) -> &'g mut T + 'm,
+    > {
+        MutexRefMut::map(self.region.lock().unwrap(), move |r| {
+            &mut r[id.as_index()]
+        })
     }
 
     /// Lock access to the region for the life time of the
@@ -137,11 +151,10 @@ impl<'region, T> Region<'region, T> {
     /// entries more efficient.
     pub fn lock<'m>(&'m self) -> RegionGuard<'m, T> {
         RegionGuard {
-            region_guard: self.region.lock().unwrap()
+            region_guard: self.region.lock().unwrap(),
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -172,7 +185,7 @@ mod tests {
     //     fn cons_left(
     // }
     // no, don't have a Pair just an id
-    
+
     // trait RegionTrait<'region, T> {
     //     fn new() -> Self;
     //     fn store(&self, value: T) -> RegionId<'region, T>;
@@ -182,7 +195,7 @@ mod tests {
     //                   impl for<'g> Fn(&'g MutexGuard<Vec<T>>) -> &'g T + 'm>;
     // }
     //  ^ can't use impl in traits
-    // 
+    //
     // trait LinkedList<'region, T>: RegionTrait<'region, T> {
     //     fn cons_left(
     //         &self, val: T, right: Option<RegionId<'region, Pair<'region, T>>>
@@ -194,12 +207,12 @@ mod tests {
     fn cons_left<'region, T>(
         region: &Region<'region, Pair<'region, T>>,
         value: T,
-        next: Option<RegionId<'region, Pair<'region, T>>>
+        next: Option<RegionId<'region, Pair<'region, T>>>,
     ) -> RegionId<'region, Pair<'region, T>> {
         let id = region.store(Pair {
             value,
             next,
-            prev: None
+            prev: None,
         });
         if let Some(next) = next {
             let mut n = region.get_mut(next);
@@ -207,8 +220,7 @@ mod tests {
         }
         id
     }
-    
-    
+
     #[test]
     fn t_() {
         let region = Region::new();
@@ -226,10 +238,17 @@ mod tests {
         let c5_prev = region.get(c5).prev.unwrap();
         assert_eq!(region.get(c5_prev).value, 4);
 
-        assert_eq!(region.get({ let x = region.get(c3).next.unwrap(); x } ).value, 4);
+        assert_eq!(
+            region
+                .get({
+                    let x = region.get(c3).next.unwrap();
+                    x
+                })
+                .value,
+            4
+        );
     }
 }
-
 
 // -----------------------------------------------------------------------------
 // Course-grained locking for better performance for batch accesses
@@ -240,17 +259,12 @@ pub struct RegionGuard<'m, T> {
 
 impl<'m, T> RegionGuard<'m, T> {
     /// May panic on invalid ids.
-    pub fn get(
-        &'m self, id: RegionId<'m, T>
-    ) -> &'m T {
+    pub fn get(&'m self, id: RegionId<'m, T>) -> &'m T {
         &(*self.region_guard)[id.as_index()]
     }
 
     /// May panic on invalid ids.
-    pub fn get_mut(
-        &'m mut self, id: RegionId<'m, T>
-    ) -> &'m mut T {
+    pub fn get_mut(&'m mut self, id: RegionId<'m, T>) -> &'m mut T {
         &mut (*self.region_guard)[id.as_index()]
     }
 }
-

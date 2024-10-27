@@ -2,9 +2,9 @@
 
 //! Why not use std ones? Because those expect Path, and CString is not representable as Path.
 
-use std::ffi::CStr;
-use nix::sys::stat::FileStat;
 use enumn::N;
+use nix::sys::stat::FileStat;
+use std::ffi::CStr;
 
 #[derive(N, Eq, PartialEq, Debug)]
 #[repr(u8)]
@@ -25,7 +25,8 @@ pub trait EasyFileStat {
 
 impl EasyFileStat for FileStat {
     fn filetype(&self) -> FileType {
-        FileType::n(stat_filetype(self)).expect("OS using one of the known constants")
+        FileType::n(stat_filetype(self))
+            .expect("OS using one of the known constants")
     }
 }
 
@@ -33,21 +34,22 @@ fn stat_filetype(st: &FileStat) -> u8 {
     ((st.st_mode & 0o0170000) >> 12) as u8
 }
 
-
 /// Test whether stat on `path` succeeds and yields the given file
 /// type. If permissions deny access or there are disk errors, the
 /// result is simply `false`.
-pub fn path_is_type(path: &CStr, ftypes: &[FileType], follow_links: bool) -> bool {
+pub fn path_is_type(
+    path: &CStr,
+    ftypes: &[FileType],
+    follow_links: bool,
+) -> bool {
     let statfunction: fn(&CStr) -> _ = if follow_links {
         nix::sys::stat::stat
     } else {
         nix::sys::stat::lstat
     };
     match statfunction(path) {
-        Ok(m) => {
-            ftypes.iter().any(|ftype| m.filetype() == *ftype)
-        }, 
-        Err(_) => false
+        Ok(m) => ftypes.iter().any(|ftype| m.filetype() == *ftype),
+        Err(_) => false,
     }
 }
 
@@ -76,8 +78,6 @@ pub fn path_is_chardevice(path: &CStr) -> bool {
 pub fn path_is_normal(path: &CStr) -> bool {
     path_is_type(path, &[FileType::File, FileType::Dir], true)
 }
-
-
 
 #[cfg(test)]
 mod tests {

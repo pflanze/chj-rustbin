@@ -12,7 +12,7 @@ impl NaturalLanguageJoin for Vec<&'static str> {
             i += 1;
             if i < len - 1 {
                 out.push_str(", ");
-            } else if i == len - 1  {
+            } else if i == len - 1 {
                 out.push_str(" or ");
             }
         }

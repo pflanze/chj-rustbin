@@ -1,0 +1,8 @@
+#!/bin/bash
+set -meuo pipefail
+IFS=
+
+git ls-files test/priorities \
+    | perl -wne 'chomp; my @s = stat $_ or die "$_: $!"; print "$s[9]\t$_\n"' \
+    > test/priorities.mtimes
+

@@ -5,20 +5,22 @@ use std::io::{BufRead, BufReader};
 use std::str::FromStr;
 
 fn main() -> anyhow::Result<()> {
-    let file = BufReader::new(File::open("test/priorities.mtimes")?);
+    let path = "test/priorities.mtimes";
+    let file = BufReader::new(File::open(path).with_context(|| anyhow!("opening {path:?}"))?);
 
     for (index, line) in file.lines().enumerate() {
-        let line = line?;
+        let line = line.with_context(|| anyhow!("reading from {path:?}"))?;
         let parts: Vec<&str> = line.split("\t").collect();
 
         if parts.len() != 2 {
-            anyhow::bail!("The line {} in incorrect", index + 1);
+            anyhow::bail!("In {path:?}: line {} does not have 2 fields separated by tab",
+                          index + 1);
         }
         let timestamp = parts[0];
         let filename = parts[1];
 
         let timestamp = i64::from_str(timestamp).with_context(|| {
-            anyhow!("Parsing the timestamp on line {}", index + 1)
+            anyhow!("In {path:?}: parsing the timestamp on line {}", index + 1)
         })?;
 
         filetime::set_file_mtime(
@@ -26,7 +28,7 @@ fn main() -> anyhow::Result<()> {
             FileTime::from_unix_time(timestamp, 0),
         )
         .with_context(|| {
-            anyhow!("Setting modification time for {}", filename)
+            anyhow!("In {path:?}: setting modification time for {:?}", filename)
         })?;
     }
 

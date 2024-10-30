@@ -1,10 +1,10 @@
-use anyhow::{anyhow, Context};
+use anyhow::{anyhow, bail, Context, Result};
 use filetime::FileTime;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::str::FromStr;
 
-fn main() -> anyhow::Result<()> {
+fn main() -> Result<()> {
     let path = "test/priorities.mtimes";
     let file = BufReader::new(File::open(path).with_context(|| anyhow!("opening {path:?}"))?);
 
@@ -13,8 +13,7 @@ fn main() -> anyhow::Result<()> {
         let parts: Vec<&str> = line.split("\t").collect();
 
         if parts.len() != 2 {
-            anyhow::bail!("In {path:?}: line {} does not have 2 fields separated by tab",
-                          index + 1);
+            bail!("In {path:?}: line {} does not have 2 fields separated by tab", index + 1);
         }
         let timestamp = parts[0];
         let filename = parts[1];

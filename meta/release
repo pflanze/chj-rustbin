@@ -1,0 +1,21 @@
+#!/bin/bash
+set -meuo pipefail
+IFS=
+
+check_clean() {
+    local s
+    s=$(git status --porcelain)
+    if  [ -n "$s" ]; then
+        echo "git status is not clean:"
+        echo "$s"
+        false
+    fi
+}
+
+check_clean
+
+test/priorities-update-mtimes
+
+check_clean
+
+echo "Ready for release."

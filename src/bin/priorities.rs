@@ -801,10 +801,10 @@ fn inside_parse_variable<'s>(
     part = part.trim();
 
     if let Some(prio) = part.opt_parse::<ManualPriorityLevel>() {
-        builder.set_priority(Priority::Level(prio), part)?;
+        T!(builder.set_priority(Priority::Level(prio), part))?;
     } else {
         let ndt = T!(parse_date_time_argument(part, true))?;
-        builder.set_priority(Priority::Date(ndt), part)?;
+        T!(builder.set_priority(Priority::Date(ndt), part))?;
     }
     Ok(rest)
 }
@@ -819,12 +819,12 @@ fn parse_inside<'s>(s: ParseableStr<'s>) -> Result<TaskInfoDeclarations, ParseEr
         match p.take_identifier() {
             Ok((ident, rest)) => {
                 if rest.starts_with(":") {
-                    p = inside_parse_key_val(&mut builder, ident, rest)?;
+                    p = T!(inside_parse_key_val(&mut builder, ident, rest))?;
                 } else if let Ok(rest) = expect_comma_or_eos(rest) {
                     // The ident is a single value, not part of key-value pair
                     if let Some((task_size, priority)) = inside_parse_class(ident) {
-                        builder.set_tasksize(task_size, ident)?;
-                        builder.set_priority(priority, ident)?;
+                        T!(builder.set_tasksize(task_size, ident))?;
+                        T!(builder.set_priority(priority, ident))?;
                         p = rest;
                     } else {
                         // Are there any identifiers that are not a
@@ -853,7 +853,7 @@ fn parse_inside<'s>(s: ParseableStr<'s>) -> Result<TaskInfoDeclarations, ParseEr
             } else {
                 // Not an identifier, so might be a date or number or
                 // similar variable thing.
-                p = inside_parse_variable(&mut builder, p)?
+                p = T!(inside_parse_variable(&mut builder, p))?
             }
         }
     }
@@ -1059,7 +1059,7 @@ fn parse_dat_without_year<'s>(
                 position: rest.position
             })
         },
-        Err((ParseTimeWdayErrorKind::NoProperWeekday, e)) => Err(e)
+        Err((ParseTimeWdayErrorKind::NoProperWeekday, e)) => T!(Err(e))
     }
 }
 

@@ -1,6 +1,9 @@
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use crate::parse::parse_error::ParseError;
 use crate::parse_error;
 
 
+#[derive(Debug, Clone)]
 pub struct NaiveDateTimeWithoutYear {
     pub position: usize,
     pub month: u8,
@@ -28,5 +31,10 @@ impl NaiveDateTimeWithoutYear {
                 }
             })?;
         Ok(NaiveDateTime::new(nd, nt))
+    }
+
+
+    pub fn to_naive_date_time(&self) -> anyhow::Result<NaiveDateTime, ParseError> {
+        Err(parse_error!{ message: "date is missing year".into(), position: self.position })
     }
 }

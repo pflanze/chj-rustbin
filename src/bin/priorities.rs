@@ -241,7 +241,9 @@ impl Default for Priority {
 impl FromParseableStr for Priority {
     type Err = ParseError;
 
-    fn from_parseable_str(s: ParseableStr) -> Result<Self, Self::Err> {
+    fn from_parseable_str(
+        s: ParseableStr
+    ) -> Result<Self, Self::Err> {
         let s = s.trim();
         let ss = s.s;
         if ss == "ongoing" {
@@ -251,8 +253,12 @@ impl FromParseableStr for Priority {
         if let Ok(level) = ManualPriorityLevel::from_str(ss) {
             return Ok(Priority::Level(level))
         }
-        if let Ok((ndt, _str, rest)) = parse_dat(s.trim(), &flexible_parse_dat_options(
-            Some(NaiveTime::from_hms_opt(12, 0, 0).unwrap())))
+        if let Ok((ndt, _str, rest)) =
+            parse_dat(
+                s.trim(),
+                &flexible_parse_dat_options(
+                    now_for_default_year
+                    Some(NaiveTime::from_hms_opt(12, 0, 0).unwrap())))
         {
             let rest = rest.drop_whitespace();
             if rest.is_empty() {
@@ -859,36 +865,6 @@ fn parse_inside<'s>(s: ParseableStr<'s>) -> Result<TaskInfoDeclarations, ParseEr
     }
 }
 
-struct NaiveDateTimeWithoutYear {
-    position: usize,
-    month: u8,
-    day: u8,
-    hour: u8,
-    minute: u8,
-    second: u8
-}
-
-impl NaiveDateTimeWithoutYear {
-    pub fn for_year(self, year: u16) -> Result<NaiveDateTime, ParseError> {
-        let NaiveDateTimeWithoutYear { position, month, day, hour, minute, second } = self;
-        let nd = NaiveDate::from_ymd_opt(year.into(), month.into(), day.into())
-            .ok_or_else(|| {
-                parse_error! {
-                    message: format!("invalid month/day in year {year}"),
-                    position
-                }
-            })?;
-        let nt = NaiveTime::from_hms_opt(hour.into(), minute.into(), second.into())
-            .ok_or_else(|| {
-                parse_error! {
-                    message: format!("invalid hh:mm:ss numbers {hour}:{minute}:{second}"),
-                    position
-                }
-            })?;
-        Ok(NaiveDateTime::new(nd, nt))
-    }
-}
-
 struct ParseDatOptions {
     now_for_default_year: Option<NaiveDate>,
     /// If None, the time must be present in the input string
@@ -1066,7 +1042,7 @@ fn parse_dat_without_year<'s>(
 // "2024-09-29_205249_Sun"
 fn parse_dat<'s>(
     s: ParseableStr<'s>, options: &ParseDatOptions
-) -> Result<(NaiveDateTime, ParseableStr<'s>, ParseableStr<'s>), ParseError> {
+) -> Result<(PreNaiveDateTime, ParseableStr<'s>, ParseableStr<'s>), ParseError> {
     match T!(s.take_n_while(4, is_ascii_digit_char, "digit as part of year number")) {
         Ok((year, rest)) => {
             let rest = T!(rest.expect_separator(&options.date_separator))?;
@@ -1104,9 +1080,12 @@ fn parse_dat<'s>(
 
 // For parsing user input, to allow "2024-09-29 20:52:49 Sun" and
 // similar formats (see parse_date_time_argument tests).
-fn flexible_parse_dat_options(default_time: Option<NaiveTime>) -> ParseDatOptions {
+fn flexible_parse_dat_options(
+    now_for_default_year: Option<NaiveDate>,
+    default_time: Option<NaiveTime>
+) -> ParseDatOptions {
     ParseDatOptions {
-        now_for_default_year: None,
+        now_for_default_year,
         default_time,
         weekday_is_optional: true,
         date_separator: Separator {
@@ -1124,11 +1103,15 @@ fn flexible_parse_dat_options(default_time: Option<NaiveTime>) -> ParseDatOption
     }
 }
 
-// For command line arguments.
-fn parse_date_time_argument(s: ParseableStr, time_is_optional: bool)
-                                -> Result<NaiveDateTime, ParseError> {
+// For command line arguments and the date in `OPEN{2024-11-10}` or `OPEN{11-10}`.
+fn parse_date_time_argument(
+    s: ParseableStr,
+    now_for_default_year: Option<NaiveDate>,
+    time_is_optional: bool,
+) -> Result<NaiveDateTime, ParseError> {
     let (ndt, ndt_string, rest) = parse_dat(
         s, &flexible_parse_dat_options(
+            now_for_default_year,
             if time_is_optional {
                 Some(NaiveTime::from_hms_opt(12, 0, 0).unwrap())
             } else {

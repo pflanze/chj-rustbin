@@ -296,6 +296,7 @@ struct Dependencies {
 }
 
 impl Dependencies {
+    // XX move this into `impl ParseableStr for Dependencies`!
     pub fn from_parseable_str(s: ParseableStr) -> Result<Self, ParseError> {
         let mut keys = BTreeSet::new();
         for s in s.split_str(",", true)
@@ -852,7 +853,7 @@ fn parse_inside<'s>(s: ParseableStr<'s>) -> Result<TaskInfoDeclarations, ParseEr
                 return Ok(builder.into())
             } else {
                 // Not an identifier, so might be a date or number or
-                // similar variable thing.
+                // similar non-enumerated thing.
                 p = T!(inside_parse_variable(&mut builder, p))?
             }
         }
@@ -890,6 +891,8 @@ impl NaiveDateTimeWithoutYear {
 }
 
 struct ParseDatOptions {
+    /// The current date to be used to complete a given date that
+    /// comes without the year.
     now_for_default_year: Option<NaiveDate>,
     /// If None, the time must be present in the input string
     default_time: Option<NaiveTime>,
@@ -1063,7 +1066,7 @@ fn parse_dat_without_year<'s>(
     }
 }
 
-// "2024-09-29_205249_Sun"
+// "2024-09-29_205249_Sun" -- XX update
 fn parse_dat<'s>(
     s: ParseableStr<'s>, options: &ParseDatOptions
 ) -> Result<(NaiveDateTime, ParseableStr<'s>, ParseableStr<'s>), ParseError> {

@@ -4,9 +4,10 @@ use std::{path::{PathBuf, Path},
           str::FromStr, collections::{BTreeSet, BTreeMap},
           rc::Rc, cell::Cell, ops::Deref, process::exit, io::{stdout, Write},
           os::unix::prelude::OsStrExt, cmp::Ordering};
+use std::convert::TryInto;
 
-use anyhow::{Result, anyhow, Context};
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Weekday, Datelike, Duration, Utc, DateTime, Timelike};
+use anyhow::{Result, anyhow, Context, bail};
+use chrono::{NaiveDateTime, NaiveTime, Weekday, Datelike, Duration, Utc, DateTime, Timelike};
 use clap::Parser;
 use kstring::KString;
 
@@ -124,10 +125,10 @@ impl FromParseableStr for TaskSize {
 
 pub type ManualPriorityLevel = u8;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum Priority {
     /// Due on that date
-    Date(NaiveDateTime),
+    Date(NaiveDateTimeWithOrWithoutYear),
     /// Relative due date
     DaysFromToday(u8),
     /// Today at noon
@@ -174,8 +175,8 @@ pub fn priority_level(
     tasksize: &TaskSize,
     _key: &Option<DependencyKey>,
     mtime: SystemTime,
-    now: NaiveDateTime
-) -> f32 {
+    now: NaiveDateTime,
+) -> Result<f32, ParseError> {
     let priority_for_time_left = |time_to_target: Duration| {
 
             let time_secs = time_to_target.num_seconds().max(0);
@@ -200,31 +201,31 @@ pub fn priority_level(
     };
     match priority {
         Priority::Date(ndt) => {
-            let time_to_target: Duration = ndt.signed_duration_since(now);
-            priority_for_time_left(time_to_target)
+            let time_to_target: Duration = ndt.for_year(now.year().try_into().expect("the year of now should always be u16"))?.signed_duration_since(now);
+            Ok(priority_for_time_left(time_to_target))
         }
         Priority::DaysFromToday(num_days) => {
             // (XX Base on noon on target day, too ?)
-            priority_for_time_left(Duration::days((*num_days).into()))
+            Ok(priority_for_time_left(Duration::days((*num_days).into())))
         }
         Priority::Today => {
             let target_time = now
                 .with_hour(12).unwrap()
                 .with_minute(0).unwrap()
                 .with_second(0).unwrap();
-            priority_for_time_left(target_time.signed_duration_since(now))
+            Ok(priority_for_time_left(target_time.signed_duration_since(now)))
         }
         Priority::Tonight => {
             let target_time = now
                 .with_hour(18).unwrap()
                 .with_minute(0).unwrap()
                 .with_second(0).unwrap();
-            priority_for_time_left(target_time.signed_duration_since(now))
+            Ok(priority_for_time_left(target_time.signed_duration_since(now)))
         }
         // XX: what about mixing priorities, target date given *and* a priority level?
-        Priority::Level(l) => modify_priority_with_mtime(f32::from(*l)),
-        Priority::Ongoing => modify_priority_with_mtime(5.), // ?
-        Priority::Unknown => modify_priority_with_mtime(5.), // ?
+        Priority::Level(l) => Ok(modify_priority_with_mtime(f32::from(*l))),
+        Priority::Ongoing => Ok(modify_priority_with_mtime(5.)), // ?
+        Priority::Unknown => Ok(modify_priority_with_mtime(5.)), // ?
     }
 }
 
@@ -253,11 +254,10 @@ impl FromParseableStr for Priority {
         if let Ok(level) = ManualPriorityLevel::from_str(ss) {
             return Ok(Priority::Level(level))
         }
-        if let Ok((ndt, _str, rest)) =
+        if let Ok((ndt, rest)) =
             parse_dat(
                 s.trim(),
                 &flexible_parse_dat_options(
-                    now_for_default_year
                     Some(NaiveTime::from_hms_opt(12, 0, 0).unwrap())))
         {
             let rest = rest.drop_whitespace();
@@ -281,12 +281,14 @@ impl FromParseableStr for Priority {
 #[cfg(test)]
 #[test]
 fn t_parse_priority() {
+    use chrono::NaiveDate;
+
     let t = |s: &str| Priority::from_parseable_str(ParseableStr::new(s)).unwrap();
     let te = |s: &str| Priority::from_parseable_str(ParseableStr::new(s)).err().unwrap()
         .to_string_in_context(s);
     let ymd_hms = |y, m, d, h, min, s| {
-        Priority::Date(NaiveDate::from_ymd_opt(y, m, d).unwrap()
-                       .and_hms_opt(h, min, s).unwrap())
+        Priority::Date(NaiveDateTimeWithOrWithoutYear::NaiveDateTime(NaiveDate::from_ymd_opt(y, m, d).unwrap()
+            .and_hms_opt(h, min, s).unwrap()))
     };
     assert_eq!(t("2024-11-01 11:37"), ymd_hms(2024,11,01, 11,37,0));
     assert_eq!(t("2024-11-01 11:37:13"), ymd_hms(2024,11,01, 11,37,13));
@@ -312,20 +314,21 @@ impl Dependencies {
             keys.insert(
                 (
                     || -> Result<Option<DependencyKey>, ParseError> {
-                        let (d, dstr, rest) =
-                        // It's OK to fail parsing here as we've got a
-                        // fallback.
+                        let (d, rest) =
+                            // It's OK to fail parsing here as we've got a
+                            // fallback.
                             match parse_dat(s, &PARSE_DAT_OPTIONS_FOR_INSIDE) {
                                 Ok(v) => v,
                                 Err(_) => return Ok(None)
                             };
-                        let dk = DependencyKey::from(d);
+                        let ndt = d.to_naive_date_time()?;
+                        let dk = DependencyKey::from(ndt);
                         // Given we succeeded at getting a date, from
                         // now on we report errors.
                         if keys.contains(&dk) {
                             Err(parse_error! {
-                                message: format!("duplicate dependency entry {d}"),
-                                position: dstr.position
+                                message: format!("duplicate dependency entry {ndt}"),
+                                position: s.position
                             })?
                         }
                         T!(expect_str_or_eos(rest, "-"))?;
@@ -523,7 +526,7 @@ struct TaskInfo {
 }
 
 impl TaskInfo {
-    fn priority_level_at(&self, now: NaiveDateTime) -> f32 {
+    fn priority_level_at(&self, now: NaiveDateTime) -> Result<f32, ParseError> {
         priority_level(&self.declarations.priority,
                        &self.declarations.tasksize,
                        &self.dependency_key,
@@ -531,9 +534,10 @@ impl TaskInfo {
                        now)
     }
 
-    fn set_initial_priority_level_for(&self, now: NaiveDateTime) {
+    fn set_initial_priority_level_for(&self, now: NaiveDateTime) -> Result<(), ParseError> {
         assert!(self.calculated_priority.get().is_none());
-        self.calculated_priority.set(Some(self.priority_level_at(now)));
+        self.calculated_priority.set(Some(self.priority_level_at(now)?));
+        Ok(())
     }
 
     fn calculated_priority(&self) -> f32 {
@@ -867,9 +871,6 @@ fn parse_inside<'s>(s: ParseableStr<'s>) -> Result<TaskInfoDeclarations, ParseEr
 }
 
 struct ParseDatOptions {
-    /// The current date to be used to complete a given date that
-    /// comes without the year.
-    now_for_default_year: Option<NaiveDate>,
     /// If None, the time must be present in the input string
     default_time: Option<NaiveTime>,
     weekday_is_optional: bool,
@@ -1042,15 +1043,32 @@ fn parse_dat_without_year<'s>(
     }
 }
 
-enum NaiveDateTimeWithOrWithoutYear {
+#[derive(Debug, Clone)]
+pub enum NaiveDateTimeWithOrWithoutYear {
     NaiveDateTime(NaiveDateTime),
     NaiveDateTimeWithoutYear(NaiveDateTimeWithoutYear),
 }
 
+impl NaiveDateTimeWithOrWithoutYear {
+    pub fn for_year(&self, year: u16) -> Result<NaiveDateTime, ParseError> {
+        match self {
+            NaiveDateTimeWithOrWithoutYear::NaiveDateTime(ndt) => Ok(*ndt),
+            NaiveDateTimeWithOrWithoutYear::NaiveDateTimeWithoutYear(ndtwy) => ndtwy.clone().for_year(year)
+        }
+    }
+
+    pub fn to_naive_date_time(&self) -> Result<NaiveDateTime, ParseError> {
+        match self {
+            NaiveDateTimeWithOrWithoutYear::NaiveDateTime(ndt) => Ok(*ndt),
+            NaiveDateTimeWithOrWithoutYear::NaiveDateTimeWithoutYear(ndtwy) => ndtwy.to_naive_date_time()
+        }
+    }
+}
+
 // "2024-09-29_205249_Sun" -- XX update
 fn parse_dat<'s>(
-    s: ParseableStr<'s>, options: &ParseDatOptions
-) -> Result<(NaiveDateTimeWithOrWithoutYear, ParseableStr<'s>, ParseableStr<'s>), ParseError> {
+    s: ParseableStr<'s>, options: &ParseDatOptions,
+) -> Result<(NaiveDateTimeWithOrWithoutYear, ParseableStr<'s>), ParseError> {
     match T!(s.take_n_while(4, is_ascii_digit_char, "digit as part of year number")) {
         Ok((year, rest)) => {
             let rest = T!(rest.expect_separator(&options.date_separator))?;
@@ -1072,16 +1090,13 @@ fn parse_dat<'s>(
                     })?
                 }
             }
-            Ok((datetime, s.up_to(rest), rest))
+            Ok((NaiveDateTimeWithOrWithoutYear::NaiveDateTime(datetime), rest))
         }
-        Err(e1) => {
-            if let Some(_now_for_default_year) = options.now_for_default_year {
-                // let (datetime_no_year, (weekday, weekday_position), rest) =
-                //   parse_dat_without_year(s)?;
-                todo!()
-            } else {
-                Err(e1)?
-            }
+        Err(_e1) => {
+            let (datetime_no_year, _opt_weekday_and_position, rest) =
+                T!(parse_dat_without_year(s, options))?;
+            // TODO: Pass on the weekday
+            Ok((NaiveDateTimeWithOrWithoutYear::NaiveDateTimeWithoutYear(datetime_no_year), rest))
         }
     }
 }
@@ -1089,11 +1104,9 @@ fn parse_dat<'s>(
 // For parsing user input, to allow "2024-09-29 20:52:49 Sun" and
 // similar formats (see parse_date_time_argument tests).
 fn flexible_parse_dat_options(
-    now_for_default_year: Option<NaiveDate>,
     default_time: Option<NaiveTime>
 ) -> ParseDatOptions {
     ParseDatOptions {
-        now_for_default_year,
         default_time,
         weekday_is_optional: true,
         date_separator: Separator {
@@ -1114,12 +1127,10 @@ fn flexible_parse_dat_options(
 // For command line arguments and the date in `OPEN{2024-11-10}` or `OPEN{11-10}`.
 fn parse_date_time_argument(
     s: ParseableStr,
-    now_for_default_year: Option<NaiveDate>,
     time_is_optional: bool,
-) -> Result<NaiveDateTime, ParseError> {
-    let (ndt, ndt_string, rest) = parse_dat(
+) -> Result<NaiveDateTimeWithOrWithoutYear, ParseError> {
+    let (ndt, rest) = parse_dat(
         s, &flexible_parse_dat_options(
-            now_for_default_year,
             if time_is_optional {
                 Some(NaiveTime::from_hms_opt(12, 0, 0).unwrap())
             } else {
@@ -1129,8 +1140,8 @@ fn parse_date_time_argument(
     if rest.is_empty() {
         Ok(ndt)
     } else {
-        Err(parse_error!{
-            message: format!("garbage after datetime string {:?}", ndt_string.s),
+        Err(parse_error! {
+            message: format!("garbage after datetime string {:?}", s.s),
             position: rest.position
         })
     }
@@ -1139,6 +1150,8 @@ fn parse_date_time_argument(
 #[cfg(test)]
 #[test]
 fn t_parse_date_time_argument() {
+    use chrono::NaiveDate;
+
     let ok = Ok(NaiveDateTime::new(NaiveDate::from_ymd_opt(2024, 9, 29).unwrap(),
                                    NaiveTime::from_hms_opt(20, 52, 49).unwrap()));
     let t = |s: &str| parse_date_time_argument(ParseableStr { position: 0, s }, false);
@@ -1187,7 +1200,6 @@ fn t_parse_date_time_argument() {
 
 const fn parse_path_parse_dat_options(weekday_is_optional: bool) -> ParseDatOptions {
     ParseDatOptions {
-        now_for_default_year: None,
         default_time: None,
         weekday_is_optional,
         date_separator: Separator {
@@ -1272,7 +1284,7 @@ fn parse_path(id: usize, verbose: bool, region: &Region<PathBuf>, item: &FilePat
             // XX when to accept and how when a date is just not there?
             // Maybe if starts with 2020..2050 number then -, go all the
             // way.
-            let (datetime, _keystr, _rest) = T!(parse_dat(
+            let (datetime, _rest) = T!(parse_dat(
                 file_name, &PARSE_DAT_OPTIONS_FOR_PATH))?;
             opt_datetime = Some(datetime);
 
@@ -1283,7 +1295,7 @@ fn parse_path(id: usize, verbose: bool, region: &Region<PathBuf>, item: &FilePat
             // XX when to accept and how when a date is just not there?
             // Maybe if starts with 2020..2050 number then -, go all the
             // way.
-            if let Ok((datetime, _keystr, _rest)) = parse_dat(
+            if let Ok((datetime, _rest)) = parse_dat(
                 file_name, &PARSE_DAT_OPTIONS_FOR_PATH)
             {
                 opt_datetime = Some(datetime);
@@ -1292,8 +1304,12 @@ fn parse_path(id: usize, verbose: bool, region: &Region<PathBuf>, item: &FilePat
             }
         }
 
-
-        Ok((opt_datetime, declarations, have_open))
+        let opt_ndt = if let Some(datetime) = opt_datetime {
+            Some(datetime.to_naive_date_time()?)
+        } else {
+            None
+        };
+        Ok((opt_ndt, declarations, have_open))
     })().map_err(|e| {
         let ParseError { message, position, .. } = &e;
         anyhow!("error parsing the file name of path {path:?}: {message} at: {:?}{}",
@@ -1326,8 +1342,13 @@ fn parse_path(id: usize, verbose: bool, region: &Region<PathBuf>, item: &FilePat
 fn main() -> Result<()> {
     let opts: Opts = Opts::from_args();
     let now: NaiveDateTime = if let Some(time) = &opts.time {
-        parse_date_time_argument(ParseableStr::new(&time), true).map_err(
-            |e| anyhow!("can't parse --time option value: {}", e.to_string_in_context(&time)))?
+        let now_ndtwowy = parse_date_time_argument(ParseableStr::new(&time), true).map_err(
+            |e| anyhow!("can't parse --time option value: {}", e.to_string_in_context(&time)))?;
+        match now_ndtwowy {
+            NaiveDateTimeWithOrWithoutYear::NaiveDateTime(ndt) => ndt,
+            NaiveDateTimeWithOrWithoutYear::NaiveDateTimeWithoutYear(val) =>
+                bail!("Date must contain year: {val:?}")
+        }
     } else {
         let now_utc = Utc::now();
         now_utc.naive_local()
@@ -1392,7 +1413,7 @@ fn main() -> Result<()> {
 
     // Calculate "stand-alone" priorities
     for ti in &taskinfos {
-        ti.set_initial_priority_level_for(now);
+        ti.set_initial_priority_level_for(now).map_err(|e| anyhow!("XXX Date Error: {e:?}"))?;
     }
 
     // Verify dependency links and exert priority inheritance

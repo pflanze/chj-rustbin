@@ -63,13 +63,13 @@ struct Opts {
     // Don't use NaiveDateTime, its parser is bad
     #[clap(short, long)]
     time: Option<String>,
-    
+
     /// The base directories holding the todo files. If none given,
     /// uses `.`.
-    directories: Vec<PathBuf>
+    directories: Vec<PathBuf>,
 }
 
-impl_item_options_from!{Opts}
+impl_item_options_from! {Opts}
 
 
 #[derive(Debug, Clone, Copy)]
@@ -79,14 +79,14 @@ pub enum TaskSize {
     Days,
     Weeks,
     Months,
-    Unknown
+    Unknown,
 }
 
 impl TaskSize {
     pub fn in_weeks(self) -> f32 {
         match self {
-            TaskSize::Minutes => 1./48., // 1./12./4., 30 minutes = 1/12 day programming capacity
-            TaskSize::Hours => 1./8., // half a day, 4 work days a week
+            TaskSize::Minutes => 1. / 48., // 1./12./4., 30 minutes = 1/12 day programming capacity
+            TaskSize::Hours => 1. / 8., // half a day, 4 work days a week
             TaskSize::Days => 0.5, // 2 days, 4 work days a week
             TaskSize::Weeks => 2.,
             TaskSize::Months => 8.,
@@ -108,11 +108,11 @@ impl FromParseableStr for TaskSize {
     fn from_parseable_str(s: ParseableStr) -> Result<Self, Self::Err> {
         let s = s.trim();
         match s.s {
-            "h"|"hour"|"hours" => Ok(TaskSize::Hours),
-            "d"|"day"|"days" => Ok(TaskSize::Days),
-            "w"|"week"|"weeks" => Ok(TaskSize::Weeks),
-            "mo"|"mon"|"month"|"months" => Ok(TaskSize::Months),
-            "mi"|"min"|"minute"|"minutes" => Ok(TaskSize::Minutes),
+            "h" | "hour" | "hours" => Ok(TaskSize::Hours),
+            "d" | "day" | "days" => Ok(TaskSize::Days),
+            "w" | "week" | "weeks" => Ok(TaskSize::Weeks),
+            "mo" | "mon" | "month" | "months" => Ok(TaskSize::Months),
+            "mi" | "min" | "minute" | "minutes" => Ok(TaskSize::Minutes),
             _ => Err(parse_error! {
                 message: format!("unknown task size {:?} (must be \
                                   h|d|w|mo|month|months|mi|min|minuteminutes",
@@ -148,7 +148,7 @@ pub enum Priority {
 fn priority_level_for(time_weeks: f32, task_size_weeks: f32) -> f32 {
     let relation = time_weeks / task_size_weeks;
     relation.log2() * 2. + 1.
-}    
+}
 
 #[cfg(test)]
 #[test]
@@ -163,7 +163,7 @@ fn t_priority_level() {
 
 // rough, hack. UTC. good enough when days are the main thing I want.
 fn naive_from_systemtime(st: SystemTime) -> NaiveDateTime {
-    let dt : DateTime<Utc> = DateTime::from(st);
+    let dt: DateTime<Utc> = DateTime::from(st);
     //dt.naive_local() // XX hmmm, local based on what zone???
     dt.naive_utc()
 }
@@ -178,14 +178,13 @@ pub fn priority_level(
     now: NaiveDateTime,
 ) -> Result<f32, ParseError> {
     let priority_for_time_left = |time_to_target: Duration| {
+        let time_secs = time_to_target.num_seconds().max(0);
+        let programming_secs_per_week = 7. * 60. * 60. * 24. * 4.;
+        let time_weeks: f32 = (time_secs as f32) / programming_secs_per_week * 5.; // XXXXHACK
 
-            let time_secs = time_to_target.num_seconds().max(0);
-            let programming_secs_per_week = 7.*60.*60.*24.*4.;
-            let time_weeks: f32 = (time_secs as f32) / programming_secs_per_week * 5.;// XXXXHACK
+        let task_size_weeks = tasksize.in_weeks();
 
-            let task_size_weeks = tasksize.in_weeks();
-
-            priority_level_for(time_weeks, task_size_weeks)
+        priority_level_for(time_weeks, task_size_weeks)
     };
     let modify_priority_with_mtime = |prio| {
         // the older the file, the lower the priority? (XX Except
@@ -197,7 +196,7 @@ pub fn priority_level(
         // prio * f32::powf(0.9999, age_sec)
         // but, prio itself is also in logarithmic space? So: for
         // every week, priority sinks by 1 point.
-        prio + age_sec * (1. / (60.*60.*24.*7.))
+        prio + age_sec * (1. / (60. * 60. * 24. * 7.))
     };
     match priority {
         Priority::Date(ndt) => {
@@ -249,10 +248,10 @@ impl FromParseableStr for Priority {
         let ss = s.s;
         if ss == "ongoing" {
             // Note: now have `inside_parse_class`, too. XX inconsistent?
-            return Ok(Priority::Ongoing)
+            return Ok(Priority::Ongoing);
         }
         if let Ok(level) = ManualPriorityLevel::from_str(ss) {
-            return Ok(Priority::Level(level))
+            return Ok(Priority::Level(level));
         }
         if let Ok((ndt, rest)) =
             parse_dat(
@@ -262,12 +261,12 @@ impl FromParseableStr for Priority {
         {
             let rest = rest.drop_whitespace();
             if rest.is_empty() {
-                return Ok(Priority::Date(ndt))
+                return Ok(Priority::Date(ndt));
             } else {
-                return Err(parse_error!{
+                return Err(parse_error! {
                     message: format!("garbage after date/time"),
                     position: rest.position
-                })
+                });
             }
         }
         Err(parse_error! {
@@ -290,17 +289,17 @@ fn t_parse_priority() {
         Priority::Date(NaiveDateTimeWithOrWithoutYear::NaiveDateTime(NaiveDate::from_ymd_opt(y, m, d).unwrap()
             .and_hms_opt(h, min, s).unwrap()))
     };
-    assert_eq!(t("2024-11-01 11:37"), ymd_hms(2024,11,01, 11,37,0));
-    assert_eq!(t("2024-11-01 11:37:13"), ymd_hms(2024,11,01, 11,37,13));
+    assert_eq!(t("2024-11-01 11:37"), ymd_hms(2024, 11, 01, 11, 37, 0));
+    assert_eq!(t("2024-11-01 11:37:13"), ymd_hms(2024, 11, 01, 11, 37, 13));
     assert_eq!(te("2024-11-01 12:00}"), "garbage after date/time at \"}\"");
     assert_eq!(te("2024-11-01 12:00:01 a"), "garbage after date/time at \"a\"");
-    assert_eq!(t("2024-11-01 12:00:01  "), ymd_hms(2024,11,01, 12,0,1));
+    assert_eq!(t("2024-11-01 12:00:01  "), ymd_hms(2024, 11, 01, 12, 0, 1));
 }
 
 #[derive(Default, Debug, Clone)]
 struct Dependencies {
     // XX Arc for clone efficiency?
-    keys: BTreeSet<DependencyKey>
+    keys: BTreeSet<DependencyKey>,
 }
 
 impl Dependencies {
@@ -407,7 +406,7 @@ impl FromStr for WorkflowStatus {
             // the `OPEN` string in the file name to introduce the `{
             // .. }` section anyway.
             // "open" => Ok(WorkflowStatus::Open),
-            
+
             "done" => Ok(WorkflowStatus::Done),
             "obsolete" => Ok(WorkflowStatus::Obsolete),
 
@@ -435,7 +434,7 @@ impl TryFrom<&Path> for WorkflowStatus {
                 match file_name.to_str() {
                     Some(segment) =>
                         if let Ok(status) = WorkflowStatus::from_str(segment) {
-                            return Ok(status)
+                            return Ok(status);
                         },
                     None => warning!("cannot decode file name {file_name:?} \
                                       in path {dir:?} to string")
@@ -522,7 +521,7 @@ struct TaskInfo {
     calculated_priority: Cell<Option<f32>>,
     /// The information specified by the user after the `OPEN` (or,
     /// FUTURE, also `TODO`?) between curly braces.
-    declarations: TaskInfoDeclarations
+    declarations: TaskInfoDeclarations,
 }
 
 impl TaskInfo {
@@ -549,7 +548,7 @@ impl TaskInfo {
     fn set_as_dependency_for_priority(&self, priority: f32) {
         let own_prio = self.calculated_priority.get().unwrap();
         let target_prio = priority - 0.1;
-        if own_prio > target_prio  {
+        if own_prio > target_prio {
             self.calculated_priority.set(Some(target_prio));
         }
     }
@@ -588,7 +587,7 @@ macro_rules! def_builder_setter {
         }
     }
 }
-    
+
 impl TaskInfoDeclarationsBuilder {
     fn old_err(old: String, came_from: ParseableStr) -> Result<(), ParseError> {
         Err(parse_error! {
@@ -649,19 +648,19 @@ fn take_one_value_from(s: ParseableStr) -> Result<(ParseableStr, ParseableStr), 
             // simply scan all the way to ] then.
             (_, rest) = rest.take_while(|c| c != ',' && c != ']');
             if rest.is_empty() {
-                return Ok((start.up_to(rest), rest))
+                return Ok((start.up_to(rest), rest));
             }
             if let Ok(s) = rest.expect_str(",") {
                 rest = s;
             } else if let Ok(after) = rest.expect_str("]") {
                 let after = T!(expect_comma_or_eos(after))?;
-                return Ok((start.up_to(rest), after))
+                return Ok((start.up_to(rest), after));
             } else {
                 return Err(parse_error! {
                     // or eos, but in context? "or '}'"
                     message: "expecting ',' or ']'".into(),
                     position: rest.position,
-                })
+                });
             }
             rest = rest.drop_whitespace();
         }
@@ -714,10 +713,10 @@ fn inside_parse_key_val<'s>(
         }
 
         match ident.s {
-            "s"|"size"|"tasksize" => parse_to!(set_tasksize, TaskSize),
+            "s" | "size" | "tasksize" => parse_to!(set_tasksize, TaskSize),
             // "due" should only accept a date?
-            "p"|"prio"|"priority"|"due" => parse_to!(set_priority, Priority),
-            "d"|"dep"|"depends"|"dependencies" => parse_to!(set_dependencies, Dependencies),
+            "p" | "prio" | "priority" | "due" => parse_to!(set_priority, Priority),
+            "d" | "dep" | "depends" | "dependencies" => parse_to!(set_dependencies, Dependencies),
 
             _ => Err(parse_error! {
                 message: format!("unknown key {:?}", ident.s),
@@ -738,7 +737,6 @@ fn inside_parse_key_val<'s>(
 fn inside_parse_class(
     ident: ParseableStr,
 ) -> Option<(TaskSize, Priority)> {
-
     match ident.s {
         // Special keys that have no values
 
@@ -842,25 +840,25 @@ fn parse_inside<'s>(s: ParseableStr<'s>) -> Result<TaskInfoDeclarations, ParseEr
                         // class? 
                         // p = inside_parse_variable(&mut builder, p)?
                         // But so far no (integer priorities are not identifiers), thus:    
-                        return Err(parse_error!{
+                        return Err(parse_error! {
                             message: format!("unknown class {:?}", ident.s),
                             position: ident.position
-                        })
+                        });
                     }
                 } else {
                     // "ident non-colon": 
                     // p = inside_parse_variable(&mut builder, p)?
                     // currently not valid, even a date always starts
                     // with a number, not identifier, thus:
-                    return Err(parse_error!{
+                    return Err(parse_error! {
                         message: format!(
                             "expecting a class (identifier), keyword, date or priority"),
                         position: ident.position
-                    })
+                    });
                 }
             }
             Err(_e) => if p.is_empty() {
-                return Ok(builder.into())
+                return Ok(builder.into());
             } else {
                 // Not an identifier, so might be a date or number or
                 // similar non-enumerated thing.
@@ -884,7 +882,7 @@ struct ParseDatOptions {
 
 enum ParseTimeWdayErrorKind {
     NoProperTime,
-    NoProperWeekday
+    NoProperWeekday,
 }
 
 // This is really the continuation of parsing the date part of a
@@ -893,13 +891,13 @@ fn parse_time_wday<'s>(
     s: ParseableStr<'s>,
     options: &ParseDatOptions,
     month: u8,
-    day: u8
+    day: u8,
 ) -> Result<(NaiveDateTimeWithoutYear, Option<(Weekday, usize)>, ParseableStr<'s>),
-            (ParseTimeWdayErrorKind, ParseError)>
+    (ParseTimeWdayErrorKind, ParseError)>
 {
     let ((hour, minute, second), rest) =
         (|| -> Result<((u8, u8, u8), ParseableStr<'s>),
-                      ParseError> {
+            ParseError> {
             let rest = T!(s.expect_separator(&options.separator_between_parts))?;
 
             let (digits, rest_after_digits) = rest.take_while(is_ascii_digit_char);
@@ -914,7 +912,7 @@ fn parse_time_wday<'s>(
                             message: format!("got {} digits where time is expected, but expecting ':' \
                                               separator between digit pairs", digits.len()),
                             position: digits.position,
-                    })
+                    });
                 }
                 let (hh, rest) = digits.split_at(2);
                 let (mm, rest) = rest.split_at(2);
@@ -961,9 +959,14 @@ fn parse_time_wday<'s>(
             };
             Ok(((hour, minute, second), rest))
         })().map_err(|e| (ParseTimeWdayErrorKind::NoProperTime, e))?;
-     
+
     let datetime = NaiveDateTimeWithoutYear {
-        position: s.position, month, day, hour, minute, second
+        position: s.position,
+        month,
+        day,
+        hour,
+        minute,
+        second,
     };
 
     let weekday_result = (|| -> Result<((Weekday, usize), ParseableStr), ParseError> {
@@ -996,9 +999,9 @@ fn parse_time_wday<'s>(
 /// failures.
 fn parse_dat_without_year<'s>(
     s: ParseableStr<'s>,
-    options: &ParseDatOptions
+    options: &ParseDatOptions,
 ) -> Result<(NaiveDateTimeWithoutYear, Option<(Weekday, usize)>, ParseableStr<'s>),
-            ParseError>
+    ParseError>
 {
     let rest = s;
     let (month, rest) = T!(rest.take_n_while(
@@ -1029,7 +1032,7 @@ fn parse_dat_without_year<'s>(
                 day,
                 hour: dt.hour() as u8,
                 minute: dt.minute() as u8,
-                second: dt.second() as u8
+                second: dt.second() as u8,
             };
             Ok((ndt_no_year, None, rest))
         } else {
@@ -1120,7 +1123,7 @@ fn flexible_parse_dat_options(
         separator_between_parts: Separator {
             required: true,
             alternatives: &["_", " "],
-        }
+        },
     }
 }
 
@@ -1255,8 +1258,7 @@ fn parse_path(id: usize, verbose: bool, region: &Region<PathBuf>, item: &FilePat
     let (dependency_key_ndt, declarations, have_open
     ) = (|| -> Result<(Option<NaiveDateTime>,
                        TaskInfoDeclarations,
-                       bool),
-                      ParseError> {
+                       bool), ParseError> {
         let declarations: TaskInfoDeclarations;
         let have_open: bool;
         let opt_datetime;
@@ -1275,7 +1277,7 @@ fn parse_path(id: usize, verbose: bool, region: &Region<PathBuf>, item: &FilePat
                     return Err(parse_error! {
                         message: format!("missing closing '}}' after '{}{{'", open_or_todo.s),
                         position: rest.position
-                    })
+                    });
                 }
             } else {
                 declarations = Default::default();
@@ -1287,7 +1289,6 @@ fn parse_path(id: usize, verbose: bool, region: &Region<PathBuf>, item: &FilePat
             let (datetime, _rest) = T!(parse_dat(
                 file_name, &PARSE_DAT_OPTIONS_FOR_PATH))?;
             opt_datetime = Some(datetime);
-
         } else {
             have_open = false;
             declarations = Default::default();
@@ -1382,7 +1383,7 @@ fn main() -> Result<()> {
 
     for directory in directories {
         for (id, item) in recursive_file_path_types_iter(
-            &region, region.store(directory.clone()), itemopts, &excludes, true
+            &region, region.store(directory.clone()), itemopts, &excludes, true,
         ).enumerate()
         {
             let item = item?; // XX context?
@@ -1421,17 +1422,17 @@ fn main() -> Result<()> {
         // Do not make priorities on dependencies relevant for (a)
         // files which are not obviously tasks, (b) tasks which
         // are not open.
-        if ! ti.workflow_status.is_active() {
+        if !ti.workflow_status.is_active() {
             continue;
         }
-        
+
         // Need to recurse to update with the new base number; todo:
         // this is inefficient (O(n^2)).
         let mut recur = |ti: &TaskInfo, list_of_seen| {
             let list_of_seen = cons(ti.id, list_of_seen);
             for dependency in ti.declarations.dependencies.iter() {
                 if let Some(dependency_ti) = taskinfo_by_key.get(dependency) {
-                    if ! list_of_seen.contains(&dependency_ti.id) {
+                    if !list_of_seen.contains(&dependency_ti.id) {
                         dependency_ti.set_as_dependency_for_priority(ti.calculated_priority());
                     }
                 } else {
@@ -1463,7 +1464,7 @@ fn main() -> Result<()> {
     (|| -> std::io::Result<()> {
         let mut out = stdout().lock();
         for ti in &taskinfos {
-            if ! ti.workflow_status.is_active() {
+            if !ti.workflow_status.is_active() {
                 continue;
             }
             if !opts.no_priority {
@@ -1481,6 +1482,6 @@ fn main() -> Result<()> {
         eprintln!("{errors} error(s) shown as warnings");
         exit(1);
     }
-    
+
     Ok(())
 }

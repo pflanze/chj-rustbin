@@ -302,6 +302,7 @@ struct Dependencies {
 }
 
 impl Dependencies {
+    // XX move this into `impl ParseableStr for Dependencies`!
     pub fn from_parseable_str(s: ParseableStr) -> Result<Self, ParseError> {
         let mut keys = BTreeSet::new();
         for s in s.split_str(",", true)
@@ -1041,7 +1042,7 @@ fn parse_dat_without_year<'s>(
     }
 }
 
-// "2024-09-29_205249_Sun"
+// "2024-09-29_205249_Sun" -- XX update
 fn parse_dat<'s>(
     s: ParseableStr<'s>, options: &ParseDatOptions
 ) -> Result<(PreNaiveDateTime, ParseableStr<'s>, ParseableStr<'s>), ParseError> {

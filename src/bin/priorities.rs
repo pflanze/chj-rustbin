@@ -18,7 +18,7 @@ use chj_rustbin::{parse::{parsers::{ParseableStr, IntoParseable, FromParseableSt
                   io::excludes::default_excludes,
                   region::Region,
                   conslist::{cons, List},
-                  fp::compose};
+                  fp::compose, time::naive_date_time_without_year::NaiveDateTimeWithoutYear};
 use chj_rustbin::{parse_error, T};
 
 fn _warning(s: String) {
@@ -857,36 +857,6 @@ fn parse_inside<'s>(s: ParseableStr<'s>) -> Result<TaskInfoDeclarations, ParseEr
                 p = T!(inside_parse_variable(&mut builder, p))?
             }
         }
-    }
-}
-
-struct NaiveDateTimeWithoutYear {
-    position: usize,
-    month: u8,
-    day: u8,
-    hour: u8,
-    minute: u8,
-    second: u8
-}
-
-impl NaiveDateTimeWithoutYear {
-    pub fn for_year(self, year: u16) -> Result<NaiveDateTime, ParseError> {
-        let NaiveDateTimeWithoutYear { position, month, day, hour, minute, second } = self;
-        let nd = NaiveDate::from_ymd_opt(year.into(), month.into(), day.into())
-            .ok_or_else(|| {
-                parse_error! {
-                    message: format!("invalid month/day in year {year}"),
-                    position
-                }
-            })?;
-        let nt = NaiveTime::from_hms_opt(hour.into(), minute.into(), second.into())
-            .ok_or_else(|| {
-                parse_error! {
-                    message: format!("invalid hh:mm:ss numbers {hour}:{minute}:{second}"),
-                    position
-                }
-            })?;
-        Ok(NaiveDateTime::new(nd, nt))
     }
 }
 

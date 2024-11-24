@@ -1045,7 +1045,7 @@ fn parse_dat_without_year<'s>(
 // "2024-09-29_205249_Sun" -- XX update
 fn parse_dat<'s>(
     s: ParseableStr<'s>, options: &ParseDatOptions
-) -> Result<(PreNaiveDateTime, ParseableStr<'s>, ParseableStr<'s>), ParseError> {
+) -> Result<(NaiveDateTime, ParseableStr<'s>, ParseableStr<'s>), ParseError> {
     match T!(s.take_n_while(4, is_ascii_digit_char, "digit as part of year number")) {
         Ok((year, rest)) => {
             let rest = T!(rest.expect_separator(&options.date_separator))?;

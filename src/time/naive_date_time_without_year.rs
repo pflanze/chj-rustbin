@@ -1,10 +1,4 @@
-
-#[derive(thiserror::Error, Debug)]
-pub enum NaiveDateTimeWithoutYearError {
-    #[error("invalid year/month/day {0}/{1}/{2}")]
-    InvalidMonthOrDay(u16, u8, u8),
-    
-}
+use crate::parse_error;
 
 
 pub struct NaiveDateTimeWithoutYear {
@@ -20,9 +14,6 @@ impl NaiveDateTimeWithoutYear {
     pub fn for_year(self, year: u16) -> Result<NaiveDateTime, ParseError> {
         let NaiveDateTimeWithoutYear { position, month, day, hour, minute, second } = self;
         let nd = NaiveDate::from_ymd_opt(year.into(), month.into(), day.into())
-            .ok_or_else(|| InvalidMonthOrDay(year, month, day))?;
-
-            })?;
             .ok_or_else(|| {
                 parse_error! {
                     message: format!("invalid month/day in year {year}"),

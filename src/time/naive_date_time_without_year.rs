@@ -33,7 +33,6 @@ impl NaiveDateTimeWithoutYear {
         Ok(NaiveDateTime::new(nd, nt))
     }
 
-
     pub fn to_naive_date_time(&self) -> anyhow::Result<NaiveDateTime, ParseError> {
         Err(parse_error!{ message: "date is missing year".into(), position: self.position })
     }

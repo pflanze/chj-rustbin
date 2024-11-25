@@ -19,7 +19,8 @@ use chj_rustbin::{parse::{parsers::{ParseableStr, IntoParseable, FromParseableSt
                   io::excludes::default_excludes,
                   region::Region,
                   conslist::{cons, List},
-                  fp::compose, time::naive_date_time_without_year::NaiveDateTimeWithoutYear};
+                  fp::compose,
+                  time::naive_date_time_without_year::NaiveDateTimeWithoutYear};
 use chj_rustbin::{parse_error, T};
 
 fn _warning(s: String) {
@@ -200,7 +201,9 @@ pub fn priority_level(
     };
     match priority {
         Priority::Date(ndt) => {
-            let time_to_target: Duration = ndt.for_year(now.year().try_into().expect("the year of now should always be u16"))?.signed_duration_since(now);
+            let time_to_target: Duration = ndt.for_year(
+                now.year().try_into().expect("the year of 'now' is in u16 range"))?
+                .signed_duration_since(now);
             Ok(priority_for_time_left(time_to_target))
         }
         Priority::DaysFromToday(num_days) => {
@@ -286,8 +289,8 @@ fn t_parse_priority() {
     let te = |s: &str| Priority::from_parseable_str(ParseableStr::new(s)).err().unwrap()
         .to_string_in_context(s);
     let ymd_hms = |y, m, d, h, min, s| {
-        Priority::Date(NaiveDateTimeWithOrWithoutYear::NaiveDateTime(NaiveDate::from_ymd_opt(y, m, d).unwrap()
-            .and_hms_opt(h, min, s).unwrap()))
+        Priority::Date(NaiveDateTimeWithOrWithoutYear::NaiveDateTime(
+            NaiveDate::from_ymd_opt(y, m, d).unwrap().and_hms_opt(h, min, s).unwrap()))
     };
     assert_eq!(t("2024-11-01 11:37"), ymd_hms(2024, 11, 01, 11, 37, 0));
     assert_eq!(t("2024-11-01 11:37:13"), ymd_hms(2024, 11, 01, 11, 37, 13));

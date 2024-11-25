@@ -1123,12 +1123,13 @@ fn parse_date_time_argument(
             } else {
                 None
             }))?;
-    let rest = rest.trim();
+    let rest = rest.trim_start();
     if rest.is_empty() {
         Ok(ndt)
     } else {
+        let ndt_string = s.up_to(rest).trim_end();
         Err(parse_error! {
-            message: format!("garbage after datetime string {:?}", s.s),
+            message: format!("garbage after datetime string {:?}", ndt_string.s),
             position: rest.position
         })
     }

@@ -1268,7 +1268,7 @@ fn parse_path(id: usize, verbose: bool, region: &Region<PathBuf>, item: &FilePat
         WorkflowStatus::try_from(&*path).unwrap_or_else(|()| {
             if let Some((s, _rest)) = after_silencer(rest) {
                 WorkflowStatus::from_str(&s.s.to_lowercase())
-                    .expect("after_silencer selects valid status")
+                    .expect("after_silencer selects valid status string")
             } else {
                 WorkflowStatus::Open
             }

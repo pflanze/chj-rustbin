@@ -1233,6 +1233,11 @@ fn after_open_or_todo<'s>(s: ParseableStr<'s>) -> Option<(ParseableStr<'s>, Pars
     s.find_str_rest("OPEN").or_else(|| s.find_str_rest("TODO"))
 }
 
+// XX: Just like the above, should match on word boundaries.
+fn after_silencer<'s>(s: ParseableStr<'s>) -> Option<(ParseableStr<'s>, ParseableStr<'s>)> {
+    s.find_str_rest("DONE").or_else(|| s.find_str_rest("OBSOLETE"))
+}
+
 #[test]
 fn t_after_open_or_todo() {
     let t = |s: &'static str| after_open_or_todo(ParseableStr { position: 0, s });
@@ -1258,15 +1263,14 @@ fn parse_path(id: usize, verbose: bool, region: &Region<PathBuf>, item: &FilePat
         || anyhow!("the file name in path {path:?} does not have valid encoding"))?
         .into_parseable();
 
-    let (dependency_key_ndt, declarations, have_open
+    let (dependency_key_ndt, declarations, after_open
     ) = (|| -> Result<(Option<NaiveDateTime>,
                        TaskInfoDeclarations,
-                       bool), ParseError> {
+                       Option<ParseableStr>), ParseError> {
         let declarations: TaskInfoDeclarations;
-        let have_open: bool;
+        let after_open;
         let opt_datetime;
         if let Some((open_or_todo, rest)) = after_open_or_todo(file_name) {
-            have_open = true;
             if let Some(rest) = rest.drop_str("{") {
                 if let Some((inside, rest)) = rest.split_at_str("}") {
                     if let Some((_open_or_todo2, found)) = after_open_or_todo(rest) {
@@ -1276,6 +1280,7 @@ fn parse_path(id: usize, verbose: bool, region: &Region<PathBuf>, item: &FilePat
                         });
                     }
                     declarations = T!(parse_inside(inside))?;
+                    after_open = Some(rest);
                 } else {
                     return Err(parse_error! {
                         message: format!("missing closing '}}' after '{}{{'", open_or_todo.s),
@@ -1283,6 +1288,7 @@ fn parse_path(id: usize, verbose: bool, region: &Region<PathBuf>, item: &FilePat
                     });
                 }
             } else {
+                after_open = Some(rest);
                 declarations = Default::default();
             }
 
@@ -1293,7 +1299,7 @@ fn parse_path(id: usize, verbose: bool, region: &Region<PathBuf>, item: &FilePat
                 file_name, &PARSE_DAT_OPTIONS_FOR_PATH))?;
             opt_datetime = Some(datetime);
         } else {
-            have_open = false;
+            after_open = None;
             declarations = Default::default();
 
             // XX when to accept and how when a date is just not there?
@@ -1313,7 +1319,7 @@ fn parse_path(id: usize, verbose: bool, region: &Region<PathBuf>, item: &FilePat
         } else {
             None
         };
-        Ok((opt_ndt, declarations, have_open))
+        Ok((opt_ndt, declarations, after_open))
     })().map_err(|e| {
         let ParseError { message, position, .. } = &e;
         anyhow!("error parsing the file name of path {path:?}: {message} at: {:?}{}",
@@ -1325,8 +1331,15 @@ fn parse_path(id: usize, verbose: bool, region: &Region<PathBuf>, item: &FilePat
     let mtime = meta.modified()
         .with_context(|| anyhow!("getting modified time of file {path:?}"))?;
 
-    let workflow_status = if have_open {
-        WorkflowStatus::try_from(&*path).unwrap_or(WorkflowStatus::Open)
+    let workflow_status = if let Some(rest) = after_open {
+        WorkflowStatus::try_from(&*path).unwrap_or_else(|()| {
+            if let Some((s, _rest)) = after_silencer(rest) {
+                WorkflowStatus::from_str(&s.s.to_lowercase())
+                    .expect("after_silencer selects valid status")
+            } else {
+                WorkflowStatus::Open
+            }
+        })
     } else {
         // XX even if path has something?
         WorkflowStatus::None

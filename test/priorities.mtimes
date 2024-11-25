@@ -14,7 +14,6 @@
 1727947274	test/priorities/erroneous/2024-09-30_111332_Mon-duplicate OPEN
 1727947274	test/priorities/erroneous/2024-09-30_111332_Mon-foo OPEN{d: [2024-09-27]}
 1730291144	test/priorities/foo/2024-10-24_153947_Thu-foo (for Wed OPEN{10-27})
-1730291088	test/priorities/foo/2024-10-28_151258_Mon-foo register OPEN{15.11.2024}
 1730291249	test/priorities/foo/done/2024-10-30_132705_Wed-foo with invalid open but ignored OPEN{2024-10-27}
 1730291249	test/priorities/foo/obsolete/2024-10-30_132704_Wed-foo with invalid open but ignored OPEN{2024-10-27}
 1727969773	test/priorities/reprocessing/2024-10-03_173610_Thu-README OPEN{prio: 2}

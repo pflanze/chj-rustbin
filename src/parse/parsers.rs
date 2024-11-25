@@ -188,12 +188,29 @@ impl<'t> ParseableStr<'t> {
         )
     }
 
-    /// Trim whitespace on both ends
+    /// Trim whitespace from start end end.
     pub fn trim(self) -> ParseableStr<'t> {
         let s1 = self.s.trim_start();
         Self {
             s: s1.trim_end(),
             position: self.position + (self.len() - s1.len())
+        }
+    }
+
+    /// Trim whitespace from the end.
+    pub fn trim_start(self) -> ParseableStr<'t> {
+        let s1 = self.s.trim_start();
+        Self {
+            s: s1,
+            position: self.position + (self.len() - s1.len())
+        }
+    }
+
+    /// Trim whitespace from the end.
+    pub fn trim_end(self) -> ParseableStr<'t> {
+        Self {
+            s: self.s.trim_end(),
+            position: self.position
         }
     }
 

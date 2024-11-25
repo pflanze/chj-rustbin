@@ -14,20 +14,20 @@ pub struct NaiveDateTimeWithoutYear {
 }
 
 impl NaiveDateTimeWithoutYear {
-    pub fn for_year(self, year: u16) -> Result<NaiveDateTime, ParseError> {
+    pub fn for_year(&self, year: u16) -> Result<NaiveDateTime, ParseError> {
         let NaiveDateTimeWithoutYear { position, month, day, hour, minute, second } = self;
-        let nd = NaiveDate::from_ymd_opt(year.into(), month.into(), day.into())
+        let nd = NaiveDate::from_ymd_opt(year.into(), (*month).into(), (*day).into())
             .ok_or_else(|| {
                 parse_error! {
                     message: format!("invalid month/day in year {year}"),
-                    position
+                    position: *position
                 }
             })?;
-        let nt = NaiveTime::from_hms_opt(hour.into(), minute.into(), second.into())
+        let nt = NaiveTime::from_hms_opt((*hour).into(), (*minute).into(), (*second).into())
             .ok_or_else(|| {
                 parse_error! {
                     message: format!("invalid hh:mm:ss numbers {hour}:{minute}:{second}"),
-                    position
+                    position: *position
                 }
             })?;
         Ok(NaiveDateTime::new(nd, nt))

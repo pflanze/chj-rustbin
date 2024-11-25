@@ -1040,7 +1040,7 @@ impl NaiveDateTimeWithOrWithoutYear {
     pub fn for_year(&self, year: u16) -> Result<NaiveDateTime, ParseError> {
         match self {
             NaiveDateTimeWithOrWithoutYear::NaiveDateTime(ndt) => Ok(*ndt),
-            NaiveDateTimeWithOrWithoutYear::NaiveDateTimeWithoutYear(ndtwy) => ndtwy.clone().for_year(year)
+            NaiveDateTimeWithOrWithoutYear::NaiveDateTimeWithoutYear(ndtwy) => ndtwy.for_year(year)
         }
     }
 

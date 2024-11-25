@@ -280,25 +280,6 @@ impl FromParseableStr for Priority {
     }
 }
 
-#[cfg(test)]
-#[test]
-fn t_parse_priority() {
-    use chrono::NaiveDate;
-
-    let t = |s: &str| Priority::from_parseable_str(ParseableStr::new(s)).unwrap();
-    let te = |s: &str| Priority::from_parseable_str(ParseableStr::new(s)).err().unwrap()
-        .to_string_in_context(s);
-    let ymd_hms = |y, m, d, h, min, s| {
-        Priority::Date(NaiveDateTimeWithOrWithoutYear::NaiveDateTime(
-            NaiveDate::from_ymd_opt(y, m, d).unwrap().and_hms_opt(h, min, s).unwrap()))
-    };
-    assert_eq!(t("2024-11-01 11:37"), ymd_hms(2024, 11, 01, 11, 37, 0));
-    assert_eq!(t("2024-11-01 11:37:13"), ymd_hms(2024, 11, 01, 11, 37, 13));
-    assert_eq!(te("2024-11-01 12:00}"), "garbage after date/time at \"}\"");
-    assert_eq!(te("2024-11-01 12:00:01 a"), "garbage after date/time at \"a\"");
-    assert_eq!(t("2024-11-01 12:00:01  "), ymd_hms(2024, 11, 01, 12, 0, 1));
-}
-
 #[derive(Default, Debug, Clone)]
 struct Dependencies {
     // XX Arc for clone efficiency?
@@ -1153,56 +1134,6 @@ fn parse_date_time_argument(
     }
 }
 
-#[cfg(test)]
-#[test]
-fn t_parse_date_time_argument() {
-    use chrono::NaiveDate;
-
-    let ok = Ok(NaiveDateTime::new(NaiveDate::from_ymd_opt(2024, 9, 29).unwrap(),
-                                   NaiveTime::from_hms_opt(20, 52, 49).unwrap()));
-    let t = |s: &str| parse_date_time_argument(ParseableStr { position: 0, s }, false);
-    let te = |s| t(s).unwrap_err().to_string_in_context(s);
-    assert_eq!(t("2024-09-29_205249_Sun"), ok);
-    assert_eq!(t("2024-09-29 20:52:49 Sun"), ok);
-    assert_eq!(te("2024-09-29 20:52:49 Mon"),
-               "invalid weekday: given Mon, but date is for Sun at \"2024-09-29 20:52:49 Mon\"");
-    assert_eq!(t("2024/09/29 20:52:49 Sun"), ok);
-    assert_eq!(t("2024/09/29 20:52:49"), ok);
-    assert_eq!(te("2024/09/29 20:52:49 foo"),
-               "garbage after datetime string \"2024/09/29 20:52:49\" at \"foo\"");
-    assert_eq!(te("2024-09-29_205249_Mon"),
-               "invalid weekday: given Mon, but date is for Sun at \"2024-09-29_205249_Mon\"");
-    assert_eq!(t("2024-09-29_205249 Sun"), ok);
-    assert_eq!(t("2024-09-29_205249 Sun   "), ok);
-    assert_eq!(t("2024-09-29_205249 Sunday   "), ok);
-    assert_eq!(t("2024-09-29_20:52:49 Sun   "), ok);
-    assert_eq!(te("2024-09-29_2052:49 Sun   "),
-               "garbage after datetime string \"2024-09-29_2052\" at \":49 Sun   \"");
-    // disallow this one?
-    assert_eq!(t("2024-09-29_20:5249 Sun   "), ok);
-    // allow this one?
-    assert_eq!(te("2024-09-29_205249  Sun   "),
-               "garbage after datetime string \"2024-09-29_205249\" at \"Sun   \"");
-    assert_eq!(te("2024-09-29_205249 Sund"),
-               "garbage after datetime string \"2024-09-29_205249\" at \"Sund\"");
-    assert_eq!(te("2024-09-29_205249 Sun Sun"),
-               "garbage after datetime string \"2024-09-29_205249 Sun\" at \"Sun\"");
-    assert_eq!(te("2024/09/29"),
-               "time is required but missing after \"09/29\" at end of input");
-    assert_eq!(te("2024/09/29 foo"),
-               "time is required but missing after \"09/29\" at \" foo\"");
-
-    let ok2 = Ok(NaiveDateTime::new(NaiveDate::from_ymd_opt(2024, 9, 29).unwrap(),
-                                    NaiveTime::from_hms_opt(12, 0, 0).unwrap()));
-    // This t is with value `true`
-    let t = |s: &str| parse_date_time_argument(ParseableStr { position: 0, s }, true);
-    let te = |s| t(s).unwrap_err().to_string_in_context(s);
-    assert_eq!(t("2024/09/29"), ok2);
-    assert_eq!(t("2024/09/29 20:52:49 Sun"), ok);
-    assert_eq!(te("2024/09/29 foo"),
-               "garbage after datetime string \"2024/09/29\" at \"foo\"");
-}
-
 
 const fn parse_path_parse_dat_options(weekday_is_optional: bool) -> ParseDatOptions {
     ParseDatOptions {
@@ -1238,6 +1169,7 @@ fn after_silencer<'s>(s: ParseableStr<'s>) -> Option<(ParseableStr<'s>, Parseabl
     s.find_str_rest("DONE").or_else(|| s.find_str_rest("OBSOLETE"))
 }
 
+#[cfg(test)]
 #[test]
 fn t_after_open_or_todo() {
     let t = |s: &'static str| after_open_or_todo(ParseableStr { position: 0, s });
@@ -1501,3 +1433,127 @@ fn main() -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::NaiveDate;
+
+    // Only implement PartialEq for the tests--don't want it in normal
+    // code to prevent accidental comparisons with the year
+    // potentially missing.
+
+    impl PartialEq for NaiveDateTimeWithOrWithoutYear {
+        fn eq(&self, other: &Self) -> bool {
+            match self {
+                NaiveDateTimeWithOrWithoutYear::NaiveDateTime(ndt1) => match other {
+                    NaiveDateTimeWithOrWithoutYear::NaiveDateTime(ndt2) => ndt1 == ndt2,
+                    NaiveDateTimeWithOrWithoutYear::NaiveDateTimeWithoutYear(_) => panic!("can't compare")
+                },
+                NaiveDateTimeWithOrWithoutYear::NaiveDateTimeWithoutYear(_) => panic!("can't compare")
+            }
+        }
+    }
+
+    impl PartialEq for Priority {
+        fn eq(&self, other: &Self) -> bool {
+            match self {
+                Priority::Date(d1) => match other {
+                    Priority::Date(d2) => d1 == d2,
+                    _ => false
+                }
+                Priority::DaysFromToday(d1) => match other {
+                    Priority::DaysFromToday(d2) => d1 == d2,
+                    _ => false
+                }
+                Priority::Today => match other {
+                    Priority::Today => true,
+                    _ => false
+                }
+                Priority::Tonight => match other {
+                    Priority::Tonight => true,
+                    _ => false
+                }
+                Priority::Ongoing => match other {
+                    Priority::Ongoing => true,
+                    _ => false
+                }
+                Priority::Unknown => match other {
+                    Priority::Unknown => true,
+                    _ => false
+                }
+                Priority::Level(l1) => match other {
+                    Priority::Level(l2) => l1 == l2,
+                    _ => false
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn t_parse_priority() {
+
+        let t = |s: &str| Priority::from_parseable_str(ParseableStr::new(s)).unwrap();
+        let te = |s: &str| Priority::from_parseable_str(ParseableStr::new(s)).err().unwrap()
+            .to_string_in_context(s);
+        let ymd_hms = |y, m, d, h, min, s| {
+            Priority::Date(NaiveDateTimeWithOrWithoutYear::NaiveDateTime(
+                NaiveDate::from_ymd_opt(y, m, d).unwrap().and_hms_opt(h, min, s).unwrap()))
+        };
+        assert_eq!(t("2024-11-01 11:37"), ymd_hms(2024, 11, 01, 11, 37, 0));
+        assert_eq!(t("2024-11-01 11:37:13"), ymd_hms(2024, 11, 01, 11, 37, 13));
+        assert_eq!(te("2024-11-01 12:00}"), "garbage after date/time at \"}\"");
+        assert_eq!(te("2024-11-01 12:00:01 a"), "garbage after date/time at \"a\"");
+        assert_eq!(t("2024-11-01 12:00:01  "), ymd_hms(2024, 11, 01, 12, 0, 1));
+    }
+
+    #[test]
+    fn t_parse_date_time_argument() {
+        let ok = Ok(NaiveDateTimeWithOrWithoutYear::NaiveDateTime(
+            NaiveDateTime::new(NaiveDate::from_ymd_opt(2024, 9, 29).unwrap(),
+                               NaiveTime::from_hms_opt(20, 52, 49).unwrap())));
+        let t = |s: &str| parse_date_time_argument(ParseableStr { position: 0, s }, false);
+        let te = |s| t(s).unwrap_err().to_string_in_context(s);
+        assert_eq!(t("2024-09-29_205249_Sun"), ok);
+        assert_eq!(t("2024-09-29 20:52:49 Sun"), ok);
+        assert_eq!(te("2024-09-29 20:52:49 Mon"),
+                   "invalid weekday: given Mon, but date is for Sun at \"2024-09-29 20:52:49 Mon\"");
+        assert_eq!(t("2024/09/29 20:52:49 Sun"), ok);
+        assert_eq!(t("2024/09/29 20:52:49"), ok);
+        assert_eq!(te("2024/09/29 20:52:49 foo"),
+                   "garbage after datetime string \"2024/09/29 20:52:49\" at \"foo\"");
+        assert_eq!(te("2024-09-29_205249_Mon"),
+                   "invalid weekday: given Mon, but date is for Sun at \"2024-09-29_205249_Mon\"");
+        assert_eq!(t("2024-09-29_205249 Sun"), ok);
+        assert_eq!(t("2024-09-29_205249 Sun   "), ok);
+        assert_eq!(t("2024-09-29_205249 Sunday   "), ok);
+        assert_eq!(t("2024-09-29_20:52:49 Sun   "), ok);
+        assert_eq!(te("2024-09-29_2052:49 Sun   "),
+                   "garbage after datetime string \"2024-09-29_2052\" at \":49 Sun   \"");
+        // disallow this one?
+        assert_eq!(t("2024-09-29_20:5249 Sun   "), ok);
+        // allow this one?
+        assert_eq!(te("2024-09-29_205249  Sun   "),
+                   "garbage after datetime string \"2024-09-29_205249\" at \"Sun   \"");
+        assert_eq!(te("2024-09-29_205249 Sund"),
+                   "garbage after datetime string \"2024-09-29_205249\" at \"Sund\"");
+        assert_eq!(te("2024-09-29_205249 Sun Sun"),
+                   "garbage after datetime string \"2024-09-29_205249 Sun\" at \"Sun\"");
+        assert_eq!(te("2024/09/29"),
+                   "time is required but missing after \"09/29\" at end of input");
+        assert_eq!(te("2024/09/29 foo"),
+                   "time is required but missing after \"09/29\" at \" foo\"");
+
+        let ok2 = Ok(NaiveDateTimeWithOrWithoutYear::NaiveDateTime(
+            NaiveDateTime::new(NaiveDate::from_ymd_opt(2024, 9, 29).unwrap(),
+                               NaiveTime::from_hms_opt(12, 0, 0).unwrap())));
+        // This t is with value `true`
+        let t = |s: &str| parse_date_time_argument(ParseableStr { position: 0, s }, true);
+        let te = |s| t(s).unwrap_err().to_string_in_context(s);
+        assert_eq!(t("2024/09/29"), ok2);
+        assert_eq!(t("2024/09/29 20:52:49 Sun"), ok);
+        assert_eq!(te("2024/09/29 foo"),
+                   "garbage after datetime string \"2024/09/29\" at \"foo\"");
+    }
+}
+

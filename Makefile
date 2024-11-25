@@ -26,6 +26,10 @@ target/release/%: src/bin/%.rs src/*.rs src/io/*.rs src/parse/*.rs src/text/*.rs
 	install $< $@
 
 
-install: /usr/local/bin/lastitem /usr/local/bin/symlinks-index /usr/local/bin/e /usr/local/bin/intersection
+install: /usr/local/bin/lastitem
+install: /usr/local/bin/symlinks-index
+install: /usr/local/bin/e
+install: /usr/local/bin/intersection
+install: /usr/local/bin/priorities
 
 .PHONY: test test_intersection

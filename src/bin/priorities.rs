@@ -1531,9 +1531,8 @@ mod tests {
         assert_eq!(t("2024-09-29_20:52:49 Sun   "), ok);
         assert_eq!(te("2024-09-29_2052:49 Sun   "),
                    "garbage after datetime string \"2024-09-29_2052\" at \":49 Sun   \"");
-        // disallow this one?
         assert_eq!(t("2024-09-29_20:5249 Sun   "), ok);
-        // allow this one?
+        // allow this?:
         assert_eq!(te("2024-09-29_205249  Sun   "),
                    "garbage after datetime string \"2024-09-29_205249\" at \"Sun   \"");
         assert_eq!(te("2024-09-29_205249 Sund"),

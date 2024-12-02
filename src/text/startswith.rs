@@ -1,3 +1,5 @@
+//! Implement `starts_with` for iterators.
+
 pub trait StartsWith<I> {
     fn starts_with(&mut self, start: &mut I) -> Option<usize>;
 }

@@ -415,35 +415,59 @@ impl<'t> ParseableStr<'t> {
         }
     }
 
-    pub fn take_n_while<'d>(self, n: usize, mut pred: impl FnMut(char) -> bool, desc: &'d str)
-                    -> Result<(ParseableStr<'t>, ParseableStr<'t>), Box<Expected<'d>>> {
+    /// Take `n_min` to `n_max` (inclusive) characters matching
+    /// `pred`. Does not check whether there are more than `n_max`
+    /// characters matching `pred`, just returns what was found so
+    /// far.
+    pub fn take_n_while<'d>(
+        self,
+        n_min: usize,
+        n_max: usize, // inclusive
+        mut pred: impl FnMut(char) -> bool,
+        desc: &'d str
+    ) -> Result<(ParseableStr<'t>, ParseableStr<'t>), Box<Expected<'d>>> {
         let ParseableStr { position, s } = self;
         let mut cs = s.char_indices();
-        for _i in 0..n {
+        let mut failed_pos = None;
+        for i in 0..n_max {
             if let Some((pos, c)) = cs.next() {
                 if !pred(c) {
-                    // Should it report the begin of the n characters
-                    // or the character failing? Or use Cow and
-                    // generate a new message saying where the begin
-                    // is? Or use another Expected type that carries
-                    // the info, rather.
-                    return Err(Expected {
-                        desc,
-                        position: position + pos,
-                    }.into())
+                    if i < n_min {
+                        // Should it report the begin of the n characters
+                        // or the character failing? Or use Cow and
+                        // generate a new message saying where the begin
+                        // is? Or use another Expected type that carries
+                        // the info, rather.
+                        return Err(Expected {
+                            desc,
+                            position: position + pos,
+                        }.into())
+                    }
+                    failed_pos = Some(pos);
+                    break;
                 }
             } else {
                 // Eos
-                return Err(Expected {
-                    desc,
-                    position: position + s.len(),
-                }.into())
+                if i >= n_min {
+                    failed_pos = Some(s.len());
+                    break;
+                } else {
+                    return Err(Expected {
+                        desc,
+                        position: position + s.len(),
+                    }.into())
+                }
             }
         }
-        let (pos, _) = cs.next().unwrap_or_else(|| (s.len(), ' '));
+        let pos;
+        if let Some(failed_pos) = failed_pos {
+            pos = failed_pos;
+        } else {
+            (pos, _) = cs.next().unwrap_or_else(|| (s.len(), ' '));
+        }
         Ok((
             ParseableStr {
-                position: position,
+                position,
                 s: &s[0..pos]
             },
             ParseableStr {
@@ -608,9 +632,9 @@ mod tests {
     }
 
     #[test]
-    fn t_take_n_while() {
+    fn t_take_n_while_with_one_boundary() {
         let t = |s, n| ParseableStr::new(s).take_n_while(
-            n, |c| c.is_ascii_digit(), "digit as part of year number");
+            n, n, |c| c.is_ascii_digit(), "digit as part of year number");
         let ok = |s0, position, s1| Ok((ParseableStr::new(s0), ParseableStr {
             position,
             s: s1
@@ -622,5 +646,25 @@ mod tests {
         assert_eq!(t("2024-10", 5), err(4, "digit as part of year number"));
         assert_eq!(t("2024", 5), err(4, "digit as part of year number"));
         assert_eq!(t("2024", 4), ok("2024", 4, ""));
+    }
+
+    #[test]
+    fn t_take_n_while_with_boundary_range() {
+        let t = |s, n_min, n_max| ParseableStr::new(s).take_n_while(
+            n_min, n_max, |c| c.is_ascii_digit(), "digit as part of year number");
+        let ok = |s0, position, s1| Ok((ParseableStr::new(s0), ParseableStr {
+            position,
+            s: s1
+        }));
+        let err = |position, desc| Err(Box::new(Expected { position, desc }));
+        assert_eq!(t("2024-10", 3, 4), ok("2024", 4, "-10"));
+        assert_eq!(t("2024-10", 1, 3), ok("202", 3, "4-10"));
+        assert_eq!(t("2024-10", 8, 3), ok("202", 3, "4-10"));
+        assert_eq!(t("2024-10", 3, 0), ok("", 0, "2024-10"));
+        assert_eq!(t("2024-10", 4, 5), ok("2024", 4, "-10"));
+        assert_eq!(t("2024-10", 5, 6), err(4, "digit as part of year number"));
+        assert_eq!(t("2024", 3, 4), ok("2024", 4, ""));
+        assert_eq!(t("2024x", 4, 5), ok("2024", 4, "x"));
+        assert_eq!(t("2024", 4, 5), ok("2024", 4, ""));
     }
 }

@@ -13,3 +13,4 @@
 5.42	test/priorities/erroneous/2024-09-30_111332_Mon-duplicate OPEN
 5.42	test/priorities/erroneous/2024-09-30_111332_Mon-foo OPEN{d: [2024-09-27]}
 9.48	test/priorities/foo/2024-10-24_153947_Thu-foo (for Wed OPEN{10-27})
+12.40	test/priorities/2024-12-02_203000_Mon-some OPEN{12-3}

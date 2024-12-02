@@ -95,8 +95,11 @@ impl<'t> From<Box<ExpectedString<'t>>> for ParseError {
 
 impl<'t> From<Box<Expected<'t>>> for ParseError {
     fn from(e: Box<Expected>) -> Self {
-        parse_error! {
+        // Do not use parseerror! macro, since the frame here isn't
+        // interesting, and could sometimes save an allocation.
+        ParseError {
             message: e.to_string(),
+            location: Vec::new(),
             position: e.position
         }
     }

@@ -1506,6 +1506,13 @@ mod tests {
         assert_eq!(te("2024-11-01 12:00}"), "garbage after date/time at \"}\"");
         assert_eq!(te("2024-11-01 12:00:01 a"), "garbage after date/time at \"a\"");
         assert_eq!(t("2024-11-01 12:00:01  "), ymd_hms(2024, 11, 01, 12, 0, 1));
+        assert_eq!(t("2024-11-01 120001  "), ymd_hms(2024, 11, 01, 12, 0, 1));
+        assert_eq!(t("2024-11-01 020001  "), ymd_hms(2024, 11, 01, 2, 0, 1));
+        assert_eq!(t("2024-11-01 2:00:01  "), ymd_hms(2024, 11, 01, 2, 0, 1));
+        assert_eq!(te("2024-11-01 2:0:01  "), "garbage after date/time at \"2:0:01  \"");
+        assert_eq!(te("2024-11-01 0200:01  "), "garbage after date/time at \":01  \"");
+        assert_eq!(t("2024-11-01 0200  "), ymd_hms(2024, 11, 01, 2, 0, 0));
+        assert_eq!(te("2024-11-01 200  "), "garbage after date/time at \"200  \"");
     }
 
     #[test]

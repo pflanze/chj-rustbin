@@ -870,14 +870,13 @@ enum ParseTimeWdayErrorKind {
 }
 
 // This is really the continuation of parsing the date part of a
-// datetime value; it expects a separator at first.
+// datetime value; it expects a separator at first. Returns (hour,
+// minute, second) along weekday info and the input rest.
 fn parse_time_wday<'s>(
     s: ParseableStr<'s>,
     options: &ParseDatOptions,
-    month: u8,
-    day: u8,
-) -> Result<(NaiveDateTimeWithoutYear, Option<(Weekday, usize)>, ParseableStr<'s>),
-    (ParseTimeWdayErrorKind, ParseError)>
+) -> Result<((u8, u8, u8), Option<(Weekday, usize)>, ParseableStr<'s>),
+            (ParseTimeWdayErrorKind, ParseError)>
 {
     let ((hour, minute, second), rest) =
         (|| -> Result<((u8, u8, u8), ParseableStr<'s>),
@@ -944,14 +943,7 @@ fn parse_time_wday<'s>(
             Ok(((hour, minute, second), rest))
         })().map_err(|e| (ParseTimeWdayErrorKind::NoProperTime, e))?;
 
-    let datetime = NaiveDateTimeWithoutYear {
-        position: s.position,
-        month,
-        day,
-        hour,
-        minute,
-        second,
-    };
+    let time = (hour, minute, second);
 
     let weekday_result = (|| -> Result<((Weekday, usize), ParseableStr), ParseError> {
         // "_Sun"
@@ -968,9 +960,9 @@ fn parse_time_wday<'s>(
         Ok(((wday, wdaystr.position), rest))
     })();
     match weekday_result {
-        Ok((weekday_and_position, rest)) => Ok((datetime, Some(weekday_and_position), rest)),
+        Ok((weekday_and_position, rest)) => Ok((time, Some(weekday_and_position), rest)),
         Err(e) => if options.weekday_is_optional {
-            Ok((datetime, None, rest))
+            Ok((time, None, rest))
         } else {
             Err((ParseTimeWdayErrorKind::NoProperWeekday, e))
         }
@@ -1006,9 +998,18 @@ fn parse_dat_without_year<'s>(
     // options.time_is_optional is true, but if time succeeds and
     // options.weekday_is_optional is false and weekday fails, then
     // the whole thing should fail, too!
-    match parse_time_wday(rest, options, month, day) {
-        Ok((ndt_no_year, opt_weekday_position, rest)) =>
-            Ok((ndt_no_year, opt_weekday_position, rest)),
+    match parse_time_wday(rest, options) {
+        Ok(((hour, minute, second), opt_weekday_position, rest)) => {
+            let ndt_no_year = NaiveDateTimeWithoutYear {
+                position: s.position,
+                month,
+                day,
+                hour,
+                minute,
+                second,
+            };
+            Ok((ndt_no_year, opt_weekday_position, rest))
+        }
         Err((ParseTimeWdayErrorKind::NoProperTime, e)) => if let Some(dt) = options.default_time {
             let ndt_no_year = NaiveDateTimeWithoutYear {
                 position: e.position,
@@ -1444,6 +1445,24 @@ mod tests {
     // code to prevent accidental comparisons with the year
     // potentially missing.
 
+    // It's actually OK to compare NaiveDateTimeWithoutYear given
+    // tests where we compare to other without-year values and only
+    // want to know if the parsing step was correct.
+    fn naivedatetimewithoutyear_partial_eq(a: &NaiveDateTimeWithoutYear,
+                                           b: &NaiveDateTimeWithoutYear) -> bool {
+        macro_rules! cmp {
+            { $field_name:tt } => {
+                a.$field_name == b.$field_name
+            }
+        }
+        cmp!(position) &&
+            cmp!(month) &&
+            cmp!(day) &&
+            cmp!(hour) &&
+            cmp!(minute) &&
+            cmp!(second)
+    }
+
     impl PartialEq for NaiveDateTimeWithOrWithoutYear {
         fn eq(&self, other: &Self) -> bool {
             match self {
@@ -1451,7 +1470,11 @@ mod tests {
                     NaiveDateTimeWithOrWithoutYear::NaiveDateTime(ndt2) => ndt1 == ndt2,
                     NaiveDateTimeWithOrWithoutYear::NaiveDateTimeWithoutYear(_) => panic!("can't compare")
                 },
-                NaiveDateTimeWithOrWithoutYear::NaiveDateTimeWithoutYear(_) => panic!("can't compare")
+                NaiveDateTimeWithOrWithoutYear::NaiveDateTimeWithoutYear(d) => match other {
+                    NaiveDateTimeWithOrWithoutYear::NaiveDateTime(_) => panic!("can't compare"),
+                    NaiveDateTimeWithOrWithoutYear::NaiveDateTimeWithoutYear(d2) =>
+                        naivedatetimewithoutyear_partial_eq(d, d2)
+                }
             }
         }
     }
@@ -1513,6 +1536,31 @@ mod tests {
         assert_eq!(te("2024-11-01 0200:01  "), "garbage after date/time at \":01  \"");
         assert_eq!(t("2024-11-01 0200  "), ymd_hms(2024, 11, 01, 2, 0, 0));
         assert_eq!(te("2024-11-01 200  "), "garbage after date/time at \"200  \"");
+
+        let p_md_hms = |position, month, day, hour, minute, second| {
+            Priority::Date(NaiveDateTimeWithOrWithoutYear::NaiveDateTimeWithoutYear(
+                NaiveDateTimeWithoutYear {
+                    position,
+                    month,
+                    day,
+                    hour,
+                    minute,
+                    second,
+                }))
+        };
+        assert_eq!(t("11-01 11:37"), p_md_hms(0, 11, 01, 11, 37, 0));
+        assert_eq!(t("11-1 11:37:13"), p_md_hms(0, 11, 01, 11, 37, 13));
+        assert_eq!(te("11-01 12:00}"), "garbage after date/time at \"}\"");
+        assert_eq!(te("11-1 12:00:01 a"), "garbage after date/time at \"a\"");
+        assert_eq!(t("11-01 12:00:01  "), p_md_hms(0, 11, 01, 12, 0, 1));
+        assert_eq!(t("  11-01 120001  "), p_md_hms(2, 11, 01, 12, 0, 1));
+        assert_eq!(t("11-01 020001  "), p_md_hms(0, 11, 01, 2, 0, 1));
+        assert_eq!(t("11-01 2:00:01  "), p_md_hms(0, 11, 01, 2, 0, 1));
+        assert_eq!(te("11-01 2:0:01  "), "garbage after date/time at \"2:0:01  \"");
+        assert_eq!(te("11-01 0200:01  "), "garbage after date/time at \":01  \"");
+        assert_eq!(t("11-01 0200  "), p_md_hms(0, 11, 01, 2, 0, 0));
+        assert_eq!(te("11-01 200  "), "garbage after date/time at \"200  \"");
+        
     }
 
     #[test]

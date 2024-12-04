@@ -5,7 +5,6 @@ use std::str::FromStr;
 use genawaiter::rc::Gen;
 
 use crate::parse::parse_error::ParseError;
-use crate::parse_error;
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,8 +85,11 @@ pub struct FromStrError {
 
 impl<'t> From<Box<ExpectedString<'t>>> for ParseError {
     fn from(e: Box<ExpectedString>) -> Self {
-        parse_error! {
+        // Do not use parseerror! macro, since the frame here isn't
+        // interesting, and could sometimes save an allocation.
+        ParseError {
             message: e.to_string(),
+            location: Vec::new(),
             position: e.position
         }
     }

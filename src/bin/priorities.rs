@@ -913,11 +913,11 @@ fn parse_time_wday<'s>(
                 }
             } else {
                 let msg = "digit as part of time";
-                let (hh, rest) = T!(rest.take_n_while(1, 2, is_ascii_digit_char, msg))?;
+                let (hh, rest) = T!(rest.take_nrange_while(1, 2, is_ascii_digit_char, msg))?;
                 let rest = T!(rest.expect_separator(&options.time_separator))?;
-                let (mm, rest) = T!(rest.take_n_while(2, 2, is_ascii_digit_char, msg))?;
+                let (mm, rest) = T!(rest.take_n_while(2, is_ascii_digit_char, msg))?;
                 let rest = T!(rest.expect_separator(&options.time_separator))?;
-                if let Some((ss, rest)) = rest.take_n_while(2, 2, is_ascii_digit_char, msg).ok() {
+                if let Some((ss, rest)) = rest.take_n_while(2, is_ascii_digit_char, msg).ok() {
                     ((hh, mm, Some(ss)), rest)
                 } else {
                     ((hh, mm, None), rest)
@@ -980,14 +980,14 @@ fn parse_dat_without_year<'s>(
     ParseError>
 {
     let rest = s;
-    let (month, rest) = T!(rest.take_n_while(
+    let (month, rest) = T!(rest.take_nrange_while(
         1, 2, is_ascii_digit_char, "digit as part of month number"))?;
     let month = u8::from_str(month.s).map_err(|e| parse_error! {
         message: format!("can't parse month {:?}: {e}", month.s),
         position: month.position
     })?;
     let rest = T!(rest.expect_separator(&options.date_separator))?;
-    let (day, rest) = T!(rest.take_n_while(
+    let (day, rest) = T!(rest.take_nrange_while(
         1, 2, is_ascii_digit_char, "digit as part of day number"))?;
     let day = u8::from_str(day.s).map_err(|e| parse_error! {
         message: format!("can't parse day {:?}: {e}", day.s),
@@ -1057,7 +1057,7 @@ impl NaiveDateTimeWithOrWithoutYear {
 fn parse_dat<'s>(
     s: ParseableStr<'s>, options: &ParseDatOptions,
 ) -> Result<(NaiveDateTimeWithOrWithoutYear, ParseableStr<'s>), ParseError> {
-    match T!(s.take_n_while(4, 4, is_ascii_digit_char, "digit as part of year number")) {
+    match T!(s.take_n_while(4, is_ascii_digit_char, "digit as part of year number")) {
         Ok((year, rest)) => {
             let rest = T!(rest.expect_separator(&options.date_separator))?;
             let (datetime_no_year, opt_weekday_and_position, rest) =

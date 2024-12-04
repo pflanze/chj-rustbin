@@ -415,11 +415,23 @@ impl<'t> ParseableStr<'t> {
         }
     }
 
+    /// Take `n` characters matching `pred`. Does not check whether
+    /// there are more than `n` characters matching `pred`, just
+    /// returns what was found so far.
+    pub fn take_n_while<'d>(
+        self,
+        n: usize,
+        pred: impl FnMut(char) -> bool,
+        desc: &'d str
+    ) -> Result<(ParseableStr<'t>, ParseableStr<'t>), Box<Expected<'d>>> {
+        self.take_nrange_while(n, n, pred, desc)
+    }
+
     /// Take `n_min` to `n_max` (inclusive) characters matching
     /// `pred`. Does not check whether there are more than `n_max`
     /// characters matching `pred`, just returns what was found so
     /// far.
-    pub fn take_n_while<'d>(
+    pub fn take_nrange_while<'d>(
         self,
         n_min: usize,
         n_max: usize, // inclusive
@@ -632,9 +644,9 @@ mod tests {
     }
 
     #[test]
-    fn t_take_n_while_with_one_boundary() {
+    fn t_take_n_while() {
         let t = |s, n| ParseableStr::new(s).take_n_while(
-            n, n, |c| c.is_ascii_digit(), "digit as part of year number");
+            n, |c| c.is_ascii_digit(), "digit as part of year number");
         let ok = |s0, position, s1| Ok((ParseableStr::new(s0), ParseableStr {
             position,
             s: s1
@@ -649,8 +661,8 @@ mod tests {
     }
 
     #[test]
-    fn t_take_n_while_with_boundary_range() {
-        let t = |s, n_min, n_max| ParseableStr::new(s).take_n_while(
+    fn t_take_nrange_while() {
+        let t = |s, n_min, n_max| ParseableStr::new(s).take_nrange_while(
             n_min, n_max, |c| c.is_ascii_digit(), "digit as part of year number");
         let ok = |s0, position, s1| Ok((ParseableStr::new(s0), ParseableStr {
             position,

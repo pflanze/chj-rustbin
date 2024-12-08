@@ -18,4 +18,8 @@
 
 - List the "class" names in the help text or via an option.
 
-- Hierarchical tasks (subtasks).
+- Hierarchical tasks (subtasks) step 1: treat files prefixed with a dot as tagging their parent folder
+
+- Hierarchical tasks (subtasks) step 2: group files in such a folder to the folder
+
+- Error location display: show `^` in next line instead?

@@ -715,6 +715,30 @@ fn inside_parse_key_val<'s>(
     }
 }
 
+// XX move to an enum with library support.
+const INSIDE_PARSE_CASES: &[&str] = &[
+    "chore",
+    "decide",
+    "occasionally",
+    "relaxed",
+    "today",
+    "tonight",
+    "ongoing",
+];
+
+// too hard to make const
+fn assert_inside_parse_case(s: &str) {
+    let mut cases = INSIDE_PARSE_CASES;
+    while !cases.is_empty() {
+        let case = cases[0];
+        if case == s {
+            return;
+        }
+        cases = &cases[1..];
+    }
+    panic!("invalid case {:?}", s);
+}
+
 // Attempt to parse an identifier as a 'class' name; nothing must come
 // after `ident` (except comma or further arguments, to be checked by
 // the caller). Returns the values to be set.
@@ -730,11 +754,13 @@ fn inside_parse_class(
         // this is priority (and size).
 
         "chore" => {
+            assert_inside_parse_case(ident.s);
             // Pick it up at times when doing mind
             // numbing things. Small.
             Some((TaskSize::Minutes, Priority::Level(7)))
         }
         "decide" => {
+            assert_inside_parse_case(ident.s);
             // Something small to decide on; but
             // somewhat higher priority since it
             // is still probably somewhat time
@@ -743,26 +769,31 @@ fn inside_parse_class(
             Some((TaskSize::Minutes, Priority::Level(4)))
         }
         "occasionally" => {
+            assert_inside_parse_case(ident.s);
             // Pick it up when the right occasion
             // or state of mind happens.
             Some((TaskSize::Hours, Priority::Level(7)))
         }
         "relaxed" => {
+            assert_inside_parse_case(ident.s);
             // Things to do at some particular
             // time of week. Or as a filler? When
             // feeling relaxed?
             Some((TaskSize::Hours, Priority::Level(8)))
         }
         "today" => {
+            assert_inside_parse_case(ident.s);
             // Things to do today. Or if missed,
             // the next day..
             Some((TaskSize::Hours, Priority::Today))
         }
         "tonight" => {
+            assert_inside_parse_case(ident.s);
             // Things to do before going home or on the way.
             Some((TaskSize::Minutes, Priority::Tonight))
         }
         "ongoing" => {
+            assert_inside_parse_case(ident.s);
             // Hmm, no due date, no priority? Or,
             // just expecting to work on this
             // 20-50% every (day or) week until
@@ -825,7 +856,10 @@ fn parse_inside<'s>(s: ParseableStr<'s>) -> Result<TaskInfoDeclarations, ParseEr
                         // p = inside_parse_variable(&mut builder, p)?
                         // But so far no (integer priorities are not identifiers), thus:    
                         return Err(parse_error! {
-                            message: format!("unknown class {:?}", ident.s),
+                            message: format!(
+                                "unknown class {:?}, known are: {INSIDE_PARSE_CASES:?}",
+                                ident.s
+                            ),
                             position: ident.position
                         });
                     }

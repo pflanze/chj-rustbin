@@ -5,7 +5,10 @@
 
 ## For 'priorities'
 
-- Don't just use the current year to complete dates without year.
+- Don't just use the current year to complete dates without year. Use
+  and require the date in the file name as base.
+
+- add WONTFIX to statuses
 
 - Parse `2.12.2024` style date format.
 

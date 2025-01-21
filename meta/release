@@ -14,7 +14,7 @@ check_clean() {
 
 check_clean
 
-test/priorities-update-mtimes
+test/priorities-store-mtimes
 
 check_clean
 

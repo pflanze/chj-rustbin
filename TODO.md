@@ -8,6 +8,10 @@
 - Don't just use the current year to complete dates without year. Use
   and require the date in the file name as base.
 
+- Should this be done or future?: `./done/commandline/future/` (future
+  is kinda good actually? It helped me find one in here. But in
+  general?)
+
 - Parse `2.12.2024` style date format.
 
 - Parse `Mon_21_Oct_090435_CEST_2024` style date format (code in

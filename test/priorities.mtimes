@@ -7,6 +7,9 @@
 1729367175	test/priorities/2024-10-02_200923_Wed-some OPEN{ today , d:2024-09-29_231231_Sun-meta}
 1732542859	test/priorities/2024-11-25_145417_Mon-some OPEN{1} DONE
 1733195978	test/priorities/2024-12-02_203000_Mon-some OPEN{12-3}
+1737334224	test/priorities/2025-01-20_015023_Mon-another OPEN{1-24} DONE OPEN{today}
+1737334224	test/priorities/2025-01-20_015024_Mon-another OPEN{1-24} DONE
+1737334224	test/priorities/2025-01-20_015025_Mon-another OPEN{1-24} OPEN{today}
 1730291051	test/priorities/README
 1727947274	test/priorities/erroneous/2024-09-29_231214_Sun-meta another task OPEN{depends: 2024-09-27_201849_Fri, 2024-09-27_201931_Fri}
 1727947274	test/priorities/erroneous/2024-09-30_111329_Mon-foo OPEN{d: [2024-09-27_201931_,2024-09-27_201931_Mon]}

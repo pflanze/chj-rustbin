@@ -365,6 +365,42 @@ pub enum WorkflowStatus {
 }
 
 impl WorkflowStatus {
+    // XX use the library for this pls.
+    const INSTANCES: &'static [WorkflowStatus] = {
+        use WorkflowStatus::*;
+        &[
+            None,
+
+            Open,
+            Done,
+            Obsolete,
+
+            Dupe,
+            Future,
+
+            Notforme,
+            Applied,
+            Active,
+            Rejected,
+        ]
+    };
+
+    /// Returns multiple entries if there are aliases, 0 entry for
+    /// `WorkflowStatus::None`.
+    pub fn uppercase_strs(self) -> &'static[&'static str] {
+        match self {
+            WorkflowStatus::None => &[],
+            WorkflowStatus::Open => &["OPEN", "TODO"],
+            WorkflowStatus::Done => &["DONE"],
+            WorkflowStatus::Obsolete => &["OBSOLETE"],
+            WorkflowStatus::Dupe => &["DUPE"],
+            WorkflowStatus::Future => &["FUTURE"],
+            WorkflowStatus::Notforme => &["NOTFORME"],
+            WorkflowStatus::Applied => &["APPLIED"],
+            WorkflowStatus::Active => &["ACTIVE"],
+            WorkflowStatus::Rejected => &["REJECTED"],
+        }
+    }
     pub fn is_active(self) -> bool {
         match self {
             WorkflowStatus::None => false,
@@ -384,6 +420,8 @@ impl WorkflowStatus {
 impl FromStr for WorkflowStatus {
     type Err = ();
 
+    /// Translate a full match on a string (a directory name) to a
+    /// `WorkflowStatus`.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             // This should never be used as a folder name, since need
@@ -410,9 +448,12 @@ impl FromStr for WorkflowStatus {
 impl TryFrom<&Path> for WorkflowStatus {
     type Error = ();
 
+    /// Go through the path segments of the parent directory of the
+    /// path (from the right) to decide on the `WorkflowStatus`. Only
+    /// directory names fully matching a status name are considered.
     fn try_from(path: &Path) -> Result<Self, Self::Error> {
         let mut anc = path.ancestors();
-        let _ = anc.next(); // the file name
+        let _ = anc.next(); // path itself
         for dir in anc {
             if let Some(file_name) = dir.file_name() {
                 match file_name.to_str() {
@@ -1193,33 +1234,178 @@ const fn parse_path_parse_dat_options(weekday_is_optional: bool) -> ParseDatOpti
 const PARSE_DAT_OPTIONS_FOR_PATH: ParseDatOptions = parse_path_parse_dat_options(true);
 const PARSE_DAT_OPTIONS_FOR_INSIDE: ParseDatOptions = parse_path_parse_dat_options(false);
 
-// Find either "OPEN" or "TODO" in s. Prioritizes the "OPEN" find (if
-// "TODO" comes before "OPEN", it will still report the "OPEN"
-// instead).
-fn after_open_or_todo<'s>(s: ParseableStr<'s>) -> Option<(ParseableStr<'s>, ParseableStr<'s>)> {
-    s.find_str_rest("OPEN").or_else(|| s.find_str_rest("TODO"))
+fn is_word_character(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_'
 }
 
-// XX: Just like the above, should match on word boundaries.
-fn after_silencer<'s>(s: ParseableStr<'s>) -> Option<(ParseableStr<'s>, ParseableStr<'s>)> {
-    s.find_str_rest("DONE").or_else(|| s.find_str_rest("OBSOLETE"))
+fn is_word_boundary(c: Option<char>) -> bool {
+    match c  {
+        Some(c) => !is_word_character(c),
+        None => true
+    }
+}
+
+// Find "OPEN"/"TODO", "DONE" and other workflow markers, together
+// with the found strings, sorted by their positions. Note: this does
+// *not* consider `{..}` blocks, see `find_all_parsed_markers` for
+// that. (Performance: there could be a better algorithm.)
+fn find_all_markers<'s>(
+    s: ParseableStr<'s>
+) -> Vec<(WorkflowStatus, ParseableStr<'s>, ParseableStr<'s>)>
+{
+    let mut found = Vec::new();
+    for status in WorkflowStatus::INSTANCES {
+        for key in status.uppercase_strs() {
+            let mut p = s;
+            while let Some((string, rest)) = p.find_str_rest(key) {
+                p = rest;
+                let before = s.s[0..string.position].chars().rev().next();
+                let after = rest.first();
+                if is_word_boundary(before) && is_word_boundary(after) {
+                    found.push((*status, string, rest));
+                }
+                // Else don't need to backtrack since all our marker
+                // names are \w+, thus no overlap possible.
+            }
+        }
+    }
+    found.sort_by_key(|(_status, string, _rest)| string.position);
+    found
 }
 
 #[cfg(test)]
 #[test]
-fn t_after_open_or_todo() {
-    let t = |s: &'static str| after_open_or_todo(ParseableStr { position: 0, s });
-    let finds = |pos1, s1: &'static str, pos2, s2: &'static str| {
-        Some((
-            ParseableStr { position: pos1, s: s1 },
-            ParseableStr { position: pos2, s: s2 },
-        ))
+fn t_find_markers() {
+    let t = |s: &'static str| {
+        find_all_markers(ParseableStr { position: 0, s })
+            .into_iter().map(|(status, string, _rest)| {
+                (status, string.position)
+            }).collect::<Vec<_>>()
     };
-    assert_eq!(t("foo bar"), None);
-    assert_eq!(t("foo OPEN"), finds(4, "OPEN", 8, ""));
-    assert_eq!(t("foo OPEN TODO"), finds(4, "OPEN", 8, " TODO"));
-    assert_eq!(t("foo TODO OPEN"), finds(9, "OPEN", 13, ""));
-    assert_eq!(t("foo TODO a"), finds(4, "TODO", 8, " a"));
+    use WorkflowStatus::*;
+    assert_eq!(t("foo bar"), []);
+    assert_eq!(t("foo OPEN"), [(Open, 4)]);
+    assert_eq!(t("foo OPEN TODO"), [(Open, 4), (Open, 9)]);
+    assert_eq!(t("foo TODO OPEN"), [(Open, 4), (Open, 9)]);
+    assert_eq!(t("TODO  DONE OPEN"), [(Open, 0), (Done, 6), (Open, 11)]);
+    assert_eq!(t("foo TODO_ DONE POPEN DONE4 /DONE+"), [(Done, 10), (Done, 28)]);
+}
+
+// Parse a marker with its optional `{..}` block, return parsed value
+// and rest (after the block if given).
+fn parse_marker<'s>(
+    (_status, string, rest): (WorkflowStatus, ParseableStr<'s>, ParseableStr<'s>)
+) -> Result<(Option<TaskInfoDeclarations>, ParseableStr<'s>), ParseError>
+{
+    if let Some(rest) = rest.drop_str("{") {
+        if let Some((inside, rest)) = rest.split_at_str("}") {
+            Ok((Some(T!(parse_inside(inside))?), rest))
+        } else {
+            Err(parse_error! {
+                message: format!("missing closing '}}' after '{}{{'", string.s),
+                position: rest.position
+            })
+        }
+    } else {
+        Ok((None, rest))
+    }
+}
+
+// Find and parse all markers (with their parsed block, if any),
+// skipping over marker strings that are within blocks.
+fn find_all_parsed_markers<'s>(
+    markers: Vec<(WorkflowStatus, ParseableStr<'s>, ParseableStr<'s>)>
+) -> Result<Vec<(Option<TaskInfoDeclarations>, WorkflowStatus, ParseableStr<'s>, ParseableStr<'s>)>,
+            ParseError>
+{
+    let mut parsed = Vec::new();
+    let mut ms = markers.into_iter();
+    let mut cur_marker = ms.next();
+    loop {
+        if let Some(marker) = cur_marker {
+            let (taskinfodecl, rest) = T!(parse_marker(marker))?;
+            parsed.push((taskinfodecl, marker.0, marker.1, rest));
+            loop {
+                cur_marker = ms.next();
+                if let Some((_, string, _)) = cur_marker.as_ref() {
+                    if rest.position > string.position {
+                        // skip that marker
+                    } else {
+                        break
+                    }
+                } else {
+                    break
+                }
+            }
+        } else {
+            break;
+        }
+    }
+    Ok(parsed)
+}
+
+enum MarkerStatus {
+    Open((TaskInfoDeclarations, WorkflowStatus)),
+    /// ex-Open? No, just whatever non-Open status we have seen.
+    NotOpen(WorkflowStatus),
+    None
+}
+
+
+// Find the last parsed `WorkflowStatus::Open` marker, if any, and/or
+// the last `WorkFlowStatus` (last such marker after the `Open`, if
+// any, otherwise `Open`, or whatever status was found if there's no
+// `Open`).
+fn find_marker_status<'s>(
+    markers: Vec<(Option<TaskInfoDeclarations>, WorkflowStatus, ParseableStr<'s>, ParseableStr<'s>)>
+) -> Result<MarkerStatus, ParseError> {
+    let mut open: Option<(TaskInfoDeclarations, ParseableStr<'s>)> = None;
+    let mut last_status: Option<WorkflowStatus> = None;
+    let mut previous_was_open = false;
+    for (decl, status, string, _rest) in markers {
+        match status {
+            WorkflowStatus::None => (), // ? XX what is None for again?
+            WorkflowStatus::Open => if previous_was_open {
+                Err(parse_error! {
+                    message: format!(
+                        "adjacent opening markers found without a closing marker inbetween: \
+                         {:?} then {:?}",
+                        // XX again want multi-position errors? ! todo.
+                        open.as_ref().expect("set at same time as previous_was_open").1,
+                        string),
+                    position: string.position
+                })?
+            } else {
+                previous_was_open = true;
+                // Overwrite previous decl even if there is none now,
+                // yes: old times do not make sense any more, right?
+                open = Some((decl.unwrap_or_else(Default::default), string));
+                last_status = Some(WorkflowStatus::Open);
+            },
+            // (Also check that only one closing marker is given?
+            // Actually it may be OK to have multiple!)
+            WorkflowStatus::Done |
+            WorkflowStatus::Obsolete |
+            WorkflowStatus::Dupe |
+            WorkflowStatus::Future |
+            WorkflowStatus::Notforme |
+            WorkflowStatus::Applied |
+            WorkflowStatus::Active |
+            WorkflowStatus::Rejected => {
+                previous_was_open = false;
+                last_status = Some(status);
+            }
+        }
+    }
+    if let Some(info) = open {
+        Ok(MarkerStatus::Open((info.0, last_status.expect("set when `open` was set"))))
+    } else {
+        Ok(if let Some(status) = last_status {
+            MarkerStatus::NotOpen(status)
+        } else {
+            MarkerStatus::None
+        })
+    }
 }
 
 
@@ -1231,63 +1417,56 @@ fn parse_path(id: usize, verbose: bool, region: &Region<PathBuf>, item: &FilePat
         || anyhow!("the file name in path {path:?} does not have valid encoding"))?
         .into_parseable();
 
-    let (dependency_key_ndt, declarations, after_open
+    let (dependency_key_ndt, declarations, workflow_status_from_filename
     ) = (|| -> Result<(Option<NaiveDateTime>,
                        TaskInfoDeclarations,
-                       Option<ParseableStr>), ParseError> {
+                       WorkflowStatus), ParseError> {
         let declarations: TaskInfoDeclarations;
-        let after_open;
+        let workflow_status_from_filename: WorkflowStatus;
         let opt_datetime;
-        if let Some((open_or_todo, rest)) = after_open_or_todo(file_name) {
-            if let Some(rest) = rest.drop_str("{") {
-                if let Some((inside, rest)) = rest.split_at_str("}") {
-                    if let Some((_open_or_todo2, found)) = after_open_or_todo(rest) {
-                        return Err(parse_error! {
-                            message: "more than one occurrence of 'OPEN' or 'TODO'".into(),
-                            position: found.position
-                        });
-                    }
-                    declarations = T!(parse_inside(inside))?;
-                    after_open = Some(rest);
-                } else {
-                    return Err(parse_error! {
-                        message: format!("missing closing '}}' after '{}{{'", open_or_todo.s),
-                        position: rest.position
-                    });
-                }
-            } else {
-                after_open = Some(rest);
-                declarations = Default::default();
-            }
 
-            // XX when to accept and how when a date is just not there?
-            // Maybe if starts with 2020..2050 number then -, go all the
-            // way.
-            let (datetime, _rest) = T!(parse_dat(
-                file_name, &PARSE_DAT_OPTIONS_FOR_PATH))?;
-            opt_datetime = Some(datetime);
-        } else {
-            after_open = None;
-            declarations = Default::default();
-
-            // XX when to accept and how when a date is just not there?
-            // Maybe if starts with 2020..2050 number then -, go all the
-            // way.
+        let possibly_datetime = || {
             if let Ok((datetime, _rest)) = parse_dat(
                 file_name, &PARSE_DAT_OPTIONS_FOR_PATH)
             {
-                opt_datetime = Some(datetime);
+                Some(datetime)
             } else {
-                opt_datetime = None;
+                None
+            }
+        };
+
+        let marker_status = find_marker_status(
+            find_all_parsed_markers(
+                find_all_markers(
+                    file_name))?)?;
+
+        match marker_status {
+            MarkerStatus::Open(decl_and_status) => {
+                (declarations, workflow_status_from_filename) = decl_and_status;
+
+                // Must have a date in file name -- currently. Should this change?
+                // old comment, todo understand:
+                // XX when to accept and how when a date is just not there?
+                // Maybe if starts with 2020..2050 number then -, go all the
+                // way.
+                let (datetime, _rest) = T!(parse_dat(file_name, &PARSE_DAT_OPTIONS_FOR_PATH))?;
+                opt_datetime = Some(datetime);
+            }
+            MarkerStatus::NotOpen(status) => {
+                declarations = Default::default();
+                workflow_status_from_filename = status;
+                opt_datetime = possibly_datetime();
+                
+            }
+            MarkerStatus::None => {
+                declarations = Default::default();
+                workflow_status_from_filename = WorkflowStatus::None;
+                opt_datetime = possibly_datetime();
             }
         }
 
-        let opt_ndt = if let Some(datetime) = opt_datetime {
-            Some(datetime.to_naive_date_time()?)
-        } else {
-            None
-        };
-        Ok((opt_ndt, declarations, after_open))
+        let opt_ndt = opt_datetime.map(|datetime| datetime.to_naive_date_time()).transpose()?;
+        Ok((opt_ndt, declarations, workflow_status_from_filename))
     })().map_err(|e| {
         let ParseError { message, position, .. } = &e;
         anyhow!("error parsing the file name of path {path:?}: {message} at: {:?}{}",
@@ -1299,19 +1478,11 @@ fn parse_path(id: usize, verbose: bool, region: &Region<PathBuf>, item: &FilePat
     let mtime = meta.modified()
         .with_context(|| anyhow!("getting modified time of file {path:?}"))?;
 
-    let workflow_status = if let Some(rest) = after_open {
-        WorkflowStatus::try_from(&*path).unwrap_or_else(|()| {
-            if let Some((s, _rest)) = after_silencer(rest) {
-                WorkflowStatus::from_str(&s.s.to_lowercase())
-                    .expect("after_silencer selects valid status string")
-            } else {
-                WorkflowStatus::Open
-            }
-        })
-    } else {
-        // XX even if path has something?
-        WorkflowStatus::None
-    };
+    // Get workflow status from the *folder(s)* (above we got it from
+    // the file name, only):
+    let workflow_status = WorkflowStatus::try_from(&*path)
+        .unwrap_or(workflow_status_from_filename);
+
     Ok(TaskInfo {
         id,
         dependency_key: dependency_key_ndt.map(DependencyKey::from),

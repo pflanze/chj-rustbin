@@ -5,8 +5,6 @@
 
 ## For 'priorities'
 
-- The strings OPEN or TODO must only be matched with word boundaries before and after.
-
 - Don't just use the current year to complete dates without year.
 
 - Parse `2.12.2024` style date format.

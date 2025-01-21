@@ -52,6 +52,10 @@ impl<'t> ParseableStr<'t> {
     pub fn len(&self) -> usize {
         self.s.len()
     }
+
+    pub fn first(&self) -> Option<char> {
+        self.s.chars().next()
+    }
     
     /// You usually want `drop_str` instead.
     pub fn starts_with(&self, s: &str) -> bool {

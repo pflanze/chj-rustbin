@@ -354,6 +354,7 @@ pub enum WorkflowStatus {
     Open,
     Done,
     Obsolete,
+    Wontfix,
 
     Dupe,
     Future,
@@ -374,6 +375,7 @@ impl WorkflowStatus {
             Open,
             Done,
             Obsolete,
+            Wontfix,
 
             Dupe,
             Future,
@@ -393,6 +395,7 @@ impl WorkflowStatus {
             WorkflowStatus::Open => &["OPEN", "TODO"],
             WorkflowStatus::Done => &["DONE"],
             WorkflowStatus::Obsolete => &["OBSOLETE"],
+            WorkflowStatus::Wontfix => &["WONTFIX"],
             WorkflowStatus::Dupe => &["DUPE"],
             WorkflowStatus::Future => &["FUTURE"],
             WorkflowStatus::Notforme => &["NOTFORME"],
@@ -407,6 +410,7 @@ impl WorkflowStatus {
             WorkflowStatus::Open => true,
             WorkflowStatus::Done => false,
             WorkflowStatus::Obsolete => false,
+            WorkflowStatus::Wontfix => false,
             WorkflowStatus::Dupe => false, // ?
             WorkflowStatus::Future => true, // ?
             WorkflowStatus::Notforme => false,
@@ -423,6 +427,21 @@ impl FromStr for WorkflowStatus {
     /// Translate a full match on a string (a directory name) to a
     /// `WorkflowStatus`.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // This match just exists as a guard to remind you to add a
+        // case below if the enum changes.
+        match WorkflowStatus::None {
+            WorkflowStatus::None => (),
+            WorkflowStatus::Open => (),
+            WorkflowStatus::Done => (),
+            WorkflowStatus::Obsolete => (),
+            WorkflowStatus::Wontfix => (),
+            WorkflowStatus::Dupe => (),
+            WorkflowStatus::Future => (),
+            WorkflowStatus::Notforme => (),
+            WorkflowStatus::Applied => (),
+            WorkflowStatus::Active => (),
+            WorkflowStatus::Rejected => (),
+        }
         match s {
             // This should never be used as a folder name, since need
             // the `OPEN` string in the file name to introduce the `{
@@ -431,6 +450,7 @@ impl FromStr for WorkflowStatus {
 
             "done" => Ok(WorkflowStatus::Done),
             "obsolete" => Ok(WorkflowStatus::Obsolete),
+            "wontfix" => Ok(WorkflowStatus::Wontfix),
 
             "dupe" => Ok(WorkflowStatus::Dupe),
             "future" => Ok(WorkflowStatus::Future),
@@ -1386,6 +1406,7 @@ fn find_marker_status<'s>(
             // Actually it may be OK to have multiple!)
             WorkflowStatus::Done |
             WorkflowStatus::Obsolete |
+            WorkflowStatus::Wontfix |
             WorkflowStatus::Dupe |
             WorkflowStatus::Future |
             WorkflowStatus::Notforme |

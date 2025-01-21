@@ -9,7 +9,7 @@ err=$(mktemp)
 
 cargo_target=${CARGO_TARGET-release}
 
-target/"$cargo_target"/priorities-set-mtimes
+target/"$cargo_target"/priorities-restore-mtimes
 
 if target/"$cargo_target"/priorities test/priorities/ -t "2024/10/06 08:00:00" > "$out" 2> "$err"; then
     echo "expecting exit code 1, got 0"

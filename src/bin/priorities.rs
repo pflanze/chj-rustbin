@@ -124,7 +124,40 @@ impl FromParseableStr for TaskSize {
     }
 }
 
-pub type ManualPriorityLevel = u8;
+pub type ImportanceLevel = u8; // 1..10 but not currently restricted
+
+#[derive(Debug, Clone)]
+pub struct Importance {
+    level: ImportanceLevel
+}
+
+impl FromParseableStr for Importance {
+    type Err = ParseError;
+
+    fn from_parseable_str(s: ParseableStr) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        let ss = s.s;
+        let level = ImportanceLevel::from_str(ss).map_err(|e| {
+            parse_error! {
+                message: format!("{e}"),
+                position: s.position
+            }
+        })?;
+        Ok(Importance { level })
+    }
+}
+
+const DEFAULT_IMPORTANCE_LEVEL: ImportanceLevel = 5;
+
+impl Default for Importance {
+    fn default() -> Self {
+        Self { level: DEFAULT_IMPORTANCE_LEVEL }
+    }
+}
+
+
+
+pub type ManualPriorityLevel = u8; // 1..10 but not currently restricted
 
 #[derive(Debug, Clone)]
 pub enum Priority {
@@ -344,6 +377,7 @@ impl Deref for Dependencies {
 struct TaskInfoDeclarations {
     tasksize: TaskSize,
     priority: Priority,
+    importance: Importance,
     dependencies: Dependencies,
 }
 
@@ -576,6 +610,8 @@ impl TaskInfo {
                        &self.dependency_key,
                        self.mtime,
                        now)
+        // HACK, proper place?
+            .map(|level| level + ((self.declarations.importance.level as i32 - DEFAULT_IMPORTANCE_LEVEL as i32) * 2) as f32)
     }
 
     fn set_initial_priority_level_for(&self, now: NaiveDateTime) -> Result<(), ParseError> {
@@ -617,6 +653,7 @@ impl PartialOrd for TaskInfo {
 struct TaskInfoDeclarationsBuilder {
     tasksize: Option<TaskSize>,
     priority: Option<Priority>,
+    importance: Option<Importance>,
     dependencies: Option<Dependencies>,
 }
 
@@ -644,14 +681,16 @@ impl TaskInfoDeclarationsBuilder {
     def_builder_setter!(set_tasksize, tasksize, TaskSize);
     def_builder_setter!(set_priority, priority, Priority);
     def_builder_setter!(set_dependencies, dependencies, Dependencies);
+    def_builder_setter!(set_importance, importance, Importance);
 }
 
 impl From<TaskInfoDeclarationsBuilder> for TaskInfoDeclarations {
     fn from(value: TaskInfoDeclarationsBuilder) -> Self {
         let tasksize = value.tasksize.unwrap_or_default();
         let priority = value.priority.unwrap_or_default();
+        let importance = value.importance.unwrap_or_default();
         let dependencies = value.dependencies.unwrap_or_default();
-        Self { priority, dependencies, tasksize }
+        Self { priority, importance, dependencies, tasksize }
     }
 }
 
@@ -762,6 +801,7 @@ fn inside_parse_key_val<'s>(
             // "due" should only accept a date?
             "p" | "prio" | "priority" | "due" => parse_to!(set_priority, Priority),
             "d" | "dep" | "depends" | "dependencies" => parse_to!(set_dependencies, Dependencies),
+            "i" | "imp" | "importance" => parse_to!(set_importance, Importance),
 
             _ => Err(parse_error! {
                 message: format!("unknown key {:?}", ident.s),

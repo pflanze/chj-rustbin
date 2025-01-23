@@ -2,12 +2,13 @@ use std::{path::{PathBuf, Path},
           convert::TryFrom,
           time::SystemTime,
           str::FromStr, collections::{BTreeSet, BTreeMap},
-          rc::Rc, cell::Cell, ops::Deref, process::exit, io::{stdout, Write},
+          rc::Rc, cell::Cell, ops::{Deref, Range}, process::exit,
+          io::{stdout, Write},
           os::unix::prelude::OsStrExt, cmp::Ordering};
-use std::convert::TryInto;
 
 use anyhow::{Result, anyhow, Context, bail};
-use chrono::{NaiveDateTime, NaiveTime, Weekday, Datelike, Duration, Utc, DateTime, Timelike};
+use chrono::{NaiveDateTime, NaiveTime, Weekday, Datelike, Duration,
+             Utc, DateTime, Timelike};
 use clap::Parser;
 use kstring::KString;
 
@@ -15,13 +16,24 @@ use chj_rustbin::{parse::{parsers::{ParseableStr, IntoParseable, FromParseableSt
                                     Separator},
                           parse_error::ParseError},
                   impl_item_options_from,
-                  io::file_path_type::{ItemOptions, FilePathType, recursive_file_path_types_iter},
+                  io::file_path_type::{ItemOptions, FilePathType,
+                                       recursive_file_path_types_iter},
                   io::excludes::default_excludes,
                   region::Region,
                   conslist::{cons, List},
                   fp::compose,
                   time::naive_date_time_without_year::NaiveDateTimeWithoutYear};
 use chj_rustbin::{parse_error, T};
+
+
+const MONTH_SECONDS: i64 = 3600 * 24 * 30;
+
+/// How much time before and after the modification time of a file a
+/// due date without year may lie (this is only relevant if the file
+/// does not have an issue timestamp).
+const MAX_SECONDS_AROUND_MTIME: Range<i64> =
+    (-4 * MONTH_SECONDS) .. (4 * MONTH_SECONDS);
+
 
 fn _warning(s: String) {
     eprintln!("WARNING: {s}");
@@ -195,11 +207,141 @@ fn t_priority_level() {
     assert_eq!(priority_level_for(1., 2.), -1.);
 }
 
-// rough, hack. UTC. good enough when days are the main thing I want.
+// Rough, hack. UTC. good enough when distance in days are the main thing I want.
 fn naive_from_systemtime(st: SystemTime) -> NaiveDateTime {
     let dt: DateTime<Utc> = DateTime::from(st);
-    //dt.naive_local() // XX hmmm, local based on what zone???
+    //dt.naive_local() // XX hmmm, local based on what zone?
     dt.naive_utc()
+}
+
+/// Complete `ndt_noyear` with a year so that the resulting date is
+/// within max_seconds_around_mtime of the given mtime. Returns an
+/// error if that's not possible.
+fn add_year_from_mtime(
+    ndt_noyear: &NaiveDateTimeWithoutYear,
+    mtime_ndt: NaiveDateTime,
+    max_seconds_around_mtime: &Range<i64>
+) -> Result<NaiveDateTime, ParseError>
+{
+    let seconds_since_mtime = |ndt: NaiveDateTime| {
+        ndt.signed_duration_since(mtime_ndt).num_seconds()
+    };
+
+    let mtime_year = mtime_ndt.year();
+    let candidate_dates: Vec<NaiveDateTime> = {
+        [
+            mtime_year,
+            mtime_year.checked_add(1)
+                .expect("year is far within i32 range by OS limitation?"),
+            mtime_year.checked_sub(1)
+                .expect("year is far within i32 range by OS limitation?"),
+        ]
+            .iter()
+            .filter_map(|year| ndt_noyear.for_year(*year).ok())
+            .collect()
+    };
+
+    if candidate_dates.is_empty() {
+        return Err(parse_error! {
+            message: format!("date `{ndt_noyear}` has no valid representation \
+                              for year {mtime_year} +- 1, day of month \
+                              or month must be invalid"),
+            position: ndt_noyear.position
+        })
+    }
+
+    for date in &candidate_dates {
+        if max_seconds_around_mtime.contains(&seconds_since_mtime(*date)) {
+            return Ok(*date)
+        }
+    }
+    let s = candidate_dates.into_iter().map(|d| d.to_string()).collect::<Vec<_>>()
+        .join(", ");
+    Err(parse_error! {
+        message: format!("date `{ndt_noyear}` candidates {s} are \
+                          all too far removed from mtime `{mtime_ndt}`"),
+        position: ndt_noyear.position
+    })
+}
+
+#[cfg(test)]
+mod test {
+    use chj_rustbin::time::naive_date_time_without_year::NaiveDateTimeWithoutYear;
+    use chrono::{NaiveDateTime, NaiveDate};
+
+    pub fn ndt(year: i32, month: u32, day: u32) -> NaiveDateTime {
+        NaiveDate::from_ymd_opt(year, month, day).unwrap()
+            .and_hms_opt(0,0,0).unwrap()
+    }
+
+    pub fn noyear(month: u8, day: u8) -> NaiveDateTimeWithoutYear {
+        NaiveDateTimeWithoutYear {
+            position: 0, month, day, hour: 0, minute: 0, second: 0
+        }
+    }
+}
+
+#[test]
+fn t_add_year_from_mtime() {
+    use test::{noyear, ndt};
+    let t = add_year_from_mtime;
+    let ok = |year, month, day| Ok(ndt(year, month, day));
+    let range1 = -1 * MONTH_SECONDS .. 3 * MONTH_SECONDS;
+    assert_eq!(t(&noyear(1, 30), ndt(2024, 2, 1), &range1),
+               ok(2024, 1, 30));
+    assert_eq!(t(&noyear(3, 30), ndt(2024, 2, 1), &range1),
+               ok(2024, 3, 30));
+    assert_eq!(t(&noyear(1, 30), ndt(2023, 12, 1), &range1),
+               ok(2024, 1, 30));
+    assert_eq!(t(&noyear(2, 28), ndt(2023, 12, 20), &range1),
+               ok(2024, 2, 28));
+    assert_eq!(t(&noyear(2, 28), ndt(2023, 12, 1), &range1),
+               ok(2024, 2, 28));
+    assert_eq!(t(&noyear(3, 1), ndt(2023, 12, 1), &range1).unwrap_err().message,
+               "date `03-01 00:00:00` candidates 2023-03-01 00:00:00, \
+                2024-03-01 00:00:00, 2022-03-01 00:00:00 are all too far removed \
+                from mtime `2023-12-01 00:00:00`");
+    assert_eq!(t(&noyear(12, 28), ndt(2024, 1, 15), &range1),
+               ok(2023, 12, 28));
+    assert_eq!(t(&noyear(12, 16), ndt(2024, 1, 15), &range1),
+               ok(2023, 12, 16));
+    assert_eq!(t(&noyear(12, 15), ndt(2024, 1, 15), &range1).unwrap_err().message,
+               "date `12-15 00:00:00` candidates 2024-12-15 00:00:00, \
+                2025-12-15 00:00:00, 2023-12-15 00:00:00 are all too far removed \
+                from mtime `2024-01-15 00:00:00`");
+    assert_eq!(t(&noyear(2, 30), ndt(2024, 2, 15), &range1).unwrap_err().message,
+               "date `02-30 00:00:00` has no valid representation for year \
+                2024 +- 1, day of month or month must be invalid");
+}
+
+/// Complete `noyear` with the year that makes it come after (or be
+/// equal to) `base`, but if no year works so that it is max. 1 year
+/// after it, returns an error (invalid month/day suspected, thus
+/// won't even try the year after).
+fn add_year_from_basetime(
+    noyear: &NaiveDateTimeWithoutYear,
+    base: NaiveDateTime,
+) -> Result<NaiveDateTime, ParseError> {
+    let base_noyear = NaiveDateTimeWithoutYear::from(&base);
+    match base_noyear.compare(noyear) {
+        Ordering::Less => noyear.for_year(base.year()),
+        Ordering::Equal => Ok(base),
+        Ordering::Greater => noyear.for_year(base.year().checked_add(1).expect("OS-limited")),
+    }
+}
+
+#[test]
+fn t_add_year_from_basetime() {
+    use test::{noyear, ndt};
+    let t = add_year_from_basetime;
+    let ok = |year, month, day| Ok(ndt(year, month, day));
+    
+    assert_eq!(t(&noyear(3, 1), ndt(2024, 3, 1)), ok(2024, 3, 1));
+    assert_eq!(t(&noyear(3, 7), ndt(2024, 3, 1)), ok(2024, 3, 7));
+    assert_eq!(t(&noyear(12, 7), ndt(2024, 3, 1)), ok(2024, 12, 7));
+    assert_eq!(t(&noyear(2, 7), ndt(2024, 3, 1)), ok(2025, 2, 7));
+    assert_eq!(t(&noyear(2, 29), ndt(2024, 3, 1)).unwrap_err().message,
+               "invalid month/day in year 2025");
 }
 
 /// A number that can be compared, to directly order jobs to choose
@@ -207,7 +349,7 @@ fn naive_from_systemtime(st: SystemTime) -> NaiveDateTime {
 pub fn priority_level(
     priority: &Priority,
     tasksize: &TaskSize,
-    _key: &Option<DependencyKey>,
+    key: &Option<DependencyKey>,
     mtime: SystemTime,
     now: NaiveDateTime,
 ) -> Result<f32, ParseError> {
@@ -233,9 +375,27 @@ pub fn priority_level(
         prio + age_sec * (1. / (60. * 60. * 24. * 7.))
     };
     match priority {
-        Priority::Date(ndt) => {
-            let time_to_target: Duration = ndt.for_year(
-                now.year().try_into().expect("the year of 'now' is in u16 range"))?
+        Priority::Date(ndtwowy) => {
+            let target_date =
+                match ndtwowy {
+                    NaiveDateTimeWithOrWithoutYear::NaiveDateTime(ndt) => *ndt,
+                    NaiveDateTimeWithOrWithoutYear::NaiveDateTimeWithoutYear(ndt_noyear) => {
+                        let from_mtime = || add_year_from_mtime(ndt_noyear,
+                                                                naive_from_systemtime(mtime),
+                                                                &MAX_SECONDS_AROUND_MTIME);
+                        if let Some(key) = key {
+                            match key {
+                                DependencyKey::String(_) => T!(from_mtime())?,
+                                DependencyKey::NaiveDateTime(ndt_file) =>
+                                    T!(add_year_from_basetime(ndt_noyear, *ndt_file))?
+                            }
+                        } else {
+                            T!(from_mtime())?
+                        }
+                    }
+                };
+            
+            let time_to_target: Duration = target_date
                 .signed_duration_since(now);
             Ok(priority_for_time_left(time_to_target))
         }
@@ -1173,10 +1333,11 @@ pub enum NaiveDateTimeWithOrWithoutYear {
 }
 
 impl NaiveDateTimeWithOrWithoutYear {
-    pub fn for_year(&self, year: u16) -> Result<NaiveDateTime, ParseError> {
+    pub fn for_year(&self, year: i32) -> Result<NaiveDateTime, ParseError> {
         match self {
             NaiveDateTimeWithOrWithoutYear::NaiveDateTime(ndt) => Ok(*ndt),
-            NaiveDateTimeWithOrWithoutYear::NaiveDateTimeWithoutYear(ndtwy) => ndtwy.for_year(year)
+            NaiveDateTimeWithOrWithoutYear::NaiveDateTimeWithoutYear(ndtwy) =>
+                ndtwy.for_year(year)
         }
     }
 
@@ -1202,7 +1363,7 @@ fn parse_dat<'s>(
                     |e| parse_error! {
                         message: e.to_string(),
                         position: year.position
-                    })?)?;
+                    })?.into())?;
             if let Some((weekday, _weekday_position)) = opt_weekday_and_position {
                 let date_weekday = datetime.weekday();
                 if date_weekday != weekday {

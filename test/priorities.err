@@ -1,4 +1,5 @@
 WARNING: error parsing the file name of path "test/priorities/2025-01-20_015025_Mon-another OPEN{1-24} OPEN{today}": adjacent opening markers found without a closing marker inbetween: ParseableStr { position: 30, s: "OPEN" } then ParseableStr { position: 41, s: "OPEN" } at: "OPEN{today}"
+WARNING: error parsing the file name of path "test/priorities/another OPEN{2026-1-18, importance: 1}": expected digit as part of month number at: "another OPEN{2026-1-18, importance: 1}"
 WARNING: duplicate task for key NaiveDateTime(2024-09-30T11:13:32): "test/priorities/erroneous/2024-09-30_111332_Mon-duplicate OPEN" "test/priorities/erroneous/2024-09-30_111332_Mon-duplicate 2 OPEN"
 WARNING: duplicate task for key NaiveDateTime(2024-09-30T11:13:32): "test/priorities/erroneous/2024-09-30_111332_Mon-foo OPEN{d: [2024-09-27]}" "test/priorities/erroneous/2024-09-30_111332_Mon-duplicate OPEN"
 WARNING: unknown dependency String(Owned("2024-09-27_201849")) in: "test/priorities/2024-09-27_201910_Fri-do bar OPEN{prio: 1, depends: 2024-09-27_201849}"
@@ -9,4 +10,4 @@ WARNING: unknown dependency String(Owned("2024-09-27_201931")) in: "test/priorit
 WARNING: unknown dependency String(Owned("2024-09-27_201931_")) in: "test/priorities/erroneous/2024-09-30_111330_Mon-foo OPEN{d: [2024-09-27_201931_,2024-09-27_201931]}"
 WARNING: unknown dependency String(Inline("foobar")) in: "test/priorities/erroneous/2024-09-30_111331_Mon-foo OPEN{d: [foobar]}"
 WARNING: unknown dependency String(Inline("2024-09-27")) in: "test/priorities/erroneous/2024-09-30_111332_Mon-foo OPEN{d: [2024-09-27]}"
-11 error(s) shown as warnings
+12 error(s) shown as warnings

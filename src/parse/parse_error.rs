@@ -4,7 +4,7 @@
 pub struct ParseError {
     pub message: String,
     pub position: usize,
-    pub location: Vec<FileLocation>
+    pub backtrace: Vec<FileLocation>
 }
 
 impl ParseError {
@@ -26,7 +26,7 @@ impl ParseError {
     /// per line, indented by a tab.
     pub fn backtrace(&self) -> String {
         let mut out = String::new();
-        for l in &self.location {
+        for l in &self.backtrace {
             out.push_str("\n\t");
             out.push_str(&l.to_string());
         }
@@ -78,7 +78,7 @@ macro_rules! file_location {
 macro_rules! parse_error {
     { $($body:tt)* } => {
         ParseError {
-            location: vec![$crate::file_location!()],
+            backtrace: vec![$crate::file_location!()],
             $($body)*
         }
     }
@@ -89,7 +89,7 @@ macro_rules! T {
     { $e:expr } => {
         $e.map_err(|e| {
             let mut e: $crate::parse::parse_error::ParseError = e.into();
-            e.location.push($crate::file_location!());
+            e.backtrace.push($crate::file_location!());
             e
         })
     }

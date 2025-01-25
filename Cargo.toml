@@ -9,6 +9,9 @@ edition = "2018"
 [profile.dev.package."*"]
 opt-level = "s"
 
+[profile.dev]
+panic = "abort"
+
 [profile.release]
 opt-level = "s"
 

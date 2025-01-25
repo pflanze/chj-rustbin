@@ -17,6 +17,8 @@ if target/"$cargo_target"/priorities test/priorities/ -t "2024/10/06 08:00:00" >
 else
     e=$?
     if [ $e -ne 1 ]; then
+        cat "$out"
+        cat "$err"
         echo "expecting exit code 1, got $e"
         false
     fi

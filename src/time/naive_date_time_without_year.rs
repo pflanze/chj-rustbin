@@ -2,13 +2,13 @@ use std::convert::TryInto;
 use std::fmt::Display;
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Datelike, Timelike};
-use crate::parse::parse_error::ParseError;
+use crate::parse::parse_error::{ParseError, ParseContext, NoContext, IntoOwningBacking, StringParseContext, Backing};
 use crate::parse_error;
 
 
 #[derive(Debug, Clone)]
-pub struct NaiveDateTimeWithoutYear {
-    pub position: usize,
+pub struct NaiveDateTimeWithoutYear<C: ParseContext> {
+    pub context: C,
     pub month: u8,
     pub day: u8,
     pub hour: u8,
@@ -16,28 +16,51 @@ pub struct NaiveDateTimeWithoutYear {
     pub second: u8
 }
 
-impl NaiveDateTimeWithoutYear {
-    pub fn for_year(&self, year: i32) -> Result<NaiveDateTime, ParseError> {
-        let NaiveDateTimeWithoutYear { position, month, day, hour, minute, second } = self;
-        let nd = NaiveDate::from_ymd_opt(year, (*month).into(), (*day).into())
-            .ok_or_else(|| {
-                parse_error! {
-                    message: format!("invalid month/day in year {year}"),
-                    position: *position
-                }
-            })?;
-        let nt = NaiveTime::from_hms_opt((*hour).into(), (*minute).into(), (*second).into())
-            .ok_or_else(|| {
-                parse_error! {
-                    message: format!("invalid hh:mm:ss numbers {hour}:{minute}:{second}"),
-                    position: *position
-                }
-            })?;
-        Ok(NaiveDateTime::new(nd, nt))
+//Can't do this because C includes itself, right?
+// impl<'s, C, B> IntoOwningParseContext<B> for NaiveDateTimeWithoutYear<C>
+// where C: ParseContext,
+//       B: Backing,
+//       StringParseContext<B>: From<C>,
+// {
+//     type Owning = NaiveDateTimeWithoutYear<StringParseContext<B>>;
+
+impl<'s, B: Backing> IntoOwningBacking<B::Owned>
+    for NaiveDateTimeWithoutYear<StringParseContext<&'s B>>
+where &'s B: Backing,
+      B::Owned: Backing
+{
+    type Owning = NaiveDateTimeWithoutYear<StringParseContext<B::Owned>>;
+
+    fn into_owning_backing(self) -> Self::Owning {
+        let Self { context, month, day, hour, minute, second } = self;
+        NaiveDateTimeWithoutYear {
+            context: context.into_owning_backing(),
+            month,
+            day,
+            hour,
+            minute,
+            second,
+        }
+    }
+}
+
+
+impl<C: ParseContext> NaiveDateTimeWithoutYear<C> {
+    pub fn with_year(self, year: i32) -> Result<NaiveDateTime, ParseError<C>> {
+        let NaiveDateTimeWithoutYear { context, month, day, hour, minute, second } = self;
+        (|| -> Result<NaiveDateTime, String> {
+            let nd = NaiveDate::from_ymd_opt(year, month.into(), day.into())
+                .ok_or_else(|| format!("invalid month/day in year {year}"))?;
+            let nt = NaiveTime::from_hms_opt(hour.into(), minute.into(), second.into())
+                .ok_or_else(|| format!("invalid hh:mm:ss numbers {hour}:{minute}:{second}"))?;
+            Ok(NaiveDateTime::new(nd, nt))
+        })().map_err(|message| parse_error! {
+            message, context
+        })
     }
 
-    pub fn to_naive_date_time(&self) -> anyhow::Result<NaiveDateTime, ParseError> {
-        Err(parse_error!{ message: "date is missing year".into(), position: self.position })
+    pub fn into_naive_date_time(self) -> anyhow::Result<NaiveDateTime, ParseError<C>> {
+        Err(parse_error!{ message: "date is missing year".into(), context: self.context })
     }
 
     /// Whether `self` come before or after `other` or is the same,
@@ -47,7 +70,9 @@ impl NaiveDateTimeWithoutYear {
     /// unclear whether that should include position or not, also
     /// ordering is easily misunderstood, too, since year is actually
     /// unknown.
-    pub fn compare(&self, other: &Self) -> std::cmp::Ordering {
+    pub fn compare<C2: ParseContext>(
+        &self, other: &NaiveDateTimeWithoutYear<C2>
+    ) -> std::cmp::Ordering {
         self.month.cmp(&other.month).then(
             self.day.cmp(&other.day).then(
                 self.hour.cmp(&other.hour).then(
@@ -56,18 +81,18 @@ impl NaiveDateTimeWithoutYear {
     }
 }
 
-impl Display for NaiveDateTimeWithoutYear {
+impl<C: ParseContext> Display for NaiveDateTimeWithoutYear<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Self { position: _, month, day, hour, minute, second  } = self;
+        let Self { context: _, month, day, hour, minute, second  } = self;
         f.write_fmt(format_args!("{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}"))
     }
 }
 
 /// Note: uses position 0 always!
-impl From<&NaiveDateTime> for NaiveDateTimeWithoutYear {
+impl From<&NaiveDateTime> for NaiveDateTimeWithoutYear<NoContext> {
     fn from(value: &NaiveDateTime) -> Self {
         Self {
-            position: 0,
+            context: NoContext,
             month: value.month().try_into().expect("always fits"),
             day: value.day().try_into().expect("always fits"),
             hour: value.hour().try_into().expect("always fits"),

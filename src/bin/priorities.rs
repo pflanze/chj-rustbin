@@ -1641,7 +1641,7 @@ fn find_all_markers<'s, B: Backing>(
 
 #[cfg(test)]
 #[test]
-fn t_find_markers() {
+fn t_find_all_markers() {
     let backing = String::new();
     let t = |s: &'static str| {
         find_all_markers(&ParseableStr { backing: &backing, position: 0, s })

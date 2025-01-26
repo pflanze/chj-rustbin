@@ -480,7 +480,7 @@ impl<'s, B: Backing + Debug> FromParseableStr<'s, B> for Priority<StringParseCon
         if let Ok(level) = ManualPriorityLevel::from_str(ss) {
             return Ok(Priority::Level(level));
         }
-        if let Ok((ndt, rest)) =
+        if let Ok((ndt_wowy, rest)) =
             parse_dat(
                 &s.trim(),
                 &flexible_parse_dat_options(
@@ -488,7 +488,7 @@ impl<'s, B: Backing + Debug> FromParseableStr<'s, B> for Priority<StringParseCon
         {
             let rest = rest.drop_whitespace();
             if rest.is_empty() {
-                return Ok(Priority::Date(ndt));
+                return Ok(Priority::Date(ndt_wowy));
             } else {
                 return Err(parse_error! {
                     message: format!("garbage after date/time"),
@@ -846,7 +846,7 @@ impl<C: ParseContext + Clone> TaskInfo<C> {
 
     fn set_initial_priority_level_for(&self, now: NaiveDateTime) -> Result<(), ParseError<C>> {
         assert!(self.calculated_priority.get().is_none());
-        self.calculated_priority.set(Some(self.priority_level_at(now)?));
+        self.calculated_priority.set(Some(T!(self.priority_level_at(now))?));
         Ok(())
     }
 
@@ -1961,7 +1961,9 @@ fn main() -> Result<()> {
         // later on, none of which are good solutions. Leave it at
         // that for now.
         ti.set_initial_priority_level_for(now).map_err(|e| {
-            anyhow!("Date Error: {}", e.to_string_showing_location(show_backtrace))
+            anyhow!("Date Error in {:?}: {}",
+                    e.context.backing,
+                    e.to_string_showing_location(show_backtrace))
         })?;
     }
 

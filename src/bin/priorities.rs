@@ -32,7 +32,7 @@ const MONTH_SECONDS: i64 = 3600 * 24 * 30;
 
 /// How much time before and after the modification time of a file a
 /// due date without year may lie (this is only relevant if the file
-/// does not have an issue timestamp).
+/// name does not carry an issue timestamp).
 const MAX_SECONDS_AROUND_MTIME: Range<i64> =
     (-4 * MONTH_SECONDS) .. (4 * MONTH_SECONDS);
 

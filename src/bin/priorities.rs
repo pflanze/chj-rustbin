@@ -1469,14 +1469,6 @@ where &'s B: Backing,
 }
 
 impl<C: ParseContext> NaiveDateTimeWithOrWithoutYear<C> {
-    pub fn with_year(self, year: i32) -> Result<NaiveDateTime, ParseError<C>> {
-        match self {
-            NaiveDateTimeWithOrWithoutYear::NaiveDateTime(ndt) => Ok(ndt),
-            NaiveDateTimeWithOrWithoutYear::NaiveDateTimeWithoutYear(ndtwy) =>
-                ndtwy.with_year(year)
-        }
-    }
-
     pub fn into_naive_date_time(self) -> Result<NaiveDateTime, ParseError<C>> {
         match self {
             NaiveDateTimeWithOrWithoutYear::NaiveDateTime(ndt) => Ok(ndt),

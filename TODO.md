@@ -5,6 +5,11 @@
 
 ## For 'priorities'
 
+- `{02-30}` parsing ends the program because priority calculation is
+  happening late; but, `now` does not matter any more, could move that
+  now, do it as soon as the path is fully parsed, right? Then it can
+  be skipped over if erroring out as usual.
+
 - Should this be done or future?: `./done/commandline/future/` (future
   is kinda good actually? It helped me find one in here. But in
   general?)
@@ -22,7 +27,8 @@
 
 - Hierarchical tasks (subtasks) step 2: group files in such a folder to the folder
 
-- Error location display: show `^` in next line instead?
+- Error location display: show `^` in next line instead? Also: (again,
+  how?) uniform way to show the backing and location.
 
 - Allow issue files without issue timestamp like
   `test/priorities/another OPEN{2026-1-18, importance: 1}`, perhaps

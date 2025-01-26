@@ -465,7 +465,7 @@ impl<C: ParseContext> Default for Priority<C> {
 // If you're looking for an `impl From<NaiveDateTime> for Priority`,
 // just use `Priority::Date(ndt)`.
 
-impl<'s, B: Backing> FromParseableStr<'s, B> for Priority<StringParseContext<&'s B>>
+impl<'s, B: Backing + Debug> FromParseableStr<'s, B> for Priority<StringParseContext<&'s B>>
     where &'s B: Backing
 {
     fn from_parseable_str(
@@ -513,7 +513,7 @@ struct Dependencies {
 
 impl Dependencies {
     // XX move this into `impl ParseableStr for Dependencies`!
-    pub fn from_parseable_str<'s, B: Backing>(
+    pub fn from_parseable_str<'s, B: Backing + Debug>(
         s: &ParseableStr<'s, B>
     ) -> Result<Self, ParseError<StringParseContext<&'s B>>>
         where &'s B: Backing
@@ -1381,7 +1381,7 @@ fn parse_time_wday<'s, B: Backing>(
 /// because it doesn't have the year. If `weekday_is_optional` is
 /// true, still parse weekday if present, but do not report match
 /// failures.
-fn parse_dat_without_year<'s, B: Backing>(
+fn parse_dat_without_year<'s, B: Backing + Debug>(
     s: &ParseableStr<'s, B>,
     options: &ParseDatOptions,
 ) -> Result<
@@ -1485,7 +1485,7 @@ impl<C: ParseContext> NaiveDateTimeWithOrWithoutYear<C> {
 }
 
 // "2024-09-29_205249_Sun" -- XX update
-fn parse_dat<'s, B: Backing>(
+fn parse_dat<'s, B: Backing + Debug>(
     s: &ParseableStr<'s, B>,
     options: &ParseDatOptions,
 ) -> Result<(NaiveDateTimeWithOrWithoutYear<StringParseContext<&'s  B>>,
@@ -1549,7 +1549,7 @@ fn flexible_parse_dat_options(
 }
 
 // For command line arguments and the date in `OPEN{2024-11-10}` or `OPEN{11-10}`.
-fn parse_date_time_argument<'s, B: Backing>(
+fn parse_date_time_argument<'s, B: Backing + Debug>(
     s: &ParseableStr<'s, B>,
     time_is_optional: bool,
 ) -> Result<NaiveDateTimeWithOrWithoutYear<StringParseContext<&'s B>>,

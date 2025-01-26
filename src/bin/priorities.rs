@@ -1422,9 +1422,9 @@ where &'s B: Backing
             };
             Ok((ndt_no_year, opt_weekday_position, rest))
         }
-        Err((ParseTimeWdayErrorKind::NoProperTime, e)) => if let Some(dt) = options.default_time {
+        Err((ParseTimeWdayErrorKind::NoProperTime, _e)) => if let Some(dt) = options.default_time {
             let ndt_no_year = NaiveDateTimeWithoutYear {
-                context: e.context,
+                context: s.into(),
                 month,
                 day,
                 hour: dt.hour() as u8,

@@ -1422,22 +1422,24 @@ where &'s B: Backing
             };
             Ok((ndt_no_year, opt_weekday_position, rest))
         }
-        Err((ParseTimeWdayErrorKind::NoProperTime, _e)) => if let Some(dt) = options.default_time {
-            let ndt_no_year = NaiveDateTimeWithoutYear {
-                context: s.into(),
-                month,
-                day,
-                hour: dt.hour() as u8,
-                minute: dt.minute() as u8,
-                second: dt.second() as u8,
-            };
-            Ok((ndt_no_year, None, rest))
-        } else {
-            Err(parse_error! {
-                message: format!("time is required but missing after {:?}",
-                s.up_to(&rest).s),
-                context: rest.into()
-            })
+        Err((ParseTimeWdayErrorKind::NoProperTime, _e)) => {
+            if let Some(dt) = options.default_time {
+                let ndt_no_year = NaiveDateTimeWithoutYear {
+                    context: s.into(),
+                    month,
+                    day,
+                    hour: dt.hour() as u8,
+                    minute: dt.minute() as u8,
+                    second: dt.second() as u8,
+                };
+                Ok((ndt_no_year, None, rest))
+            } else {
+                Err(parse_error! {
+                    message: format!("time is required but missing after {:?}",
+                                     s.up_to(&rest).s),
+                    context: rest.into()
+                })
+            }
         },
         Err((ParseTimeWdayErrorKind::NoProperWeekday, e)) => T!(Err(e))
     }

@@ -686,8 +686,8 @@ impl WorkflowStatus {
 impl FromStr for WorkflowStatus {
     type Err = ();
 
-    /// Translate a full match on a string (a directory name) to a
-    /// `WorkflowStatus`.
+    /// Translate a full match on a string ((e.g.) a directory name)
+    /// to a `WorkflowStatus`.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // This match just exists as a guard to remind you to add a
         // case below if the enum changes.
@@ -705,10 +705,14 @@ impl FromStr for WorkflowStatus {
             WorkflowStatus::Rejected => (),
         }
         match s {
+            // This is an artificial case, like an Option::None, so don't parse it:
+            // "none" =>
+
             // This should never be used as a folder name, since need
             // the `OPEN` string in the file name to introduce the `{
-            // .. }` section anyway.
-            // "open" => Ok(WorkflowStatus::Open),
+            // .. }` section anyway. Except maybe for cases that don't
+            // need that?
+            "open" => Ok(WorkflowStatus::Open),
 
             "done" => Ok(WorkflowStatus::Done),
             "obsolete" => Ok(WorkflowStatus::Obsolete),

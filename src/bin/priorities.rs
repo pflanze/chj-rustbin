@@ -757,7 +757,7 @@ impl TryFrom<&Path> for WorkflowStatus {
 }
 
 // Not implementing `Hash` to avoid accidentally introducing
-// undeterminsim (in particular, trace output order).
+// nondeterminism (in particular, trace output order).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DependencyKey {
     String(KString),

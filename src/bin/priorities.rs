@@ -1770,6 +1770,7 @@ where &'s B: Backing
             WorkflowStatus::Applied |
             WorkflowStatus::Active |
             WorkflowStatus::Rejected => {
+                // XX isn't it wrong to have Future here?
                 previous_was_open = false;
                 last_status = Some(status);
             }

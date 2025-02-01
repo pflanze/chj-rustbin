@@ -87,7 +87,7 @@ struct Opts {
 impl_item_options_from! {Opts}
 
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TaskSize {
     Minutes,
     Hours,
@@ -142,7 +142,7 @@ impl<'s, B: Backing + 's> FromParseableStr<'s, B> for TaskSize
 
 pub type ImportanceLevel = u8; // 1..10 but not currently restricted
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Importance {
     level: ImportanceLevel
 }
@@ -177,6 +177,8 @@ impl Default for Importance {
 
 pub type ManualPriorityLevel = u8; // 1..10 but not currently restricted
 
+// Can't implement PartialEq due to the contained
+// `NaiveDateTimeWithorwithoutyear`.
 #[derive(Debug, Clone)]
 pub enum Priority<C: ParseContext> {
     /// Due on that date
@@ -216,6 +218,49 @@ where &'s B: Backing,
     }
 }
 
+impl<'s, C: ParseContext> Priority<C>
+{
+    /// Instead of implementing `PartialEq`, compare with a custom
+    /// comparison function for `NaiveDateTimeWithOrWithoutYear`
+    /// (which could e.g. return false for such values, or panic).
+    pub fn custom_eq(
+        &self,
+        other: &Self,
+        cmp_ndtwowy: impl Fn(&NaiveDateTimeWithOrWithoutYear<C>,
+                             &NaiveDateTimeWithOrWithoutYear<C>) -> bool,
+    ) -> bool {
+        match self {
+            Priority::Date(d1) => match other {
+                Priority::Date(d2) => cmp_ndtwowy(d1, d2),
+                _ => false
+            }
+            Priority::DaysFromToday(d1) => match other {
+                Priority::DaysFromToday(d2) => d1 == d2,
+                _ => false
+            }
+            Priority::Today => match other {
+                Priority::Today => true,
+                _ => false
+            }
+            Priority::Tonight => match other {
+                Priority::Tonight => true,
+                _ => false
+            }
+            Priority::Ongoing => match other {
+                Priority::Ongoing => true,
+                _ => false
+            }
+            Priority::Unknown => match other {
+                Priority::Unknown => true,
+                _ => false
+            }
+            Priority::Level(l1) => match other {
+                Priority::Level(l2) => l1 == l2,
+                _ => false
+            }
+        }
+    }
+}
 
 // Calculate a priority purely from how much time is left and how much
 // time the task will need.
@@ -505,7 +550,7 @@ impl<'s, B: Backing + Debug> FromParseableStr<'s, B> for Priority<StringParseCon
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, PartialEq)]
 struct Dependencies {
     // XX Arc for clone efficiency?
     keys: BTreeSet<DependencyKey>,
@@ -570,7 +615,7 @@ impl Deref for Dependencies {
 
 
 #[derive(Debug, Clone)]
-struct TaskInfoDeclarations<C: ParseContext> {
+pub struct TaskInfoDeclarations<C: ParseContext> {
     tasksize: TaskSize,
     priority: Priority<C>,
     importance: Importance,
@@ -587,6 +632,23 @@ impl<C: ParseContext> Default for TaskInfoDeclarations<C> {
             importance: Default::default(),
             dependencies: Default::default(),
         }
+    }
+}
+
+impl<C: ParseContext> TaskInfoDeclarations<C> {
+    /// Instead of implementing `PartialEq`, compare with a custom
+    /// comparison function for `NaiveDateTimeWithOrWithoutYear`
+    /// (which could e.g. return false for such values, or panic).
+    pub fn custom_eq(
+        &self,
+        other: &Self,
+        cmp_ndtwowy: impl Fn(&NaiveDateTimeWithOrWithoutYear<C>,
+                             &NaiveDateTimeWithOrWithoutYear<C>) -> bool,
+    ) -> bool {
+        self.tasksize == other.tasksize &&
+            self.importance == other.importance &&
+            self.dependencies == other.dependencies &&
+            self.priority.custom_eq(&other.priority, cmp_ndtwowy)
     }
 }
 
@@ -1449,6 +1511,8 @@ where &'s B: Backing
     }
 }
 
+// Do not implement PartialEq, as it would be ambiguous in the
+// `NaiveDateTimeWithoutYear` case!
 #[derive(Debug, Clone)]
 pub enum NaiveDateTimeWithOrWithoutYear<C: ParseContext> {
     NaiveDateTime(NaiveDateTime),
@@ -1714,13 +1778,30 @@ where &'s B: Backing
     Ok(parsed)
 }
 
-enum MarkerStatus<C: ParseContext> {
+pub enum MarkerStatus<C: ParseContext> {
     Open((TaskInfoDeclarations<C>, WorkflowStatus)),
     /// ex-Open? No, just whatever non-Open status we have seen.
     NotOpen(WorkflowStatus),
     None
 }
 
+impl<C: ParseContext> MarkerStatus<C> {
+    pub fn workflow_status(&self) -> Option<WorkflowStatus> {
+        match self {
+            MarkerStatus::Open((_, status)) => Some(*status),
+            MarkerStatus::NotOpen(status) => Some(*status),
+            MarkerStatus::None => None,
+        }
+    }
+
+    pub fn task_info_declarations(&self) -> Option<&TaskInfoDeclarations<C>> {
+        match self {
+            MarkerStatus::Open((decls, _)) => Some(decls),
+            MarkerStatus::NotOpen(_) => None,
+            MarkerStatus::None => None,
+        }
+    }
+}
 
 // Find the last parsed `WorkflowStatus::Open` marker, if any, and/or
 // the last `WorkFlowStatus` (last such marker after the `Open`, if
@@ -1785,6 +1866,59 @@ where &'s B: Backing
             MarkerStatus::None
         })
     }
+}
+
+#[test]
+fn t_find_marker_status() {
+    impl<C: ParseContext> PartialEq for TaskInfoDeclarations<C> {
+        fn eq(&self, other: &Self) -> bool {
+            self.custom_eq(other, |_a, _b| panic!("unused"))
+        }
+    }
+    let backing = String::new();
+    let t = |s| find_marker_status(find_all_parsed_markers(find_all_markers(
+        &ParseableStr { backing: &backing, position: 0, s }))?);
+    let v: MarkerStatus<_> = t("foo OPEN{1} DONE POPEN DONE4 /DONE+").unwrap();
+    assert_eq!(v.workflow_status(), Some(WorkflowStatus::Done));
+    assert_eq!(v.task_info_declarations(), Some(
+        &TaskInfoDeclarations {
+            tasksize: TaskSize::Unknown,
+            priority: Priority::Level(1),
+            importance: Importance { level: 5 },
+            dependencies: Dependencies { keys: Default::default() }}));
+    let v = t("foo OPEN{1} FUTURE").unwrap();
+    assert_eq!(v.workflow_status(), Some(WorkflowStatus::Future));
+    assert_eq!(v.task_info_declarations(), Some(
+        &TaskInfoDeclarations {
+            tasksize: TaskSize::Unknown,
+            priority: Priority::Level(1),
+            importance: Importance { level: 5 },
+            dependencies: Dependencies { keys: Default::default() }}));
+    // FUTURE does not take arguments, they are ignored. XX should that change?
+    let v = t("foo OPEN{1, importance: 3} FUTURE{2}").unwrap();
+    assert_eq!(v.workflow_status(), Some(WorkflowStatus::Future));
+    assert_eq!(v.task_info_declarations(), Some(
+        &TaskInfoDeclarations {
+            tasksize: TaskSize::Unknown,
+            priority: Priority::Level(1),
+            importance: Importance { level: 3 },
+            dependencies: Dependencies { keys: Default::default() }}));
+    let v = t("foo OPEN{1, importance: 3} FUTURE{2} DONE").unwrap();
+    assert_eq!(v.workflow_status(), Some(WorkflowStatus::Done));
+    assert_eq!(v.task_info_declarations(), Some(
+        &TaskInfoDeclarations {
+            tasksize: TaskSize::Unknown,
+            priority: Priority::Level(1),
+            importance: Importance { level: 3 },
+            dependencies: Dependencies { keys: Default::default() }}));
+    let v = t("foo OPEN{1, importance: 3} DONE FUTURE{2}").unwrap();
+    assert_eq!(v.workflow_status(), Some(WorkflowStatus::Future));
+    assert_eq!(v.task_info_declarations(), Some(
+        &TaskInfoDeclarations {
+            tasksize: TaskSize::Unknown,
+            priority: Priority::Level(1),
+            importance: Importance { level: 3 },
+            dependencies: Dependencies { keys: Default::default() }}));
 }
 
 
@@ -2084,36 +2218,7 @@ mod tests {
 
     impl<C: ParseContext> PartialEq for Priority<C> {
         fn eq(&self, other: &Self) -> bool {
-            match self {
-                Priority::Date(d1) => match other {
-                    Priority::Date(d2) => d1 == d2,
-                    _ => false
-                }
-                Priority::DaysFromToday(d1) => match other {
-                    Priority::DaysFromToday(d2) => d1 == d2,
-                    _ => false
-                }
-                Priority::Today => match other {
-                    Priority::Today => true,
-                    _ => false
-                }
-                Priority::Tonight => match other {
-                    Priority::Tonight => true,
-                    _ => false
-                }
-                Priority::Ongoing => match other {
-                    Priority::Ongoing => true,
-                    _ => false
-                }
-                Priority::Unknown => match other {
-                    Priority::Unknown => true,
-                    _ => false
-                }
-                Priority::Level(l1) => match other {
-                    Priority::Level(l2) => l1 == l2,
-                    _ => false
-                }
-            }
+            self.custom_eq(other, |a, b| a == b)
         }
     }
 

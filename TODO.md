@@ -5,6 +5,8 @@
 
 ## For 'priorities'
 
+- `FUTURE` should also be able to take a `{...}` block.
+
 - `{02-30}` parsing ends the program because priority calculation is
   happening late; but, `now` does not matter any more, could move that
   now, do it as soon as the path is fully parsed, right? Then it can
@@ -19,7 +21,8 @@
 - Parse `Mon_21_Oct_090435_CEST_2024` style date format (code in
   cj-hours-parser) .
 
-- With mtime > 30 days old, pin to the top (with coloring?).
+- With mtime > 30 days old, pin to (or only near?) the top (with
+  coloring?). Until a new tag `OLD` is given, disabling the pinning?
 
 - List the "class" names in the help text or via an option.
 

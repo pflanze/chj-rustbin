@@ -1,10 +1,9 @@
 /// This is a re-implementation and combination of the `e`, `r`, `_e`,
 /// and `_e-gnu` scripts from <https://github.com/pflanze/chj-scripts>
 
-use once_cell::sync::Lazy;
 use anyhow::{Result, anyhow, bail}; 
 use std::fs::OpenOptions;
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 use std::{env, writeln};
 use std::io::{stderr, Write, BufReader, BufRead};
 use libc::_exit;
@@ -32,12 +31,15 @@ fn do_debug() -> bool {
     false
 }
 
+// -----------------------------------------------------------------------------
+// Utils, todo: move out
+
 // There's no try_map, so:
-fn cstrings_from_osstrings(osstrs: &mut dyn Iterator<Item = OsString>)
+fn cstrings_from_osstrings(osstrs: &[OsString])
                            -> Result<Vec<CString>> {
     let mut v : Vec<CString> = Vec::new();
     for s in osstrs {
-        v.push(CString::new(s.into_vec())?);
+        v.push(CString::new(s.clone().into_vec())?);
     }
     Ok(v)
 }
@@ -147,7 +149,7 @@ unsafe fn easy_fork() -> Result<Option<Pid>> {
 }
 
 // The return value of proc is the desired exitcode.
-fn fork_proc(proc: impl FnOnce() -> Result<i32>) -> Result<Pid> {
+fn fork_proc(program_name: &str, proc: impl FnOnce() -> Result<i32>) -> Result<Pid> {
     if let Some(pid) = unsafe { easy_fork() }? {
         Ok(pid)
     } else {
@@ -157,7 +159,7 @@ fn fork_proc(proc: impl FnOnce() -> Result<i32>) -> Result<Pid> {
             },
             Err(err) => {
                 let _ = stderr().write(
-                    format!("e: fork_proc: error in child {}: {}\n",
+                    format!("{program_name}: fork_proc: error in child {}: {}\n",
                             getpid(), err).as_bytes());
                 unsafe { _exit(1) }
             }
@@ -168,21 +170,26 @@ fn fork_proc(proc: impl FnOnce() -> Result<i32>) -> Result<Pid> {
 // Fork proc in a new session (calls `setsid` in the child), to
 // prevent signals from crossing over (stop ctl-c).
 fn fork_session_proc(
+    program_name: &str,
     proc: impl FnOnce() -> Result<i32>
 ) -> Result<Pid> {
-    fork_proc(|| {
-        setsid()?;
-        proc()
-    })
+    fork_proc(
+        program_name,
+        || {
+            setsid()?;
+            proc()
+        }
+    )
 }
 
 // Run proc in a new session (a child process that calls `setsid`
 // before doing work), to prevent signals from crossing over (stop
 // ctl-c).
 fn run_session_proc(
+    program_name: &str,
     proc: impl FnOnce() -> Result<i32>
 ) -> Result<Status> {
-    waitpid_until_gone(fork_session_proc(proc)?)
+    waitpid_until_gone(fork_session_proc(program_name, proc)?)
 }
 
 
@@ -249,6 +256,7 @@ fn slurp256_parse<T: FromBStr<Err = bstr_parse::ParseIntError>>(
 
 fn backtick<T: 'static + Send + Sync + std::fmt::Debug + std::fmt::Display
             + FromBStr<Err = bstr_parse::ParseIntError>>(
+    program_name: &str,
     cmd: &Vec<CString>,
     do_chomp: bool,
     do_redir_stderr: bool,
@@ -262,7 +270,7 @@ fn backtick<T: 'static + Send + Sync + std::fmt::Debug + std::fmt::Display
     } else {
         close(streamr)?;
 
-        if do_debug() { eprintln!("e: backtick child {} {:?}", getpid(), cmd) }
+        if do_debug() { eprintln!("{program_name}: backtick child {} {:?}", getpid(), cmd) }
 
         dup2(streamw, 1)?;
         if do_redir_stderr {
@@ -274,6 +282,15 @@ fn backtick<T: 'static + Send + Sync + std::fmt::Debug + std::fmt::Display
         unsafe { _exit(123) }; // never reached, to satisfy type system
     }
 }
+
+// -----------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy)]
+enum ProgramMode {
+    Emacs,
+    VSCodium
+}
+
 
 // Verify that env vars aren't anything unexpected
 fn verify_env() -> Result<()> {
@@ -294,7 +311,7 @@ fn verify_env() -> Result<()> {
 }
 
 // Run cmd, waiting for its exit and logging its output.
-fn run_cmd_with_log(cmd: &Vec<CString>, logpath: &OsStr) -> Result<i32> {
+fn run_cmd_with_log(program_name: &str, cmd: &Vec<CString>, logpath: &OsStr) -> Result<i32> {
     let (streamr, streamw) = pipe()?;
     if let Some(pid) = unsafe { easy_fork() }? {
         close(streamw)?;
@@ -313,15 +330,18 @@ fn run_cmd_with_log(cmd: &Vec<CString>, logpath: &OsStr) -> Result<i32> {
             for line in reader.lines() {
                 let line = line?;
                 let line = string_remove_start(
-                    // emacsclient *always* prints this (to
-                    // indicate that the buffer needs to be
-                    // closed)
+                    // emacsclient *always* prints this (to indicate
+                    // that the buffer needs to be closed). VSCodium
+                    // will never print that, doesn't matter (hacky
+                    // though).
                     &line, "Waiting for Emacs...");
                 if line.len() > 0 {
                     let mut buf = Vec::new();
                     writeln!(&mut buf, "{}\t({})\t{}",
                              time()?, getpid(), line)?;
                     write_all(log, &buf)?;
+                    // VSCodium will never print these, doesn't matter
+                    // (hacky though).
                     if !have_written {
                         if line.contains("have you started the server?")
                             || line.contains("due to a long standing Gtk+ bug")
@@ -333,7 +353,7 @@ fn run_cmd_with_log(cmd: &Vec<CString>, logpath: &OsStr) -> Result<i32> {
                         /* this is new as of Feb 2023 */
                             || line.contains("Should XDG_RUNTIME_DIR=")
                         {
-                            eprintln!("e: starting Emacs instance");
+                            eprintln!("{program_name}: starting editor instance");
                         } else {
                             pass_through = true;
                         }
@@ -536,13 +556,55 @@ fn is_hr(s: &[u8]) -> bool {
     s.len() >= 3 && s.iter().all(|b| *b == b'-')    
 }
 
+fn emacs_possibly_start_daemon(program_name: &str, logpath: &OsStr) -> Result<()> {
+    let emacs_is_up = {
+        let res : Result<i32> = backtick(
+            program_name,
+            &vec!(CString::new("emacsclient")?,
+                  CString::new("-e")?,
+                  CString::new("(+ 3 2)")?),
+            true,
+            true);
+        match res {
+            Err(_) => false,
+            Ok(val) => val == 5
+        }
+    };
+    if ! emacs_is_up {
+        let cmd = vec!(CString::new("emacs")?,
+                       CString::new("--daemon")?);
+        xcheck_status(
+            run_session_proc(
+                program_name,
+                || {
+                    if do_debug() { eprintln!("{program_name}: child {} {:?}", getpid(), cmd) }
+                    run_cmd_with_log(program_name, &cmd, &logpath)
+                })?,
+            &cmd)?;
+    }
+    Ok(())
+}
+
 fn main() -> Result<()> {
+    let all_args_: Vec<OsString> = env::args_os().collect();
+    let (program_path, program_args) = (&all_args_[0], &all_args_[1..]);
+    let program_path: &Path = program_path.as_ref();
+    let program_name = program_path.file_name()
+        .expect("program path argument has file name")
+        .to_str()
+        .expect("program name can be utf8-decoded");
+    let program_mode = match program_name.as_bytes() {
+        // This is unportable, but we're also using fork etc.
+        b"e" => ProgramMode::Emacs,
+        b"f"|b"v" => ProgramMode::VSCodium,
+        _ => bail!("program called by unknown name {program_name:?}, path {program_path:?}"),
+    };
 
     // If `args_is_all_files` then `args` is all file descriptions
     // (which can be path, path:linenumber, path:linenumber:colnumber,
     // or the same with :garbage appended).
     let (_args, args_is_all_files, opt_nw): (Vec<CString>, bool, bool) = (|| -> Result<_> {
-        let args = cstrings_from_osstrings(&mut env::args_os().skip(1))?;
+        let args = cstrings_from_osstrings(program_args)?;
         let mut opt_nw = false;
         let mut files : Vec<CString> = Vec::new();
         let mut iargs = args.clone().into_iter();
@@ -558,14 +620,14 @@ fn main() -> Result<()> {
             } else if a == b"-nw" || a == b"-t" || a == b"--tty" {
                 opt_nw = true;
             } else if a.starts_with(b"-") && ! is_hr(a) {
-                eprintln!("e: can't currently deal with options, falling \
+                eprintln!("{program_name}: can't currently deal with options, falling \
                            back to single emacsclient call (not opening \
                            a separate frame per file)");
                 return Ok((args, false, opt_nw))
             } else if a.starts_with(b"+") {
                 // XX todo: now that we support "path:123" style
                 // positions, either remove this or implement it too.
-                eprintln!("e: can't currently deal with '+' style positions, falling \
+                eprintln!("{program_name}: can't currently deal with '+' style positions, falling \
                            back to single emacsclient call (not opening \
                            a separate frame per file); note that 'file:123' style positions \
                            are supported.");
@@ -585,11 +647,22 @@ fn main() -> Result<()> {
     // characters (copy pastes from gitk).
     let args =
         if args_is_all_files {
-            let e_exists: Lazy<bool> = Lazy::new(|| {
-                PathBuf::from("e").exists()
-            });
-            _args.into_iter().filter(|a| if a.as_bytes() == b"e" {
-                *e_exists
+            let mut e_exists = {
+                // I had a Lazy something somewhere; not the one from
+                // once_cell.
+                let mut cache = None;
+                move || -> bool {
+                    if let Some(val) = cache {
+                        val
+                    } else {
+                        let val = PathBuf::from(program_name).exists();
+                        cache = Some(val);
+                        val
+                    }
+                }
+            };
+            _args.into_iter().filter(|a| if a.as_bytes() == program_name.as_bytes() {
+                e_exists()
             } else if is_hr(a.as_bytes()) {
                 path_is_normal(a) 
             } else {
@@ -617,7 +690,7 @@ fn main() -> Result<()> {
     let logpath = {
         let mut logpath = env::var_os("HOME").ok_or_else(
             || anyhow!("missing HOME env var"))?;
-        logpath.push("/._e-gnu_rs.log");
+        logpath.push(format!("/.{program_name}.log"));
         logpath
     };
 
@@ -628,10 +701,10 @@ fn main() -> Result<()> {
     }
 
     if args.len() > 8 {
-        if ! ask_yn(&format!("e: got {} arguments, do you really want to open \
-                              so many windows?",
+        if ! ask_yn(&format!("{program_name}: got {} arguments, do you really want to open \
+                              so many files?",
                              args.len()))? {
-            eprintln!("e: cancelled.");
+            eprintln!("{program_name}: cancelled.");
             return Ok(());
         }
     }
@@ -640,47 +713,36 @@ fn main() -> Result<()> {
     // file (args is just files here) with a separate emacsclient
     // call, so that each is opened in a separate frame.
 
-    let emacs_is_up = {
-        let res : Result<i32> = backtick(
-            &vec!(CString::new("emacsclient")?,
-                  CString::new("-e")?,
-                  CString::new("(+ 3 2)")?),
-            true,
-            true);
-        match res {
-            Err(_) => false,
-            Ok(val) => val == 5
-        }
-    };
-    if ! emacs_is_up {
-        let cmd = vec!(CString::new("emacs")?,
-                       CString::new("--daemon")?);
-        xcheck_status(
-            run_session_proc(
-                || {
-                    if do_debug() { eprintln!("e: child {} {:?}", getpid(), cmd) }
-                    run_cmd_with_log(&cmd, &logpath)
-                })?,
-            &cmd)?;
-    }
+    emacs_possibly_start_daemon(program_name, &logpath)?;
 
-    let emacsclient_cmd_base = || {
-        let mut cmd = vec![
-            CString::new("emacsclient").unwrap(),
-            CString::new("-c").unwrap()
-        ];
-        if add_nw_option {
-            cmd.push(CString::new("-nw").unwrap());
+    let client_cmd_base = || {
+        match program_mode {
+            ProgramMode::Emacs  => {
+                let mut cmd = vec![
+                    CString::new("emacsclient").unwrap(),
+                    CString::new("-c").unwrap()
+                ];
+                if add_nw_option {
+                    cmd.push(CString::new("-nw").unwrap());
+                }
+                cmd
+            },
+            ProgramMode::VSCodium => {
+                vec![
+                    CString::new("codium").unwrap(),
+                    CString::new("--wait").unwrap(),
+                ]
+            }
         }
-        cmd
     };
+    // VSCodium will never run in the terminal, this is hacky though.
     if args_is_all_files && !is_running_in_terminal {
         // Open each file separately, collecting the pids that
         // we then wait on.
         let mut pids : HashMap<Pid, Vec<CString>> = HashMap::new();
         for file in args {
             let cmd = {
-                let mut cmd = emacsclient_cmd_base();
+                let mut cmd = client_cmd_base();
                 let mut append_unchanged = || -> Result<()> {
                     cmd.append(&mut vec![
                         CString::new("--")?,
@@ -694,10 +756,21 @@ fn main() -> Result<()> {
                         "`file` came from CStr thus no problem with \0 possible");
                     if path_is_normal(&path_cstr) {
                         if let Some(pos) = pos {
-                            cmd.append(&mut vec![
-                                CString::new(format!("+{pos}"))?,
-                                CString::new("--")?,
-                                CString::new(path)?]);
+                            match program_mode {
+                                ProgramMode::Emacs => {
+                                    cmd.append(&mut vec![
+                                        CString::new(format!("+{pos}"))?,
+                                        CString::new("--")?,
+                                        CString::new(path)?
+                                    ]);
+                                }
+                                ProgramMode::VSCodium => {
+                                    cmd.append(&mut vec![
+                                        CString::new("--goto")?,
+                                        CString::new(format!("{path}:{pos}"))?,
+                                    ]);
+                                }
+                            }
                         } else {
                             // use `path`, not `file`, to get trailing ":"s dropped
                             cmd.append(&mut vec![
@@ -715,11 +788,14 @@ fn main() -> Result<()> {
                 }
                 cmd
             };
-            let pid = fork_session_proc(|| {
-                if do_debug() { eprintln!("e: child {} {:?}", getpid(), cmd) }
-                run_cmd_with_log(&cmd, &logpath)?;
-                Ok(0)
-            })?;
+            let pid = fork_session_proc(
+                program_name,
+                || {
+                    if do_debug() { eprintln!("{program_name}: child {} {:?}", getpid(), cmd) }
+                    run_cmd_with_log(program_name, &cmd, &logpath)?;
+                    Ok(0)
+                }
+            )?;
             if let Some(oldcmd) = pids.insert(pid, cmd) {
                 bail!("bug?: got same pid again, previously cmd {:?}",
                       oldcmd)
@@ -730,23 +806,25 @@ fn main() -> Result<()> {
             if let Some(cmd) = pids.remove(&pid) {
                 xcheck_status(status, &cmd)?;
             } else {
-                eprintln!("e: bug?: ignoring unknown pid {}", pid);
+                eprintln!("{program_name}: bug?: ignoring unknown pid {}", pid);
             }
         }
     } else {
-        let mut cmd = emacsclient_cmd_base();
+        let mut cmd = client_cmd_base();
         if args_is_all_files {
             cmd.push(CString::new("--").unwrap());
         }
         cmd.append(&mut args.to_owned());
 
         if is_running_in_terminal {
-            // Need to run direcly, can't redirect log
+            // Need to run direcly, can't redirect log.
+            // VSCodium will never run here, just pretend (hacky).
             execvp(&cmd[0], &cmd)?;
         } else {
             xcheck_status(
                 run_session_proc(
-                    || run_cmd_with_log(&cmd, &logpath))?,
+                    program_name,
+                    || run_cmd_with_log(program_name, &cmd, &logpath))?,
                 &cmd)?;
         }
     }

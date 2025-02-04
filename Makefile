@@ -22,6 +22,11 @@ target/release/%: src/bin/%.rs src/*.rs src/io/*.rs src/parse/*.rs src/text/*.rs
 	rm -f /usr/local/bin/lastfile && ln -s -r /usr/local/bin/lastitem /usr/local/bin/lastfile
 	rm -f /usr/local/bin/lastdir && ln -s -r /usr/local/bin/lastitem /usr/local/bin/lastdir
 
+/usr/local/bin/e: target/release/e
+	install target/release/e /usr/local/bin/e
+	rm -f /usr/local/bin/f && ln -s -r /usr/local/bin/e /usr/local/bin/f
+	rm -f /usr/local/bin/v && ln -s -r /usr/local/bin/e /usr/local/bin/v
+
 /usr/local/bin/%: target/release/%
 	install $< $@
 

@@ -615,10 +615,10 @@ fn main() -> Result<()> {
     verify_env()?;
     
     let logpath = {
-        let mut home = env::var_os("HOME").ok_or_else(
+        let mut logpath = env::var_os("HOME").ok_or_else(
             || anyhow!("missing HOME env var"))?;
-        home.push("/._e-gnu_rs.log");
-        home
+        logpath.push("/._e-gnu_rs.log");
+        logpath
     };
 
     if None == env::var_os("ALTERNATE_EDITOR") {

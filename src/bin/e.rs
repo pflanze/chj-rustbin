@@ -593,11 +593,18 @@ fn main() -> Result<()> {
         .expect("program path argument has file name")
         .to_str()
         .expect("program name can be utf8-decoded");
-    let program_mode = match program_name.as_bytes() {
+    let program_name_error = ||
+        anyhow!("program called by unknown name {program_name:?}, path {program_path:?}");
+    let program_mode = match program_name.as_bytes()[0] {
         // This is unportable, but we're also using fork etc.
-        b"e" => ProgramMode::Emacs,
-        b"f"|b"v" => ProgramMode::VSCodium,
-        _ => bail!("program called by unknown name {program_name:?}, path {program_path:?}"),
+        b'e' => ProgramMode::Emacs,
+        b'f'|b'v' => ProgramMode::VSCodium,
+        _ => Err(program_name_error())?,
+    };
+    let do_background = match program_name.as_bytes().get(1) {
+        Some(b'g') => true,
+        None => false,
+        _ => Err(program_name_error())?,
     };
 
     // If `args_is_all_files` then `args` is all file descriptions
@@ -801,12 +808,14 @@ fn main() -> Result<()> {
                       oldcmd)
             }
         }
-        while pids.len() > 0 {
-            let (pid, status) = wait_until_gone()?;
-            if let Some(cmd) = pids.remove(&pid) {
-                xcheck_status(status, &cmd)?;
-            } else {
-                eprintln!("{program_name}: bug?: ignoring unknown pid {}", pid);
+        if ! do_background {
+            while pids.len() > 0 {
+                let (pid, status) = wait_until_gone()?;
+                if let Some(cmd) = pids.remove(&pid) {
+                    xcheck_status(status, &cmd)?;
+                } else {
+                    eprintln!("{program_name}: bug?: ignoring unknown pid {}", pid);
+                }
             }
         }
     } else {

@@ -599,6 +599,7 @@ fn main() -> Result<()> {
     let (program_mode, do_wait) = match program_name.as_bytes() {
         b"e" => (ProgramMode::Emacs, true),
         b"eg" => (ProgramMode::Emacs, false),
+        b"g" => (ProgramMode::Emacs, false),
         b"v" => (ProgramMode::VSCodium, true),
         b"vg" => (ProgramMode::VSCodium, false),
         b"f" => (ProgramMode::VSCodium, false),

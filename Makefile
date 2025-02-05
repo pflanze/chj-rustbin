@@ -25,6 +25,7 @@ target/release/%: src/bin/%.rs src/*.rs src/io/*.rs src/parse/*.rs src/text/*.rs
 /usr/local/bin/e: target/release/e
 	install target/release/e /usr/local/bin/e
 	rm -f /usr/local/bin/eg && ln -s -r /usr/local/bin/e /usr/local/bin/eg
+	rm -f /usr/local/bin/g && ln -s -r /usr/local/bin/e /usr/local/bin/g
 	rm -f /usr/local/bin/v && ln -s -r /usr/local/bin/e /usr/local/bin/v
 	rm -f /usr/local/bin/vg && ln -s -r /usr/local/bin/e /usr/local/bin/vg
 	rm -f /usr/local/bin/f && ln -s -r /usr/local/bin/e /usr/local/bin/f

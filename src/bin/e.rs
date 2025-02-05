@@ -2,6 +2,7 @@
 /// and `_e-gnu` scripts from <https://github.com/pflanze/chj-scripts>
 
 use anyhow::{Result, anyhow, bail}; 
+use std::env::VarError;
 use std::fs::OpenOptions;
 use std::os::unix::prelude::OsStrExt;
 use std::path::{PathBuf, Path};
@@ -590,10 +591,21 @@ fn main() -> Result<()> {
     let all_args_: Vec<OsString> = env::args_os().collect();
     let (program_path, program_args) = (&all_args_[0], &all_args_[1..]);
     let program_path: &Path = program_path.as_ref();
-    let program_name = program_path.file_name()
-        .expect("program path argument has file name")
-        .to_str()
-        .expect("program name can be utf8-decoded");
+    let e_is = match std::env::var("E_IS") {
+        Ok(s) => Some(s),
+        Err(e) => match e {
+            VarError::NotPresent => None,
+            VarError::NotUnicode(_) => bail!("can't read E_IS env var: {e}")
+        }
+    };
+    let program_name = if let Some(s) = e_is.as_ref() {
+        s
+    } else {
+        program_path.file_name()
+            .expect("program path argument has file name")
+            .to_str()
+            .expect("program name can be utf8-decoded")
+    };
 
     // Using bytes here is unportable to Windows, but we're also using
     // fork etc.
@@ -625,6 +637,9 @@ fn main() -> Result<()> {
                        vg   codium, do not wait\n \
                        f    codium, do not wait\n \
                        fw   codium, wait\n\
+                       \n \
+                       Besides starting the program with the listed name, you can\n \
+                       also set the `E_IS` env var to the desired program name.\n\
                        ");
             return Ok(());
         }

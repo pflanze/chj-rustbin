@@ -593,18 +593,17 @@ fn main() -> Result<()> {
         .expect("program path argument has file name")
         .to_str()
         .expect("program name can be utf8-decoded");
-    let program_name_error = ||
-        anyhow!("program called by unknown name {program_name:?}, path {program_path:?}");
-    let program_mode = match program_name.as_bytes()[0] {
-        // This is unportable, but we're also using fork etc.
-        b'e' => ProgramMode::Emacs,
-        b'f'|b'v' => ProgramMode::VSCodium,
-        _ => Err(program_name_error())?,
-    };
-    let do_background = match program_name.as_bytes().get(1) {
-        Some(b'g') => true,
-        None => false,
-        _ => Err(program_name_error())?,
+
+    // Using bytes here is unportable to Windows, but we're also using
+    // fork etc.
+    let (program_mode, do_wait) = match program_name.as_bytes() {
+        b"e" => (ProgramMode::Emacs, true),
+        b"eg" => (ProgramMode::Emacs, false),
+        b"v" => (ProgramMode::VSCodium, true),
+        b"vg" => (ProgramMode::VSCodium, false),
+        b"f" => (ProgramMode::VSCodium, false),
+        b"fw" => (ProgramMode::VSCodium, true),
+        _ => bail!("program called by unknown name {program_name:?}, path {program_path:?}")
     };
 
     // If `args_is_all_files` then `args` is all file descriptions
@@ -808,7 +807,7 @@ fn main() -> Result<()> {
                       oldcmd)
             }
         }
-        if ! do_background {
+        if do_wait {
             while pids.len() > 0 {
                 let (pid, status) = wait_until_gone()?;
                 if let Some(cmd) = pids.remove(&pid) {

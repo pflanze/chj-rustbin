@@ -598,13 +598,18 @@ fn main() -> Result<()> {
             VarError::NotUnicode(_) => bail!("can't read E_IS env var: {e}")
         }
     };
+    let actual_program_name = program_path.file_name()
+        .expect("program path argument has file name")
+        .to_str()
+        .expect("program name can be utf8-decoded");
     let program_name = if let Some(s) = e_is.as_ref() {
-        s
+        if s.is_empty() {
+            actual_program_name
+        } else {
+            s
+        }
     } else {
-        program_path.file_name()
-            .expect("program path argument has file name")
-            .to_str()
-            .expect("program name can be utf8-decoded")
+        actual_program_name
     };
 
     // Using bytes here is unportable to Windows, but we're also using

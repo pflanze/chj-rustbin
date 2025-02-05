@@ -3,6 +3,7 @@
 
 use anyhow::{Result, anyhow, bail}; 
 use std::fs::OpenOptions;
+use std::os::unix::prelude::OsStrExt;
 use std::path::{PathBuf, Path};
 use std::{env, writeln};
 use std::io::{stderr, Write, BufReader, BufRead};
@@ -606,6 +607,29 @@ fn main() -> Result<()> {
         b"fw" => (ProgramMode::VSCodium, true),
         _ => bail!("program called by unknown name {program_name:?}, path {program_path:?}")
     };
+
+    match program_args.iter().map(|s| s.as_bytes()).collect::<Vec<_>>().as_slice() {
+        [b"-h"] | [b"--help"] => {
+            eprintln!("Usage: {program_name} [path | path:line | path:line:col ]...\n\
+                       \n \
+                       The arguments can also be followed by ':' and some sorts of garbage,\n \
+                       or surrounded by '---..' from copy-pastes from e.g. gitk.\n \
+                       Options are passed on.\n \
+                       \n \
+                       Variants of this program are:\n \
+                       \n \
+                       e    emacs, wait\n \
+                       eg   emacs, do not wait\n \
+                       g    emacs, do not wait\n \
+                       v    codium, wait\n \
+                       vg   codium, do not wait\n \
+                       f    codium, do not wait\n \
+                       fw   codium, wait\n\
+                       ");
+            return Ok(());
+        }
+        _ => ()
+    }
 
     // If `args_is_all_files` then `args` is all file descriptions
     // (which can be path, path:linenumber, path:linenumber:colnumber,

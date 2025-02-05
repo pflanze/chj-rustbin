@@ -621,6 +621,7 @@ fn main() -> Result<()> {
     // fork etc.
     let (program_mode, do_wait) = match program_name.as_bytes() {
         b"e" => (ProgramMode::Emacs, true),
+        b"ew" => (ProgramMode::Emacs, true),
         b"eg" => (ProgramMode::Emacs, false),
         b"g" => (ProgramMode::Emacs, false),
         b"v" => (ProgramMode::VSCodium, true),
@@ -641,6 +642,7 @@ fn main() -> Result<()> {
                        Variants of this program are:\n \
                        \n \
                        e    emacs, wait\n \
+                       ew   emacs, wait\n \
                        eg   emacs, do not wait\n \
                        g    emacs, do not wait\n \
                        v    codium, wait\n \

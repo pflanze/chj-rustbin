@@ -602,11 +602,16 @@ fn main() -> Result<()> {
         .expect("program path argument has file name")
         .to_str()
         .expect("program name can be utf8-decoded");
-    let program_name = if let Some(s) = e_is.as_ref() {
-        if s.is_empty() {
-            actual_program_name
+
+    let program_name = if actual_program_name == "e" {
+        if let Some(s) = e_is.as_ref() {
+            if s.is_empty() {
+                actual_program_name
+            } else {
+                s
+            }
         } else {
-            s
+            actual_program_name
         }
     } else {
         actual_program_name
@@ -644,7 +649,8 @@ fn main() -> Result<()> {
                        fw   codium, wait\n\
                        \n \
                        Besides starting the program with the listed name, you can\n \
-                       also set the `E_IS` env var to the desired program name.\n\
+                       also set the `E_IS` env var to the desired program name\n \
+                       and then start it as `e`.\n\
                        ");
             return Ok(());
         }

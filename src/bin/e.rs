@@ -706,7 +706,7 @@ fn main() -> Result<()> {
     // Drop superfluous `e` arguments from accidentally running
     // e.g. `e e foo`, and file paths consisting of 3 or more `-`
     // characters (copy pastes from gitk).
-    let args =
+    let files_or_args =
         if args_is_all_files {
             let mut e_exists = {
                 // I had a Lazy something somewhere; not the one from
@@ -763,10 +763,10 @@ fn main() -> Result<()> {
         env::set_var("ALTERNATE_EDITOR", "/usr/bin/false");
     }
 
-    if args.len() > 8 {
+    if files_or_args.len() > 8 {
         if ! ask_yn(&format!("{program_name}: got {} arguments, do you really want to open \
                               so many files?",
-                             args.len()))? {
+                             files_or_args.len()))? {
             eprintln!("{program_name}: cancelled.");
             return Ok(());
         }
@@ -803,7 +803,7 @@ fn main() -> Result<()> {
         // Open each file separately, collecting the pids that
         // we then wait on.
         let mut pids : HashMap<Pid, Vec<CString>> = HashMap::new();
-        for file in args {
+        for file in files_or_args {
             let cmd = {
                 let mut cmd = client_cmd_base();
                 let mut append_unchanged = || -> Result<()> {
@@ -879,7 +879,7 @@ fn main() -> Result<()> {
         if args_is_all_files {
             cmd.push(CString::new("--").unwrap());
         }
-        cmd.append(&mut args.to_owned());
+        cmd.append(&mut files_or_args.to_owned());
 
         if is_running_in_terminal {
             // Need to run direcly, can't redirect log.

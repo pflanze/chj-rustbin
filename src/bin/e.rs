@@ -659,10 +659,12 @@ fn main() -> Result<()> {
         _ => ()
     }
 
-    // If `args_is_all_files` then `args` is all file descriptions
-    // (which can be path, path:linenumber, path:linenumber:colnumber,
-    // or the same with :garbage appended).
-    let (_args, args_is_all_files, opt_nw): (Vec<CString>, bool, bool) = (|| -> Result<_> {
+    // Remove `*~` items, remove "-nw" like options, treat "--",
+    // i.e. turn to actual file arguments (in which case
+    // `args_is_all_files == true`; note that the items can still be
+    // path:linenumber, path:linenumber:colnumber, or with garbage
+    // appended) , or, if that can't be done, keep them as is.
+    let (files_or_args, args_is_all_files, opt_nw): (Vec<CString>, bool, bool) = (|| -> Result<_> {
         let args = cstrings_from_osstrings(program_args)?;
         let mut opt_nw = false;
         let mut files : Vec<CString> = Vec::new();
@@ -720,7 +722,7 @@ fn main() -> Result<()> {
                     }
                 }
             };
-            _args.into_iter().filter(|a| if a.as_bytes() == program_name.as_bytes() {
+            files_or_args.into_iter().filter(|a| if a.as_bytes() == program_name.as_bytes() {
                 e_exists()
             } else if is_hr(a.as_bytes()) {
                 path_is_normal(a) 
@@ -728,7 +730,7 @@ fn main() -> Result<()> {
                 true
             }).collect()
         } else {
-            _args
+            files_or_args
         };
 
     let (is_running_in_terminal, add_nw_option) =

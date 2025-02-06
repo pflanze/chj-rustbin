@@ -722,12 +722,14 @@ fn main() -> Result<()> {
                     }
                 }
             };
-            files_or_args.into_iter().filter(|a| if a.as_bytes() == program_name.as_bytes() {
-                e_exists()
-            } else if is_hr(a.as_bytes()) {
-                path_is_normal(a) 
-            } else {
-                true
+            files_or_args.into_iter().filter(|a| {
+                if a.as_bytes() == program_name.as_bytes() {
+                    e_exists()
+                } else if is_hr(a.as_bytes()) {
+                    path_is_normal(a) 
+                } else {
+                    true
+                }
             }).collect()
         } else {
             files_or_args

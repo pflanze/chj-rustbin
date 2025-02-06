@@ -103,6 +103,7 @@ dependencies = [
  "num",
  "once_cell",
  "rayon",
+ "regex",
  "tai64",
  "thiserror",
 ]

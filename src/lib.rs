@@ -16,3 +16,4 @@ pub mod checked_mutex;
 pub mod conslist;
 pub mod alternatively;
 pub mod index_map;
+pub mod path_util;

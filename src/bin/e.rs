@@ -1,13 +1,20 @@
 /// This is a re-implementation and combination of the `e`, `r`, `_e`,
 /// and `_e-gnu` scripts from <https://github.com/pflanze/chj-scripts>
 
-use anyhow::{Result, anyhow, bail}; 
+use std::borrow::Cow;
 use std::env::VarError;
 use std::fs::OpenOptions;
 use std::os::unix::prelude::OsStrExt;
 use std::path::{PathBuf, Path};
 use std::{env, writeln};
 use std::io::{stderr, Write, BufReader, BufRead};
+use std::os::unix::io::{FromRawFd, RawFd};
+use std::ffi::{CString, OsString, OsStr, CStr};
+use std::os::unix::ffi::OsStringExt;
+use std::collections::HashMap;
+
+use anyhow::{Result, anyhow, bail, Context};
+use bstr_parse::{BStrParse, ParseIntError, FromBStr};
 use libc::_exit;
 use nix::unistd::{getpid, pipe, fork, ForkResult,
                   close, setsid, dup2, execvp, read, write, getuid };
@@ -16,22 +23,21 @@ use nix::sys::time::time_t;
 use nix::fcntl::{open, OFlag};
 use nix::sys::stat::{mode_t, Mode};
 use nix::sys::wait::{wait, waitpid, WaitStatus};
-use std::os::unix::io::{FromRawFd, RawFd};
-use std::ffi::{CString, OsString, OsStr, CStr};
-use std::os::unix::ffi::OsStringExt;
 use nix::sys::signal::Signal;
-use bstr_parse::{BStrParse, ParseIntError, FromBStr};
 use nix::errno::Errno;
-use thiserror::Error;
 use nix::unistd::Pid;
-use std::collections::HashMap;
+use regex::Regex; 
+use thiserror::Error;
 
 use chj_rustbin::io::rawfdreader::RawFdReader;
 use chj_rustbin::io::unix_fs::path_is_normal;
+use chj_rustbin::path_util::extension_from_ascii_or_utf8_bytes;
 
 fn do_debug() -> bool {
     false
 }
+
+const PATH_SEPARATOR: u8 = b'/';
 
 // -----------------------------------------------------------------------------
 // Utils, todo: move out
@@ -531,29 +537,135 @@ mod tests2 {
 }
 
 
-/// Tries to decode `s` as UTF-8 string (if not successful, returns
-/// None).  If the string starts with `a/` or `b/` and a non-'/'
-/// character afterwards, check if a directory of the same name
-/// exists, if not, strip it (it's then assumed to be left-overs from
-/// ). Then process (what remains) via `parse_file_description`. (This
-/// means that line numbering etc. is only detected for paths that are
-/// UTF-8, which is probably OK, at least on Linux.)
-fn parse_file_description_from_cstring(s: &CStr) -> Option<(&str, Option<&str>)> {
-    let s = s.to_str().ok()?;
-    if let Some((prefix, rest)) = starts_with_a_b(s) {
-        match std::fs::metadata(prefix) {
-            Ok(m) => if m.is_dir() {
-                Some(parse_file_description(s))
+/// A file argument string, parsed into file path and optional
+/// position info.
+enum PathOrMore<'s> {
+    OnlyPathFallback(&'s CStr),
+    /// The strings here came from a `CStr`, hence can always be
+    /// converted back to a (`CStr`? or) `CString`.
+    Parsed(&'s str, Option<&'s str>),
+}
+
+impl<'s> PathOrMore<'s> {
+    /// Tries to decode `s` as UTF-8 string (if not successful,
+    /// returns None).  If the string starts with `a/` or `b/` and a
+    /// non-'/' character afterwards, check if a directory of the same
+    /// name exists, if not, strip it (it's then assumed to be
+    /// left-overs from ). Then process (what remains) via
+    /// `parse_file_description`. (This means that line numbering
+    /// etc. is only detected for paths that are UTF-8, which is
+    /// probably OK, at least on Linux.) This was supposed to not do
+    /// any file IO, except it actually calls `std::fs::metadata`
+    /// (todo: refactor). Careful: you should use `new` instead to get
+    /// the full logic based on doing file IO!
+    fn parse_from_cstring(path_or_more: &'s CStr) -> Self {
+        if let Some(s) = path_or_more.to_str().ok() {
+            if let Some((path, pos)) =
+                if let Some((prefix, rest)) = starts_with_a_b(s) {
+                    match std::fs::metadata(prefix) {
+                        Ok(m) => if m.is_dir() {
+                            Some(parse_file_description(s))
+                        } else {
+                            Some(parse_file_description(rest))
+                        },
+                        Err(_) => Some(parse_file_description(rest))
+                    }
+                } else {
+                    Some(parse_file_description(s))
+                }
+            {
+                PathOrMore::Parsed(path, pos)
             } else {
-                Some(parse_file_description(rest))
-            },
-            Err(_) => Some(parse_file_description(rest))
+                // Not cleaned, so can just as well use the fallback
+                // FileOrMore::OnlyPathCleaned(s)
+                PathOrMore::OnlyPathFallback(path_or_more)
+            }
+        } else {
+            PathOrMore::OnlyPathFallback(path_or_more)
         }
-    } else {
-        Some(parse_file_description(s))
+    }
+
+    /// Construct the right kind of `PathOrMore`, depending on whether
+    /// the original path or parsed one exist--does file IO to find
+    /// out.
+    fn new(path_or_more: &'s CStr) -> Self {
+        if path_is_normal(&path_or_more) {
+            PathOrMore::OnlyPathFallback(&path_or_more)
+        } else {
+            let slf = PathOrMore::parse_from_cstring(&path_or_more);
+            if path_is_normal(slf.path().as_ref()) {
+                slf
+            } else {
+                // There's no reason a non-existing path would
+                // have line/column numbers added, thus assume
+                // the user wants to edit the original path.
+                PathOrMore::OnlyPathFallback(&path_or_more)
+            }
+        }
+    }
+
+    fn path(&self) -> Cow<CStr> {
+        match self {
+            PathOrMore::OnlyPathFallback(p) => (*p).into(),
+            PathOrMore::Parsed(s, _) =>
+                CString::new(s.as_bytes()).expect(
+                    "came from CStr thus no problem with \0 possible")
+                .into()
+        }
+    }
+
+    /// Only returns a suffix if it is decodeable as &str.
+    fn extension(&self) -> Option<&str> {
+        match self {
+            PathOrMore::OnlyPathFallback(p) => {
+                extension_from_ascii_or_utf8_bytes(p.to_bytes(), PATH_SEPARATOR)
+            }
+            PathOrMore::Parsed(p, _pos) => {
+                extension_from_ascii_or_utf8_bytes(p.as_bytes(), PATH_SEPARATOR)
+            }
+        }
+    }
+
+    fn append_to_cmd_for_mode(&self, mode: ProgramMode, cmd: &mut Vec<CString>) {
+        let cstring = |s: &str| {
+            CString::new(s.as_bytes()).expect(
+                "`file` came from CStr thus no problem with \0 possible")
+        };
+        let mut append_unchanged = |path: CString| {
+            cmd.append(&mut vec![
+                CString::new("--").expect("ok"),
+                path]);
+        };
+        match self {
+            PathOrMore::OnlyPathFallback(path) => append_unchanged((*path).to_owned()),
+            PathOrMore::Parsed(path, None) => {
+                let path_cstr = CString::new(path.as_bytes()).expect(
+                    "`file` came from CStr thus no problem with \0 possible");
+                append_unchanged(path_cstr);
+            }
+            PathOrMore::Parsed(path, Some(pos)) => {
+                match mode {
+                    ProgramMode::Emacs => {
+                        cmd.append(&mut vec![
+                            cstring(&format!("+{pos}")),
+                            cstring("--"),
+                            cstring(*path)
+                        ]);
+                    }
+                    ProgramMode::VSCodium => {
+                        cmd.append(&mut vec![
+                            cstring("--goto"),
+                            cstring(&format!("{path}:{pos}")),
+                        ]);
+                    }
+                }
+            }
+        }
     }
 }
 
+
+/// Check if an argument is a 'line' like "----".
 fn is_hr(s: &[u8]) -> bool {
     s.len() >= 3 && s.iter().all(|b| *b == b'-')    
 }
@@ -587,17 +699,21 @@ fn emacs_possibly_start_daemon(program_name: &str, logpath: &OsStr) -> Result<()
     Ok(())
 }
 
+fn get_env(name: &str) -> Result<Option<String>> {
+    match std::env::var(name) {
+        Ok(s) => Ok(Some(s)),
+        Err(e) => match e {
+            VarError::NotPresent => Ok(None),
+            VarError::NotUnicode(_) => bail!("can't read E_IS env var: {e}")
+        }
+    }
+}
+
 fn main() -> Result<()> {
     let all_args_: Vec<OsString> = env::args_os().collect();
     let (program_path, program_args) = (&all_args_[0], &all_args_[1..]);
     let program_path: &Path = program_path.as_ref();
-    let e_is = match std::env::var("E_IS") {
-        Ok(s) => Some(s),
-        Err(e) => match e {
-            VarError::NotPresent => None,
-            VarError::NotUnicode(_) => bail!("can't read E_IS env var: {e}")
-        }
-    };
+    let e_is = get_env("E_IS")?;
     let actual_program_name = program_path.file_name()
         .expect("program path argument has file name")
         .to_str()
@@ -631,6 +747,19 @@ fn main() -> Result<()> {
         _ => bail!("program called by unknown name {program_name:?}, path {program_path:?}")
     };
 
+    let f_suffices_re: Option<Regex> = if let Some(re) = get_env("F_SUFFICES")? {
+        // First try to catch bugs in the re itself, before adding
+        // more 'markup'
+        Regex::new(&re)
+            .with_context(|| anyhow!("parsing {re:?} as regex"))?;
+        let full_re = format!("^({re})$");
+        let re_re = Regex::new(&full_re)
+            .with_context(|| anyhow!("parsing {full_re:?} as regex"))?;
+        Some(re_re)
+    } else {
+        None
+    };
+
     match program_args.iter().map(|s| s.as_bytes()).collect::<Vec<_>>().as_slice() {
         [b"-h"] | [b"--help"] => {
             eprintln!("Usage: {program_name} [path | path:line | path:line:col ]...\n\
@@ -653,6 +782,11 @@ fn main() -> Result<()> {
                        Besides starting the program with the listed name, you can\n \
                        also set the `E_IS` env var to the desired program name\n \
                        and then start it as `e`.\n\
+                       \n \
+                       If `F_SUFFICES` is set, it matched as a regex against the file extension\n \
+                       of the file arguments, files that match are passed to VSCodium.\n\
+                       \n \
+                       The two can be combined!\n\
                        ");
             return Ok(());
         }
@@ -778,8 +912,8 @@ fn main() -> Result<()> {
 
     emacs_possibly_start_daemon(program_name, &logpath)?;
 
-    let client_cmd_base = || {
-        match program_mode {
+    let client_cmd_base_for_mode = |mode| {
+        match mode {
             ProgramMode::Emacs  => {
                 let mut cmd = vec![
                     CString::new("emacsclient").unwrap(),
@@ -804,51 +938,25 @@ fn main() -> Result<()> {
         // we then wait on.
         let mut pids : HashMap<Pid, Vec<CString>> = HashMap::new();
         for file in files_or_args {
-            let cmd = {
-                let mut cmd = client_cmd_base();
-                let mut append_unchanged = || -> Result<()> {
-                    cmd.append(&mut vec![
-                        CString::new("--")?,
-                        file.clone()]);
-                    Ok(())
-                };
-                if path_is_normal(&file) {
-                    append_unchanged()?;
-                } else if let Some((path, pos)) = parse_file_description_from_cstring(&file) {
-                    let path_cstr = CString::new(path.as_bytes()).expect(
-                        "`file` came from CStr thus no problem with \0 possible");
-                    if path_is_normal(&path_cstr) {
-                        if let Some(pos) = pos {
-                            match program_mode {
-                                ProgramMode::Emacs => {
-                                    cmd.append(&mut vec![
-                                        CString::new(format!("+{pos}"))?,
-                                        CString::new("--")?,
-                                        CString::new(path)?
-                                    ]);
-                                }
-                                ProgramMode::VSCodium => {
-                                    cmd.append(&mut vec![
-                                        CString::new("--goto")?,
-                                        CString::new(format!("{path}:{pos}"))?,
-                                    ]);
-                                }
-                            }
-                        } else {
-                            // use `path`, not `file`, to get trailing ":"s dropped
-                            cmd.append(&mut vec![
-                                CString::new("--")?,
-                                CString::new(path)?]);
-                        }
+
+            let path_or_more = PathOrMore::new(&file);
+            let mode = if let Some(re) = f_suffices_re.as_ref() {
+                if let Some(ext) = path_or_more.extension() {
+                    if re.is_match(ext) {
+                        ProgramMode::VSCodium
                     } else {
-                        // There's no reason a non-existing path would
-                        // have line/column numbers added, thus assume
-                        // the user wants to edit the original path.
-                        append_unchanged()?;
+                        program_mode
                     }
                 } else {
-                    append_unchanged()?;
+                    program_mode
                 }
+            } else {
+                program_mode
+            };
+
+            let cmd = {
+                let mut cmd = client_cmd_base_for_mode(mode);
+                path_or_more.append_to_cmd_for_mode(mode, &mut cmd);
                 cmd
             };
             let pid = fork_session_proc(
@@ -875,7 +983,7 @@ fn main() -> Result<()> {
             }
         }
     } else {
-        let mut cmd = client_cmd_base();
+        let mut cmd = client_cmd_base_for_mode(program_mode);
         if args_is_all_files {
             cmd.push(CString::new("--").unwrap());
         }

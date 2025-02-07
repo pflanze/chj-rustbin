@@ -616,14 +616,15 @@ impl<'s> PathOrMore<'s> {
 
     /// Only returns a suffix if it is decodeable as &str.
     fn extension(&self) -> Option<&str> {
-        match self {
+        let bytes = match self {
             PathOrMore::OnlyPathFallback(p) => {
-                extension_from_ascii_or_utf8_bytes(p.to_bytes(), PATH_SEPARATOR)
+                p.to_bytes()
             }
             PathOrMore::Parsed(p, _pos) => {
-                extension_from_ascii_or_utf8_bytes(p.as_bytes(), PATH_SEPARATOR)
+                p.as_bytes()
             }
-        }
+        };
+        extension_from_ascii_or_utf8_bytes(bytes, PATH_SEPARATOR)
     }
 
     fn append_to_cmd_for_mode(&self, mode: ProgramMode, cmd: &mut Vec<CString>) {

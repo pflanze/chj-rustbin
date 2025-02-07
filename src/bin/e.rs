@@ -783,7 +783,8 @@ fn main() -> Result<()> {
                        and then start it as `e`.\n\
                        \n \
                        If `F_SUFFICES` is set, it matched as a regex against the file extension\n \
-                       of the file arguments, files that match are passed to VSCodium.\n\
+                       of the file arguments (the regex is implicitly anchored with ^ and $),\n \
+                       files that match are passed to VSCodium.\n\
                        \n \
                        The two can be combined!\n\
                        ");

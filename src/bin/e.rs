@@ -733,8 +733,6 @@ fn main() -> Result<()> {
         actual_program_name
     };
 
-    // Using bytes here is unportable to Windows, but we're also using
-    // fork etc.
     let (program_mode, do_wait) = match program_name.as_bytes() {
         b"e" => (ProgramMode::Emacs, true),
         b"ew" => (ProgramMode::Emacs, true),

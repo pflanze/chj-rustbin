@@ -8,7 +8,7 @@ use std::{path::{PathBuf, Path},
 
 use anyhow::{Result, anyhow, Context, bail};
 use chrono::{NaiveDateTime, NaiveTime, Weekday, Datelike, Duration,
-             Utc, DateTime, Timelike};
+             Utc, DateTime, Timelike, Local};
 use clap::Parser;
 use kstring::KString;
 
@@ -78,6 +78,16 @@ struct Opts {
     // Don't use NaiveDateTime, its parser is bad
     #[clap(short, long)]
     time: Option<String>,
+
+    /// Only show entries created at least that many days ago (inclusive)
+    // Don't use NaiveDateTime, its parser is bad
+    #[clap(long)]
+    age_min: Option<u16>,
+
+    /// Only show entries created fewer than that many days ago (inclusive)
+    // Don't use NaiveDateTime, its parser is bad
+    #[clap(long)]
+    age_max: Option<u16>,
 
     /// The base directories holding the todo files. If none given,
     /// uses `.`.
@@ -2160,6 +2170,23 @@ fn main() -> Result<()> {
             if !ti.workflow_status.is_active() {
                 continue;
             }
+            if opts.age_max.is_some() || opts.age_min.is_some() {
+                let mtime: DateTime<Local> = ti.mtime.into();
+                // XX which Tz is that in now?? TZ env var?
+                let age = now.signed_duration_since(mtime.naive_local());
+                let age_days = age.num_hours() / 24;
+                if let Some(d) = opts.age_min {
+                    if age_days < d.into() {
+                        continue;
+                    }
+                }
+                if let Some(d) = opts.age_max {
+                    if age_days > d.into() {
+                        continue;
+                    }
+                }
+            }
+                
             if !opts.no_priority {
                 let s = format!("{:.2}", ti.calculated_priority());
                 out.write_all(s.as_bytes())?;

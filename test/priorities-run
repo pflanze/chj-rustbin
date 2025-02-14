@@ -2,16 +2,22 @@
 set -meuo pipefail
 IFS=
 
-out=$(mktemp)
-err=$(mktemp)
-
 #set -x
 
 cargo_target=${CARGO_TARGET-release}
+priorities=target/"$cargo_target"/priorities
+
+errors=0
 
 target/"$cargo_target"/priorities-restore-mtimes
 
-if target/"$cargo_target"/priorities test/priorities/ -t "2024/10/06 08:00:00" > "$out" 2> "$err"; then
+# ------------------------------------------------------------------
+# Test usage as per 'prio' script from chj-scripts
+
+out=$(mktemp)
+err=$(mktemp)
+
+if "$priorities" test/priorities/ -t "2024/10/06 08:00:00" > "$out" 2> "$err"; then
     echo "expecting exit code 1, got 0"
     false
 else
@@ -23,9 +29,6 @@ else
         false
     fi
 fi
-
-
-errors=0
 
 if ! diff -u test/priorities.out "$out"; then
     errors=$(( errors + 1 ))
@@ -40,8 +43,40 @@ if ! diff -u test/priorities.err "$filtered_err"; then
     errors=$(( errors + 1 ))
 fi
 
+
 if [ $errors -eq 0 ]; then
     rm -f "$out" "$err" "$filtered_err"
 fi
+
+# ------------------------------------------------------------------
+# Test usage as per 'remind' script from chj-scripts
+
+out=$(mktemp)
+err=$(mktemp)
+
+if "$priorities" test/priorities/ -t "2025-02-28 08:00:00" --age-min 30 --no-show-archived > "$out" 2> "$err"; then
+    echo "expecting exit code 1, got 0"
+    false
+else
+    e=$?
+    if [ $e -ne 1 ]; then
+        cat "$out"
+        cat "$err"
+        echo "expecting exit code 1, got $e"
+        false
+    fi
+fi
+
+if ! diff -u test/priorities2.out "$out"; then
+    errors=$(( errors + 1 ))
+fi
+
+# Just ignore what's in "$err" this time?
+
+if [ $errors -eq 0 ]; then
+    rm -f "$out" "$err"
+fi
+
+# ------------------------------------------------------------------
 
 exit $errors

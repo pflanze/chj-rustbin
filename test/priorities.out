@@ -18,5 +18,6 @@
 9.48	test/priorities/foo/2024-10-24_153947_Thu-foo (for Wed OPEN{10-27})
 10.42	test/priorities/2025-01-20_015029_Mon-another OPEN{01-18, importance: 1}
 10.42	test/priorities/2025-01-20_015030_Mon-another OPEN{2026-1-18, importance: 1}
+10.42	test/priorities/2025-01-20_015032_Mon-another OPEN{2026-1-18, importance: 1} ARCHIVED
 12.40	test/priorities/2024-12-02_203000_Mon-some OPEN{12-3}
 20.42	test/priorities/2025-01-20_015031_Mon-another OPEN{2026-1-18, importance: 1} FUTURE

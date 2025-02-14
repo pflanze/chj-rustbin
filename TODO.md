@@ -21,8 +21,8 @@
 - Parse `Mon_21_Oct_090435_CEST_2024` style date format (code in
   cj-hours-parser) .
 
-- With mtime > 30 days old, pin to (or only near?) the top (with
-  coloring?). Until a new tag `OLD` is given, disabling the pinning?
+- A feature to show old non-archived entries at the top in normal
+  usage instead of via `--min-age`?
 
 - List the "class" names in the help text or via an option.
 

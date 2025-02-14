@@ -79,7 +79,9 @@ struct Opts {
     #[clap(short, long)]
     time: Option<String>,
 
-    /// Only show entries created at least that many days ago (inclusive)
+    /// Only show entries created at least that many days ago
+    /// (inclusive); useful with `--no-show-archived` to weed out old
+    /// missed entries
     // Don't use NaiveDateTime, its parser is bad
     #[clap(long)]
     age_min: Option<u16>,
@@ -88,6 +90,10 @@ struct Opts {
     // Don't use NaiveDateTime, its parser is bad
     #[clap(long)]
     age_max: Option<u16>,
+
+    /// Do not show ARCHIVE entries (useful with `--age-min`)
+    #[clap(long)]
+    no_show_archived: bool,
 
     /// The base directories holding the todo files. If none given,
     /// uses `.`.
@@ -692,6 +698,7 @@ pub enum WorkflowStatus {
 
     Dupe,
     Future,
+    Archive,
 
     Notforme,
     Applied,
@@ -713,6 +720,7 @@ impl WorkflowStatus {
 
             Dupe,
             Future,
+            Archive,
 
             Notforme,
             Applied,
@@ -732,13 +740,14 @@ impl WorkflowStatus {
             WorkflowStatus::Wontfix => &["WONTFIX"],
             WorkflowStatus::Dupe => &["DUPE"],
             WorkflowStatus::Future => &["FUTURE"],
+            WorkflowStatus::Archive => &["ARCHIVE"],
             WorkflowStatus::Notforme => &["NOTFORME"],
             WorkflowStatus::Applied => &["APPLIED"],
             WorkflowStatus::Active => &["ACTIVE"],
             WorkflowStatus::Rejected => &["REJECTED"],
         }
     }
-    pub fn is_active(self) -> bool {
+    pub fn is_active(self, show_archived: bool) -> bool {
         match self {
             WorkflowStatus::None => false,
             WorkflowStatus::Open => true,
@@ -747,6 +756,7 @@ impl WorkflowStatus {
             WorkflowStatus::Wontfix => false,
             WorkflowStatus::Dupe => false, // ?
             WorkflowStatus::Future => true, // ?
+            WorkflowStatus::Archive => show_archived,
             WorkflowStatus::Notforme => false,
             WorkflowStatus::Applied => true, // ?
             WorkflowStatus::Active => true,
@@ -771,6 +781,7 @@ impl FromStr for WorkflowStatus {
             WorkflowStatus::Wontfix => (),
             WorkflowStatus::Dupe => (),
             WorkflowStatus::Future => (),
+            WorkflowStatus::Archive => (),
             WorkflowStatus::Notforme => (),
             WorkflowStatus::Applied => (),
             WorkflowStatus::Active => (),
@@ -792,6 +803,7 @@ impl FromStr for WorkflowStatus {
 
             "dupe" => Ok(WorkflowStatus::Dupe),
             "future" => Ok(WorkflowStatus::Future),
+            "archive" => Ok(WorkflowStatus::Archive),
 
             "notforme" => Ok(WorkflowStatus::Notforme),
             "applied" => Ok(WorkflowStatus::Applied),
@@ -1867,6 +1879,7 @@ where &'s B: Backing
             WorkflowStatus::Wontfix |
             WorkflowStatus::Dupe |
             WorkflowStatus::Future |
+            WorkflowStatus::Archive |
             WorkflowStatus::Notforme |
             WorkflowStatus::Applied |
             WorkflowStatus::Active |
@@ -2124,8 +2137,8 @@ fn main() -> Result<()> {
     for ti in &taskinfos {
         // Do not make priorities on dependencies relevant for (a)
         // files which are not obviously tasks, (b) tasks which
-        // are not open.
-        if !ti.workflow_status.is_active() {
+        // are not open. Include ARCHIVE entries, though.
+        if !ti.workflow_status.is_active(true) {
             continue;
         }
 
@@ -2167,7 +2180,7 @@ fn main() -> Result<()> {
     (|| -> std::io::Result<()> {
         let mut out = stdout().lock();
         for ti in &taskinfos {
-            if !ti.workflow_status.is_active() {
+            if !ti.workflow_status.is_active(! opts.no_show_archived) {
                 continue;
             }
             if opts.age_max.is_some() || opts.age_min.is_some() {

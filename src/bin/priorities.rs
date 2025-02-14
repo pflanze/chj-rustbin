@@ -91,7 +91,7 @@ struct Opts {
     #[clap(long)]
     age_max: Option<u16>,
 
-    /// Do not show ARCHIVE entries (useful with `--age-min`)
+    /// Do not show ARCHIVED entries (useful with `--age-min`)
     #[clap(long)]
     no_show_archived: bool,
 
@@ -698,7 +698,7 @@ pub enum WorkflowStatus {
 
     Dupe,
     Future,
-    Archive,
+    Archived,
 
     Notforme,
     Applied,
@@ -720,7 +720,7 @@ impl WorkflowStatus {
 
             Dupe,
             Future,
-            Archive,
+            Archived,
 
             Notforme,
             Applied,
@@ -740,7 +740,7 @@ impl WorkflowStatus {
             WorkflowStatus::Wontfix => &["WONTFIX"],
             WorkflowStatus::Dupe => &["DUPE"],
             WorkflowStatus::Future => &["FUTURE"],
-            WorkflowStatus::Archive => &["ARCHIVE"],
+            WorkflowStatus::Archived => &["ARCHIVED"],
             WorkflowStatus::Notforme => &["NOTFORME"],
             WorkflowStatus::Applied => &["APPLIED"],
             WorkflowStatus::Active => &["ACTIVE"],
@@ -756,7 +756,7 @@ impl WorkflowStatus {
             WorkflowStatus::Wontfix => false,
             WorkflowStatus::Dupe => false, // ?
             WorkflowStatus::Future => true, // ?
-            WorkflowStatus::Archive => show_archived,
+            WorkflowStatus::Archived => show_archived,
             WorkflowStatus::Notforme => false,
             WorkflowStatus::Applied => true, // ?
             WorkflowStatus::Active => true,
@@ -781,7 +781,7 @@ impl FromStr for WorkflowStatus {
             WorkflowStatus::Wontfix => (),
             WorkflowStatus::Dupe => (),
             WorkflowStatus::Future => (),
-            WorkflowStatus::Archive => (),
+            WorkflowStatus::Archived => (),
             WorkflowStatus::Notforme => (),
             WorkflowStatus::Applied => (),
             WorkflowStatus::Active => (),
@@ -803,7 +803,7 @@ impl FromStr for WorkflowStatus {
 
             "dupe" => Ok(WorkflowStatus::Dupe),
             "future" => Ok(WorkflowStatus::Future),
-            "archive" => Ok(WorkflowStatus::Archive),
+            "archived" => Ok(WorkflowStatus::Archived),
 
             "notforme" => Ok(WorkflowStatus::Notforme),
             "applied" => Ok(WorkflowStatus::Applied),
@@ -1879,7 +1879,7 @@ where &'s B: Backing
             WorkflowStatus::Wontfix |
             WorkflowStatus::Dupe |
             WorkflowStatus::Future |
-            WorkflowStatus::Archive |
+            WorkflowStatus::Archived |
             WorkflowStatus::Notforme |
             WorkflowStatus::Applied |
             WorkflowStatus::Active |
@@ -2137,7 +2137,7 @@ fn main() -> Result<()> {
     for ti in &taskinfos {
         // Do not make priorities on dependencies relevant for (a)
         // files which are not obviously tasks, (b) tasks which
-        // are not open. Include ARCHIVE entries, though.
+        // are not open. Include ARCHIVED entries, though.
         if !ti.workflow_status.is_active(true) {
             continue;
         }

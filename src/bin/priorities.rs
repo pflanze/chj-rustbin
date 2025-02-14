@@ -898,6 +898,8 @@ struct TaskInfo<C: ParseContext + Clone> {
 }
 
 impl<C: ParseContext + Clone> TaskInfo<C> {
+    // (This is currently called even for non-active ones, because the
+    // sorting happens on all of them, only printing omits them.)
     fn priority_level_at(&self, now: NaiveDateTime) -> Result<f32, ParseError<C>> {
         priority_level(&self.declarations.priority,
                        self.declarations.tasksize,
@@ -905,9 +907,17 @@ impl<C: ParseContext + Clone> TaskInfo<C> {
                        self.mtime,
                        now)
         // HACK, proper place?
-            .map(|level| level + (
-                (self.declarations.importance.level as i32 - DEFAULT_IMPORTANCE_LEVEL as i32) * 2
-            ) as f32)
+            .map(|level| {
+                let importance_shift = ((self.declarations.importance.level as i32
+                                         - DEFAULT_IMPORTANCE_LEVEL as i32)
+                                        * 2) as f32;
+                let future_shift = if self.workflow_status == WorkflowStatus::Future {
+                    10.
+                } else {
+                    0.
+                };
+                level + importance_shift + future_shift
+            })
     }
 
     fn set_initial_priority_level_for(&self, now: NaiveDateTime) -> Result<(), ParseError<C>> {

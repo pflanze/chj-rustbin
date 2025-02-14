@@ -19,3 +19,4 @@
 10.42	test/priorities/2025-01-20_015029_Mon-another OPEN{01-18, importance: 1}
 10.42	test/priorities/2025-01-20_015030_Mon-another OPEN{2026-1-18, importance: 1}
 12.40	test/priorities/2024-12-02_203000_Mon-some OPEN{12-3}
+20.42	test/priorities/2025-01-20_015031_Mon-another OPEN{2026-1-18, importance: 1} FUTURE

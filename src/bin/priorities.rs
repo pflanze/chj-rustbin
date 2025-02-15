@@ -895,7 +895,8 @@ impl From<&str> for DependencyKey {
 
 #[derive(Debug, Clone)]
 struct TaskInfo<C: ParseContext + Clone> {
-    /// Real primary key (unlike `dependency_key` which isn't always available)
+    /// Real primary key (unlike `dependency_key` which isn't always
+    /// available) for this program run.
     id: usize,
     /// Path to the file
     path: PathBuf,
@@ -1705,8 +1706,10 @@ fn is_word_boundary(c: Option<char>) -> bool {
 
 // Find "OPEN"/"TODO", "DONE" and other workflow markers, together
 // with the found strings, sorted by their positions. Note: this does
-// *not* consider `{..}` blocks, see `find_all_parsed_markers` for
-// that. (Performance: there could be a better algorithm.)
+// *not* consider `{..}` blocks and could find strings that are the
+// same as marker strings within those; see `find_all_parsed_markers`
+// for handling that after the fact. (Performance: there could be a
+// better algorithm.)
 fn find_all_markers<'s, B: Backing>(
     s: &ParseableStr<'s, B>
 ) -> Vec<(WorkflowStatus, ParseableStr<'s, B>, ParseableStr<'s, B>)>
@@ -1750,10 +1753,10 @@ fn t_find_all_markers() {
     assert_eq!(t("foo TODO_ DONE POPEN DONE4 /DONE+"), [(Done, 10), (Done, 28)]);
 }
 
-// Parse a marker with its optional `{..}` block, return parsed value
-// and rest (after the block if given).
+// Parse a marker's optional `{..}` block, return parsed block and
+// rest
 fn parse_marker<'s, B: Backing + Debug>(
-    (_status, string, rest): (WorkflowStatus, ParseableStr<'s, B>, ParseableStr<'s, B>)
+    (_status, marker_string, rest): (WorkflowStatus, ParseableStr<'s, B>, ParseableStr<'s, B>)
 ) -> Result<(Option<TaskInfoDeclarations<StringParseContext<&'s B>>>,
              ParseableStr<'s, B>),
             ParseError<StringParseContext<&'s B>>>
@@ -1764,7 +1767,7 @@ where &'s B: Backing
             Ok((Some(T!(parse_inside(&inside))?), rest))
         } else {
             Err(parse_error! {
-                message: format!("missing closing '}}' after '{}{{'", string.s),
+                message: format!("missing closing '}}' after '{}{{'", marker_string.s),
                 context: rest.into()
             })
         }

@@ -747,7 +747,8 @@ impl WorkflowStatus {
             WorkflowStatus::Rejected => &["REJECTED"],
         }
     }
-    pub fn is_active(self, show_archived: bool) -> bool {
+    /// Note: panics for `WorkflowStatus::Archived`!
+    pub fn is_active(self) -> bool {
         match self {
             WorkflowStatus::None => false,
             WorkflowStatus::Open => true,
@@ -756,7 +757,7 @@ impl WorkflowStatus {
             WorkflowStatus::Wontfix => false,
             WorkflowStatus::Dupe => false, // ?
             WorkflowStatus::Future => true, // ?
-            WorkflowStatus::Archived => show_archived,
+            WorkflowStatus::Archived => unreachable!("never stored, instead translated to bool"),
             WorkflowStatus::Notforme => false,
             WorkflowStatus::Applied => true, // ?
             WorkflowStatus::Active => true,
@@ -906,6 +907,9 @@ struct TaskInfo<C: ParseContext + Clone> {
     /// parent dirs, or if present the latter, from the directory
     /// segment closest to the file.
     workflow_status: WorkflowStatus,
+    /// Whether the entry is tagged `ARCHIVED`, i.e. if it should not
+    /// be shown when looking with `--no-show-archived`
+    is_archived: bool,
     /// The key to use when referring to this entry as dependency.
     dependency_key: Option<DependencyKey>,
     /// The current modification time.
@@ -1841,13 +1845,14 @@ impl<C: ParseContext> MarkerStatus<C> {
 // Find the last parsed `WorkflowStatus::Open` marker, if any, and/or
 // the last `WorkFlowStatus` (last such marker after the `Open`, if
 // any, otherwise `Open`, or whatever status was found if there's no
-// `Open`).
+// `Open`). Also returns the `is_archived` bool if
+// `WorkflowStatus::Archived` was seen (which is otherwise skipped).
 fn find_marker_status<'s, B: Backing + Debug>(
     markers: Vec<(Option<TaskInfoDeclarations<StringParseContext<&'s B>>>,
                   WorkflowStatus,
                   ParseableStr<'s, B>,
                   ParseableStr<'s, B>)>
-) -> Result<MarkerStatus<StringParseContext<&'s B>>,
+) -> Result<(MarkerStatus<StringParseContext<&'s B>>, bool),
             ParseError<StringParseContext<&'s B>>>
 where &'s B: Backing
 {
@@ -1855,6 +1860,7 @@ where &'s B: Backing
                           ParseableStr<'s, B>)> = None;
     let mut last_status: Option<WorkflowStatus> = None;
     let mut previous_was_open = false;
+    let mut is_archived = false;
     for (decl, status, string, _rest) in markers {
         match status {
             WorkflowStatus::None => (), // ? XX what is None for again?
@@ -1882,7 +1888,6 @@ where &'s B: Backing
             WorkflowStatus::Wontfix |
             WorkflowStatus::Dupe |
             WorkflowStatus::Future |
-            WorkflowStatus::Archived |
             WorkflowStatus::Notforme |
             WorkflowStatus::Applied |
             WorkflowStatus::Active |
@@ -1891,16 +1896,20 @@ where &'s B: Backing
                 previous_was_open = false;
                 last_status = Some(status);
             }
+            WorkflowStatus::Archived => {
+                is_archived = true;
+            }
         }
     }
     if let Some(info) = open {
-        Ok(MarkerStatus::Open((info.0, last_status.expect("set when `open` was set"))))
+        Ok((MarkerStatus::Open((info.0, last_status.expect("set when `open` was set"))),
+            is_archived))
     } else {
-        Ok(if let Some(status) = last_status {
+        Ok((if let Some(status) = last_status {
             MarkerStatus::NotOpen(status)
         } else {
             MarkerStatus::None
-        })
+        }, is_archived))
     }
 }
 
@@ -1914,7 +1923,9 @@ fn t_find_marker_status() {
     let backing = String::new();
     let t = |s| find_marker_status(find_all_parsed_markers(find_all_markers(
         &ParseableStr { backing: &backing, position: 0, s }))?);
-    let v: MarkerStatus<_> = t("foo OPEN{1} DONE POPEN DONE4 /DONE+").unwrap();
+    let (v, is_archived): (MarkerStatus<_>, bool) =
+        t("foo OPEN{1} DONE POPEN DONE4 /DONE+").unwrap();
+    assert!(!is_archived);
     assert_eq!(v.workflow_status(), Some(WorkflowStatus::Done));
     assert_eq!(v.task_info_declarations(), Some(
         &TaskInfoDeclarations {
@@ -1922,7 +1933,8 @@ fn t_find_marker_status() {
             priority: Priority::Level(1),
             importance: Importance { level: 5 },
             dependencies: Dependencies { keys: Default::default() }}));
-    let v = t("foo OPEN{1} FUTURE").unwrap();
+    let (v, is_archived) = t("foo OPEN{1} FUTURE ARCHIVED").unwrap();
+    assert!(is_archived);
     assert_eq!(v.workflow_status(), Some(WorkflowStatus::Future));
     assert_eq!(v.task_info_declarations(), Some(
         &TaskInfoDeclarations {
@@ -1931,7 +1943,8 @@ fn t_find_marker_status() {
             importance: Importance { level: 5 },
             dependencies: Dependencies { keys: Default::default() }}));
     // FUTURE does not take arguments, they are ignored. XX should that change?
-    let v = t("foo OPEN{1, importance: 3} FUTURE{2}").unwrap();
+    let (v, is_archived) = t("foo OPEN{1, importance: 3} FUTURE{2}").unwrap();
+    assert!(!is_archived);
     assert_eq!(v.workflow_status(), Some(WorkflowStatus::Future));
     assert_eq!(v.task_info_declarations(), Some(
         &TaskInfoDeclarations {
@@ -1939,7 +1952,8 @@ fn t_find_marker_status() {
             priority: Priority::Level(1),
             importance: Importance { level: 3 },
             dependencies: Dependencies { keys: Default::default() }}));
-    let v = t("foo OPEN{1, importance: 3} FUTURE{2} DONE").unwrap();
+    let (v, is_archived) = t("foo ARCHIVED OPEN{1, importance: 3} FUTURE{2} DONE").unwrap();
+    assert!(is_archived);
     assert_eq!(v.workflow_status(), Some(WorkflowStatus::Done));
     assert_eq!(v.task_info_declarations(), Some(
         &TaskInfoDeclarations {
@@ -1947,7 +1961,8 @@ fn t_find_marker_status() {
             priority: Priority::Level(1),
             importance: Importance { level: 3 },
             dependencies: Dependencies { keys: Default::default() }}));
-    let v = t("foo OPEN{1, importance: 3} DONE FUTURE{2}").unwrap();
+    let (v, is_archived) = t("foo OPEN{1, importance: 3} DONE FUTURE{2}").unwrap();
+    assert!(!is_archived);
     assert_eq!(v.workflow_status(), Some(WorkflowStatus::Future));
     assert_eq!(v.task_info_declarations(), Some(
         &TaskInfoDeclarations {
@@ -1970,10 +1985,12 @@ fn parse_path(
         .into();
     let file_name = ParseableStr::from(&backing);
 
-    let (dependency_key_ndt, declarations, workflow_status_from_filename
+    let (dependency_key_ndt, declarations, workflow_status_from_filename, is_archived
     ) = (|| -> Result<(Option<NaiveDateTime>,
                        TaskInfoDeclarations<_>,
-                       WorkflowStatus), ParseError<_>> {
+                       WorkflowStatus,
+                       bool),
+                      ParseError<_>> {
         let declarations: TaskInfoDeclarations<_>;
         let workflow_status_from_filename: WorkflowStatus;
         let opt_datetime;
@@ -1988,7 +2005,7 @@ fn parse_path(
             }
         };
 
-        let marker_status = find_marker_status(
+        let (marker_status, is_archived) = find_marker_status(
             find_all_parsed_markers(
                 find_all_markers(
                     &file_name))?)?;
@@ -2019,7 +2036,7 @@ fn parse_path(
         }
 
         let opt_ndt = opt_datetime.map(|datetime| datetime.into_naive_date_time()).transpose()?;
-        Ok((opt_ndt, declarations, workflow_status_from_filename))
+        Ok((opt_ndt, declarations, workflow_status_from_filename, is_archived))
     })().map_err(|e| {
         anyhow!("error parsing the file name of path {path:?}: {}",
                 e.to_string_showing_location(show_backtrace))
@@ -2039,6 +2056,7 @@ fn parse_path(
         id,
         dependency_key: dependency_key_ndt.map(DependencyKey::from),
         workflow_status,
+        is_archived,
         path,
         mtime,
         calculated_priority: None.into(),
@@ -2140,10 +2158,11 @@ fn main() -> Result<()> {
     for ti in &taskinfos {
         // Do not make priorities on dependencies relevant for (a)
         // files which are not obviously tasks, (b) tasks which
-        // are not open. Include ARCHIVED entries, though.
-        if !ti.workflow_status.is_active(true) {
+        // are not open.
+        if !ti.workflow_status.is_active() {
             continue;
         }
+        // Include ARCHIVED entries, though.
 
         // Need to recurse to update with the new base number; todo:
         // this is inefficient (O(n^2)).
@@ -2183,9 +2202,13 @@ fn main() -> Result<()> {
     (|| -> std::io::Result<()> {
         let mut out = stdout().lock();
         for ti in &taskinfos {
-            if !ti.workflow_status.is_active(! opts.no_show_archived) {
+            if !ti.workflow_status.is_active() {
                 continue;
             }
+            if opts.no_show_archived && ti.is_archived {
+                continue;
+            }
+            
             if opts.age_max.is_some() || opts.age_min.is_some() {
                 let mtime: DateTime<Local> = ti.mtime.into();
                 // XX which Tz is that in now?? TZ env var?

@@ -1,5 +1,4 @@
 use std::{path::{PathBuf, Path},
-          convert::TryFrom,
           time::SystemTime,
           str::FromStr, collections::{BTreeSet, BTreeMap},
           rc::Rc, cell::Cell, ops::{Deref, Range}, process::exit,
@@ -764,6 +763,33 @@ impl WorkflowStatus {
             WorkflowStatus::Rejected => false,
         }
     }
+
+    /// Go through the path segments of the parent directory of the
+    /// path (from the right) to decide on the `WorkflowStatus`. Only
+    /// directory names fully matching a status name are considered.
+    fn try_from(path: &Path) -> Option<(Self, bool)> {
+        let mut is_archived = false;
+        let mut status: Option<WorkflowStatus> = None;
+        let mut anc = path.ancestors();
+        let _ = anc.next(); // path itself
+        for dir in anc {
+            if let Some(file_name) = dir.file_name() {
+                match file_name.to_str() {
+                    Some(segment) =>
+                        if let Ok(status_) = WorkflowStatus::from_str(segment) {
+                            if status_ == WorkflowStatus::Archived {
+                                is_archived = true;
+                            } else {
+                                status = Some(status_);
+                            }
+                        },
+                    None => warning!("cannot decode file name {file_name:?} \
+                                      in path {dir:?} to string")
+                }
+            }
+        }
+        status.map(|status| (status, is_archived))
+    }
 }
 
 impl FromStr for WorkflowStatus {
@@ -813,31 +839,6 @@ impl FromStr for WorkflowStatus {
 
             _ => Err(())
         }
-    }
-}
-
-impl TryFrom<&Path> for WorkflowStatus {
-    type Error = ();
-
-    /// Go through the path segments of the parent directory of the
-    /// path (from the right) to decide on the `WorkflowStatus`. Only
-    /// directory names fully matching a status name are considered.
-    fn try_from(path: &Path) -> Result<Self, Self::Error> {
-        let mut anc = path.ancestors();
-        let _ = anc.next(); // path itself
-        for dir in anc {
-            if let Some(file_name) = dir.file_name() {
-                match file_name.to_str() {
-                    Some(segment) =>
-                        if let Ok(status) = WorkflowStatus::from_str(segment) {
-                            return Ok(status);
-                        },
-                    None => warning!("cannot decode file name {file_name:?} \
-                                      in path {dir:?} to string")
-                }
-            }
-        }
-        Err(())
     }
 }
 
@@ -1846,7 +1847,9 @@ impl<C: ParseContext> MarkerStatus<C> {
 // the last `WorkFlowStatus` (last such marker after the `Open`, if
 // any, otherwise `Open`, or whatever status was found if there's no
 // `Open`). Also returns the `is_archived` bool if
-// `WorkflowStatus::Archived` was seen (which is otherwise skipped).
+// `WorkflowStatus::Archived` was seen (which is otherwise
+// skipped). Also see `WorkflowStatus::try_from` which does the same
+// evaluation for directories.
 fn find_marker_status<'s, B: Backing + Debug>(
     markers: Vec<(Option<TaskInfoDeclarations<StringParseContext<&'s B>>>,
                   WorkflowStatus,
@@ -2049,14 +2052,14 @@ fn parse_path(
 
     // Get workflow status from the *folder(s)* (above we got it from
     // the file name, only):
-    let workflow_status = WorkflowStatus::try_from(&*path)
-        .unwrap_or(workflow_status_from_filename);
+    let (workflow_status, is_archived_2) = WorkflowStatus::try_from(&*path)
+        .unwrap_or((workflow_status_from_filename, false));
 
     Ok(TaskInfo {
         id,
         dependency_key: dependency_key_ndt.map(DependencyKey::from),
         workflow_status,
-        is_archived,
+        is_archived: is_archived || is_archived_2,
         path,
         mtime,
         calculated_priority: None.into(),

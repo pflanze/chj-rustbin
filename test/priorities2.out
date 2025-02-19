@@ -10,6 +10,7 @@
 9.35	test/priorities/2025-01-20_015029_Mon-another OPEN{01-18, importance: 1}
 9.35	test/priorities/2025-01-20_015030_Mon-another OPEN{2026-1-18, importance: 1}
 19.35	test/priorities/2025-01-20_015031_Mon-another OPEN{2026-1-18, importance: 1} FUTURE
+19.35	test/priorities/archived/2025-01-20_015034_Mon-another OPEN{2026-1-18, importance: 1} FUTURE
 22.13	test/priorities/2024-09-27_201910_Fri-do bar OPEN{prio: 1, depends: 2024-09-27_201849}
 23.10	test/priorities/reprocessing/2024-10-03_173610_Thu-README OPEN{prio: 2}
 25.64	test/priorities/2024-10-02_193929_Wed-some OPEN{occasionally}

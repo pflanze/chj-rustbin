@@ -1,5 +1,4 @@
 use std::{path::{PathBuf, Path},
-          convert::TryFrom,
           time::SystemTime,
           str::FromStr, collections::{BTreeSet, BTreeMap},
           rc::Rc, cell::Cell, ops::{Deref, Range}, process::exit,
@@ -8,7 +7,7 @@ use std::{path::{PathBuf, Path},
 
 use anyhow::{Result, anyhow, Context, bail};
 use chrono::{NaiveDateTime, NaiveTime, Weekday, Datelike, Duration,
-             Utc, DateTime, Timelike};
+             Utc, DateTime, Timelike, Local};
 use clap::Parser;
 use kstring::KString;
 
@@ -79,6 +78,22 @@ struct Opts {
     #[clap(short, long)]
     time: Option<String>,
 
+    /// Only show entries created at least that many days ago
+    /// (inclusive); useful with `--no-show-archived` to weed out old
+    /// missed entries
+    // Don't use NaiveDateTime, its parser is bad
+    #[clap(long)]
+    age_min: Option<u16>,
+
+    /// Only show entries created fewer than that many days ago (inclusive)
+    // Don't use NaiveDateTime, its parser is bad
+    #[clap(long)]
+    age_max: Option<u16>,
+
+    /// Do not show ARCHIVED entries (useful with `--age-min`)
+    #[clap(long)]
+    no_show_archived: bool,
+
     /// The base directories holding the todo files. If none given,
     /// uses `.`.
     directories: Vec<PathBuf>,
@@ -87,7 +102,7 @@ struct Opts {
 impl_item_options_from! {Opts}
 
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TaskSize {
     Minutes,
     Hours,
@@ -142,7 +157,7 @@ impl<'s, B: Backing + 's> FromParseableStr<'s, B> for TaskSize
 
 pub type ImportanceLevel = u8; // 1..10 but not currently restricted
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Importance {
     level: ImportanceLevel
 }
@@ -177,6 +192,8 @@ impl Default for Importance {
 
 pub type ManualPriorityLevel = u8; // 1..10 but not currently restricted
 
+// Can't implement PartialEq due to the contained
+// `NaiveDateTimeWithorwithoutyear`.
 #[derive(Debug, Clone)]
 pub enum Priority<C: ParseContext> {
     /// Due on that date
@@ -216,6 +233,49 @@ where &'s B: Backing,
     }
 }
 
+impl<'s, C: ParseContext> Priority<C>
+{
+    /// Instead of implementing `PartialEq`, compare with a custom
+    /// comparison function for `NaiveDateTimeWithOrWithoutYear`
+    /// (which could e.g. return false for such values, or panic).
+    pub fn custom_eq(
+        &self,
+        other: &Self,
+        cmp_ndtwowy: impl Fn(&NaiveDateTimeWithOrWithoutYear<C>,
+                             &NaiveDateTimeWithOrWithoutYear<C>) -> bool,
+    ) -> bool {
+        match self {
+            Priority::Date(d1) => match other {
+                Priority::Date(d2) => cmp_ndtwowy(d1, d2),
+                _ => false
+            }
+            Priority::DaysFromToday(d1) => match other {
+                Priority::DaysFromToday(d2) => d1 == d2,
+                _ => false
+            }
+            Priority::Today => match other {
+                Priority::Today => true,
+                _ => false
+            }
+            Priority::Tonight => match other {
+                Priority::Tonight => true,
+                _ => false
+            }
+            Priority::Ongoing => match other {
+                Priority::Ongoing => true,
+                _ => false
+            }
+            Priority::Unknown => match other {
+                Priority::Unknown => true,
+                _ => false
+            }
+            Priority::Level(l1) => match other {
+                Priority::Level(l2) => l1 == l2,
+                _ => false
+            }
+        }
+    }
+}
 
 // Calculate a priority purely from how much time is left and how much
 // time the task will need.
@@ -505,7 +565,7 @@ impl<'s, B: Backing + Debug> FromParseableStr<'s, B> for Priority<StringParseCon
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, PartialEq)]
 struct Dependencies {
     // XX Arc for clone efficiency?
     keys: BTreeSet<DependencyKey>,
@@ -570,7 +630,7 @@ impl Deref for Dependencies {
 
 
 #[derive(Debug, Clone)]
-struct TaskInfoDeclarations<C: ParseContext> {
+pub struct TaskInfoDeclarations<C: ParseContext> {
     tasksize: TaskSize,
     priority: Priority<C>,
     importance: Importance,
@@ -587,6 +647,23 @@ impl<C: ParseContext> Default for TaskInfoDeclarations<C> {
             importance: Default::default(),
             dependencies: Default::default(),
         }
+    }
+}
+
+impl<C: ParseContext> TaskInfoDeclarations<C> {
+    /// Instead of implementing `PartialEq`, compare with a custom
+    /// comparison function for `NaiveDateTimeWithOrWithoutYear`
+    /// (which could e.g. return false for such values, or panic).
+    pub fn custom_eq(
+        &self,
+        other: &Self,
+        cmp_ndtwowy: impl Fn(&NaiveDateTimeWithOrWithoutYear<C>,
+                             &NaiveDateTimeWithOrWithoutYear<C>) -> bool,
+    ) -> bool {
+        self.tasksize == other.tasksize &&
+            self.importance == other.importance &&
+            self.dependencies == other.dependencies &&
+            self.priority.custom_eq(&other.priority, cmp_ndtwowy)
     }
 }
 
@@ -620,6 +697,7 @@ pub enum WorkflowStatus {
 
     Dupe,
     Future,
+    Archived,
 
     Notforme,
     Applied,
@@ -641,6 +719,7 @@ impl WorkflowStatus {
 
             Dupe,
             Future,
+            Archived,
 
             Notforme,
             Applied,
@@ -660,12 +739,14 @@ impl WorkflowStatus {
             WorkflowStatus::Wontfix => &["WONTFIX"],
             WorkflowStatus::Dupe => &["DUPE"],
             WorkflowStatus::Future => &["FUTURE"],
+            WorkflowStatus::Archived => &["ARCHIVED"],
             WorkflowStatus::Notforme => &["NOTFORME"],
             WorkflowStatus::Applied => &["APPLIED"],
             WorkflowStatus::Active => &["ACTIVE"],
             WorkflowStatus::Rejected => &["REJECTED"],
         }
     }
+    /// Note: panics for `WorkflowStatus::Archived`!
     pub fn is_active(self) -> bool {
         match self {
             WorkflowStatus::None => false,
@@ -675,19 +756,47 @@ impl WorkflowStatus {
             WorkflowStatus::Wontfix => false,
             WorkflowStatus::Dupe => false, // ?
             WorkflowStatus::Future => true, // ?
+            WorkflowStatus::Archived => unreachable!("never stored, instead translated to bool"),
             WorkflowStatus::Notforme => false,
             WorkflowStatus::Applied => true, // ?
             WorkflowStatus::Active => true,
             WorkflowStatus::Rejected => false,
         }
     }
+
+    /// Go through the path segments of the parent directory of the
+    /// path (from the right) to decide on the `WorkflowStatus`. Only
+    /// directory names fully matching a status name are considered.
+    fn try_from(path: &Path) -> Option<(Self, bool)> {
+        let mut is_archived = false;
+        let mut status: Option<WorkflowStatus> = None;
+        let mut anc = path.ancestors();
+        let _ = anc.next(); // path itself
+        for dir in anc {
+            if let Some(file_name) = dir.file_name() {
+                match file_name.to_str() {
+                    Some(segment) =>
+                        if let Ok(status_) = WorkflowStatus::from_str(segment) {
+                            if status_ == WorkflowStatus::Archived {
+                                is_archived = true;
+                            } else {
+                                status = Some(status_);
+                            }
+                        },
+                    None => warning!("cannot decode file name {file_name:?} \
+                                      in path {dir:?} to string")
+                }
+            }
+        }
+        status.map(|status| (status, is_archived))
+    }
 }
 
 impl FromStr for WorkflowStatus {
     type Err = ();
 
-    /// Translate a full match on a string (a directory name) to a
-    /// `WorkflowStatus`.
+    /// Translate a full match on a string ((e.g.) a directory name)
+    /// to a `WorkflowStatus`.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // This match just exists as a guard to remind you to add a
         // case below if the enum changes.
@@ -699,16 +808,21 @@ impl FromStr for WorkflowStatus {
             WorkflowStatus::Wontfix => (),
             WorkflowStatus::Dupe => (),
             WorkflowStatus::Future => (),
+            WorkflowStatus::Archived => (),
             WorkflowStatus::Notforme => (),
             WorkflowStatus::Applied => (),
             WorkflowStatus::Active => (),
             WorkflowStatus::Rejected => (),
         }
         match s {
+            // This is an artificial case, like an Option::None, so don't parse it:
+            // "none" =>
+
             // This should never be used as a folder name, since need
             // the `OPEN` string in the file name to introduce the `{
-            // .. }` section anyway.
-            // "open" => Ok(WorkflowStatus::Open),
+            // .. }` section anyway. Except maybe for cases that don't
+            // need that?
+            "open" => Ok(WorkflowStatus::Open),
 
             "done" => Ok(WorkflowStatus::Done),
             "obsolete" => Ok(WorkflowStatus::Obsolete),
@@ -716,6 +830,7 @@ impl FromStr for WorkflowStatus {
 
             "dupe" => Ok(WorkflowStatus::Dupe),
             "future" => Ok(WorkflowStatus::Future),
+            "archived" => Ok(WorkflowStatus::Archived),
 
             "notforme" => Ok(WorkflowStatus::Notforme),
             "applied" => Ok(WorkflowStatus::Applied),
@@ -727,33 +842,8 @@ impl FromStr for WorkflowStatus {
     }
 }
 
-impl TryFrom<&Path> for WorkflowStatus {
-    type Error = ();
-
-    /// Go through the path segments of the parent directory of the
-    /// path (from the right) to decide on the `WorkflowStatus`. Only
-    /// directory names fully matching a status name are considered.
-    fn try_from(path: &Path) -> Result<Self, Self::Error> {
-        let mut anc = path.ancestors();
-        let _ = anc.next(); // path itself
-        for dir in anc {
-            if let Some(file_name) = dir.file_name() {
-                match file_name.to_str() {
-                    Some(segment) =>
-                        if let Ok(status) = WorkflowStatus::from_str(segment) {
-                            return Ok(status);
-                        },
-                    None => warning!("cannot decode file name {file_name:?} \
-                                      in path {dir:?} to string")
-                }
-            }
-        }
-        Err(())
-    }
-}
-
 // Not implementing `Hash` to avoid accidentally introducing
-// undeterminsim (in particular, trace output order).
+// nondeterminism (in particular, trace output order).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DependencyKey {
     String(KString),
@@ -807,7 +897,8 @@ impl From<&str> for DependencyKey {
 
 #[derive(Debug, Clone)]
 struct TaskInfo<C: ParseContext + Clone> {
-    /// Real primary key (unlike `dependency_key` which isn't always available)
+    /// Real primary key (unlike `dependency_key` which isn't always
+    /// available) for this program run.
     id: usize,
     /// Path to the file
     path: PathBuf,
@@ -817,6 +908,9 @@ struct TaskInfo<C: ParseContext + Clone> {
     /// parent dirs, or if present the latter, from the directory
     /// segment closest to the file.
     workflow_status: WorkflowStatus,
+    /// Whether the entry is tagged `ARCHIVED`, i.e. if it should not
+    /// be shown when looking with `--no-show-archived`
+    is_archived: bool,
     /// The key to use when referring to this entry as dependency.
     dependency_key: Option<DependencyKey>,
     /// The current modification time.
@@ -832,6 +926,8 @@ struct TaskInfo<C: ParseContext + Clone> {
 }
 
 impl<C: ParseContext + Clone> TaskInfo<C> {
+    // (This is currently called even for non-active ones, because the
+    // sorting happens on all of them, only printing omits them.)
     fn priority_level_at(&self, now: NaiveDateTime) -> Result<f32, ParseError<C>> {
         priority_level(&self.declarations.priority,
                        self.declarations.tasksize,
@@ -839,9 +935,17 @@ impl<C: ParseContext + Clone> TaskInfo<C> {
                        self.mtime,
                        now)
         // HACK, proper place?
-            .map(|level| level + (
-                (self.declarations.importance.level as i32 - DEFAULT_IMPORTANCE_LEVEL as i32) * 2
-            ) as f32)
+            .map(|level| {
+                let importance_shift = ((self.declarations.importance.level as i32
+                                         - DEFAULT_IMPORTANCE_LEVEL as i32)
+                                        * 2) as f32;
+                let future_shift = if self.workflow_status == WorkflowStatus::Future {
+                    10.
+                } else {
+                    0.
+                };
+                level + importance_shift + future_shift
+            })
     }
 
     fn set_initial_priority_level_for(&self, now: NaiveDateTime) -> Result<(), ParseError<C>> {
@@ -1445,6 +1549,8 @@ where &'s B: Backing
     }
 }
 
+// Do not implement PartialEq, as it would be ambiguous in the
+// `NaiveDateTimeWithoutYear` case!
 #[derive(Debug, Clone)]
 pub enum NaiveDateTimeWithOrWithoutYear<C: ParseContext> {
     NaiveDateTime(NaiveDateTime),
@@ -1605,8 +1711,10 @@ fn is_word_boundary(c: Option<char>) -> bool {
 
 // Find "OPEN"/"TODO", "DONE" and other workflow markers, together
 // with the found strings, sorted by their positions. Note: this does
-// *not* consider `{..}` blocks, see `find_all_parsed_markers` for
-// that. (Performance: there could be a better algorithm.)
+// *not* consider `{..}` blocks and could find strings that are the
+// same as marker strings within those; see `find_all_parsed_markers`
+// for handling that after the fact. (Performance: there could be a
+// better algorithm.)
 fn find_all_markers<'s, B: Backing>(
     s: &ParseableStr<'s, B>
 ) -> Vec<(WorkflowStatus, ParseableStr<'s, B>, ParseableStr<'s, B>)>
@@ -1650,10 +1758,10 @@ fn t_find_all_markers() {
     assert_eq!(t("foo TODO_ DONE POPEN DONE4 /DONE+"), [(Done, 10), (Done, 28)]);
 }
 
-// Parse a marker with its optional `{..}` block, return parsed value
-// and rest (after the block if given).
+// Parse a marker's optional `{..}` block, return parsed block and
+// rest
 fn parse_marker<'s, B: Backing + Debug>(
-    (_status, string, rest): (WorkflowStatus, ParseableStr<'s, B>, ParseableStr<'s, B>)
+    (_status, marker_string, rest): (WorkflowStatus, ParseableStr<'s, B>, ParseableStr<'s, B>)
 ) -> Result<(Option<TaskInfoDeclarations<StringParseContext<&'s B>>>,
              ParseableStr<'s, B>),
             ParseError<StringParseContext<&'s B>>>
@@ -1664,7 +1772,7 @@ where &'s B: Backing
             Ok((Some(T!(parse_inside(&inside))?), rest))
         } else {
             Err(parse_error! {
-                message: format!("missing closing '}}' after '{}{{'", string.s),
+                message: format!("missing closing '}}' after '{}{{'", marker_string.s),
                 context: rest.into()
             })
         }
@@ -1710,24 +1818,44 @@ where &'s B: Backing
     Ok(parsed)
 }
 
-enum MarkerStatus<C: ParseContext> {
+pub enum MarkerStatus<C: ParseContext> {
     Open((TaskInfoDeclarations<C>, WorkflowStatus)),
     /// ex-Open? No, just whatever non-Open status we have seen.
     NotOpen(WorkflowStatus),
     None
 }
 
+impl<C: ParseContext> MarkerStatus<C> {
+    pub fn workflow_status(&self) -> Option<WorkflowStatus> {
+        match self {
+            MarkerStatus::Open((_, status)) => Some(*status),
+            MarkerStatus::NotOpen(status) => Some(*status),
+            MarkerStatus::None => None,
+        }
+    }
+
+    pub fn task_info_declarations(&self) -> Option<&TaskInfoDeclarations<C>> {
+        match self {
+            MarkerStatus::Open((decls, _)) => Some(decls),
+            MarkerStatus::NotOpen(_) => None,
+            MarkerStatus::None => None,
+        }
+    }
+}
 
 // Find the last parsed `WorkflowStatus::Open` marker, if any, and/or
 // the last `WorkFlowStatus` (last such marker after the `Open`, if
 // any, otherwise `Open`, or whatever status was found if there's no
-// `Open`).
+// `Open`). Also returns the `is_archived` bool if
+// `WorkflowStatus::Archived` was seen (which is otherwise
+// skipped). Also see `WorkflowStatus::try_from` which does the same
+// evaluation for directories.
 fn find_marker_status<'s, B: Backing + Debug>(
     markers: Vec<(Option<TaskInfoDeclarations<StringParseContext<&'s B>>>,
                   WorkflowStatus,
                   ParseableStr<'s, B>,
                   ParseableStr<'s, B>)>
-) -> Result<MarkerStatus<StringParseContext<&'s B>>,
+) -> Result<(MarkerStatus<StringParseContext<&'s B>>, bool),
             ParseError<StringParseContext<&'s B>>>
 where &'s B: Backing
 {
@@ -1735,6 +1863,7 @@ where &'s B: Backing
                           ParseableStr<'s, B>)> = None;
     let mut last_status: Option<WorkflowStatus> = None;
     let mut previous_was_open = false;
+    let mut is_archived = false;
     for (decl, status, string, _rest) in markers {
         match status {
             WorkflowStatus::None => (), // ? XX what is None for again?
@@ -1766,20 +1895,84 @@ where &'s B: Backing
             WorkflowStatus::Applied |
             WorkflowStatus::Active |
             WorkflowStatus::Rejected => {
+                // XX isn't it wrong to have Future here?
                 previous_was_open = false;
                 last_status = Some(status);
+            }
+            WorkflowStatus::Archived => {
+                is_archived = true;
             }
         }
     }
     if let Some(info) = open {
-        Ok(MarkerStatus::Open((info.0, last_status.expect("set when `open` was set"))))
+        Ok((MarkerStatus::Open((info.0, last_status.expect("set when `open` was set"))),
+            is_archived))
     } else {
-        Ok(if let Some(status) = last_status {
+        Ok((if let Some(status) = last_status {
             MarkerStatus::NotOpen(status)
         } else {
             MarkerStatus::None
-        })
+        }, is_archived))
     }
+}
+
+#[test]
+fn t_find_marker_status() {
+    impl<C: ParseContext> PartialEq for TaskInfoDeclarations<C> {
+        fn eq(&self, other: &Self) -> bool {
+            self.custom_eq(other, |_a, _b| panic!("unused"))
+        }
+    }
+    let backing = String::new();
+    let t = |s| find_marker_status(find_all_parsed_markers(find_all_markers(
+        &ParseableStr { backing: &backing, position: 0, s }))?);
+    let (v, is_archived): (MarkerStatus<_>, bool) =
+        t("foo OPEN{1} DONE POPEN DONE4 /DONE+").unwrap();
+    assert!(!is_archived);
+    assert_eq!(v.workflow_status(), Some(WorkflowStatus::Done));
+    assert_eq!(v.task_info_declarations(), Some(
+        &TaskInfoDeclarations {
+            tasksize: TaskSize::Unknown,
+            priority: Priority::Level(1),
+            importance: Importance { level: 5 },
+            dependencies: Dependencies { keys: Default::default() }}));
+    let (v, is_archived) = t("foo OPEN{1} FUTURE ARCHIVED").unwrap();
+    assert!(is_archived);
+    assert_eq!(v.workflow_status(), Some(WorkflowStatus::Future));
+    assert_eq!(v.task_info_declarations(), Some(
+        &TaskInfoDeclarations {
+            tasksize: TaskSize::Unknown,
+            priority: Priority::Level(1),
+            importance: Importance { level: 5 },
+            dependencies: Dependencies { keys: Default::default() }}));
+    // FUTURE does not take arguments, they are ignored. XX should that change?
+    let (v, is_archived) = t("foo OPEN{1, importance: 3} FUTURE{2}").unwrap();
+    assert!(!is_archived);
+    assert_eq!(v.workflow_status(), Some(WorkflowStatus::Future));
+    assert_eq!(v.task_info_declarations(), Some(
+        &TaskInfoDeclarations {
+            tasksize: TaskSize::Unknown,
+            priority: Priority::Level(1),
+            importance: Importance { level: 3 },
+            dependencies: Dependencies { keys: Default::default() }}));
+    let (v, is_archived) = t("foo ARCHIVED OPEN{1, importance: 3} FUTURE{2} DONE").unwrap();
+    assert!(is_archived);
+    assert_eq!(v.workflow_status(), Some(WorkflowStatus::Done));
+    assert_eq!(v.task_info_declarations(), Some(
+        &TaskInfoDeclarations {
+            tasksize: TaskSize::Unknown,
+            priority: Priority::Level(1),
+            importance: Importance { level: 3 },
+            dependencies: Dependencies { keys: Default::default() }}));
+    let (v, is_archived) = t("foo OPEN{1, importance: 3} DONE FUTURE{2}").unwrap();
+    assert!(!is_archived);
+    assert_eq!(v.workflow_status(), Some(WorkflowStatus::Future));
+    assert_eq!(v.task_info_declarations(), Some(
+        &TaskInfoDeclarations {
+            tasksize: TaskSize::Unknown,
+            priority: Priority::Level(1),
+            importance: Importance { level: 3 },
+            dependencies: Dependencies { keys: Default::default() }}));
 }
 
 
@@ -1795,10 +1988,12 @@ fn parse_path(
         .into();
     let file_name = ParseableStr::from(&backing);
 
-    let (dependency_key_ndt, declarations, workflow_status_from_filename
+    let (dependency_key_ndt, declarations, workflow_status_from_filename, is_archived
     ) = (|| -> Result<(Option<NaiveDateTime>,
                        TaskInfoDeclarations<_>,
-                       WorkflowStatus), ParseError<_>> {
+                       WorkflowStatus,
+                       bool),
+                      ParseError<_>> {
         let declarations: TaskInfoDeclarations<_>;
         let workflow_status_from_filename: WorkflowStatus;
         let opt_datetime;
@@ -1813,7 +2008,7 @@ fn parse_path(
             }
         };
 
-        let marker_status = find_marker_status(
+        let (marker_status, is_archived) = find_marker_status(
             find_all_parsed_markers(
                 find_all_markers(
                     &file_name))?)?;
@@ -1844,7 +2039,7 @@ fn parse_path(
         }
 
         let opt_ndt = opt_datetime.map(|datetime| datetime.into_naive_date_time()).transpose()?;
-        Ok((opt_ndt, declarations, workflow_status_from_filename))
+        Ok((opt_ndt, declarations, workflow_status_from_filename, is_archived))
     })().map_err(|e| {
         anyhow!("error parsing the file name of path {path:?}: {}",
                 e.to_string_showing_location(show_backtrace))
@@ -1857,13 +2052,14 @@ fn parse_path(
 
     // Get workflow status from the *folder(s)* (above we got it from
     // the file name, only):
-    let workflow_status = WorkflowStatus::try_from(&*path)
-        .unwrap_or(workflow_status_from_filename);
+    let (workflow_status, is_archived_2) = WorkflowStatus::try_from(&*path)
+        .unwrap_or((workflow_status_from_filename, false));
 
     Ok(TaskInfo {
         id,
         dependency_key: dependency_key_ndt.map(DependencyKey::from),
         workflow_status,
+        is_archived: is_archived || is_archived_2,
         path,
         mtime,
         calculated_priority: None.into(),
@@ -1969,6 +2165,7 @@ fn main() -> Result<()> {
         if !ti.workflow_status.is_active() {
             continue;
         }
+        // Include ARCHIVED entries, though.
 
         // Need to recurse to update with the new base number; todo:
         // this is inefficient (O(n^2)).
@@ -2011,6 +2208,27 @@ fn main() -> Result<()> {
             if !ti.workflow_status.is_active() {
                 continue;
             }
+            if opts.no_show_archived && ti.is_archived {
+                continue;
+            }
+            
+            if opts.age_max.is_some() || opts.age_min.is_some() {
+                let mtime: DateTime<Local> = ti.mtime.into();
+                // XX which Tz is that in now?? TZ env var?
+                let age = now.signed_duration_since(mtime.naive_local());
+                let age_days = age.num_hours() / 24;
+                if let Some(d) = opts.age_min {
+                    if age_days < d.into() {
+                        continue;
+                    }
+                }
+                if let Some(d) = opts.age_max {
+                    if age_days > d.into() {
+                        continue;
+                    }
+                }
+            }
+                
             if !opts.no_priority {
                 let s = format!("{:.2}", ti.calculated_priority());
                 out.write_all(s.as_bytes())?;
@@ -2079,36 +2297,7 @@ mod tests {
 
     impl<C: ParseContext> PartialEq for Priority<C> {
         fn eq(&self, other: &Self) -> bool {
-            match self {
-                Priority::Date(d1) => match other {
-                    Priority::Date(d2) => d1 == d2,
-                    _ => false
-                }
-                Priority::DaysFromToday(d1) => match other {
-                    Priority::DaysFromToday(d2) => d1 == d2,
-                    _ => false
-                }
-                Priority::Today => match other {
-                    Priority::Today => true,
-                    _ => false
-                }
-                Priority::Tonight => match other {
-                    Priority::Tonight => true,
-                    _ => false
-                }
-                Priority::Ongoing => match other {
-                    Priority::Ongoing => true,
-                    _ => false
-                }
-                Priority::Unknown => match other {
-                    Priority::Unknown => true,
-                    _ => false
-                }
-                Priority::Level(l1) => match other {
-                    Priority::Level(l2) => l1 == l2,
-                    _ => false
-                }
-            }
+            self.custom_eq(other, |a, b| a == b)
         }
     }
 

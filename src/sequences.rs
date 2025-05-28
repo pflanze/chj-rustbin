@@ -16,9 +16,8 @@ use genawaiter::rc::Gen;
 pub fn group<T, G>(
     mut inp: impl Iterator<Item = T>,
     belong: impl Fn(&T, &T) -> bool,
-    construct: impl Fn(&mut Option<Vec<T>>) -> G
-) -> impl Iterator<Item = G>
-{
+    construct: impl Fn(&mut Option<Vec<T>>) -> G,
+) -> impl Iterator<Item = G> {
     Gen::new(|co| async move {
         let mut v = Some(Vec::new());
         let mut last_item = None;
@@ -26,7 +25,7 @@ pub fn group<T, G>(
             if let Some(last) = last_item.take() {
                 let same = belong(&last, &item);
                 v.as_mut().unwrap().push(last);
-                if ! same {
+                if !same {
                     co.yield_(construct(&mut v)).await;
                     if let Some(vr) = v.as_mut() {
                         vr.clear();
@@ -41,9 +40,9 @@ pub fn group<T, G>(
             v.as_mut().unwrap().push(last);
             co.yield_(construct(&mut v)).await;
         }
-    }).into_iter()
+    })
+    .into_iter()
 }
-
 
 /// Same as `group` but handles errors in the input stream, making it
 /// easier to use (and more efficient?) than group in that case. Also,
@@ -54,9 +53,8 @@ pub fn group<T, G>(
 pub fn try_group<T, G, E>(
     mut inp: impl Iterator<Item = Result<T, E>>,
     belong: impl Fn(&T, &T) -> bool,
-    construct: impl Fn(&mut Option<Vec<T>>) -> G
-) -> impl Iterator<Item = Result<G, E>>
-{
+    construct: impl Fn(&mut Option<Vec<T>>) -> G,
+) -> impl Iterator<Item = Result<G, E>> {
     Gen::new(|co| async move {
         let mut v = Some(Vec::new());
         let mut last_item = None;
@@ -66,7 +64,7 @@ pub fn try_group<T, G, E>(
                     if let Some(last) = last_item.take() {
                         let same = belong(&last, &item);
                         v.as_mut().unwrap().push(last);
-                        if ! same {
+                        if !same {
                             co.yield_(Ok(construct(&mut v))).await;
                             if let Some(vr) = v.as_mut() {
                                 vr.clear();
@@ -77,12 +75,13 @@ pub fn try_group<T, G, E>(
                     }
                     last_item = Some(item);
                 }
-                Err(e) => co.yield_(Err(e)).await
+                Err(e) => co.yield_(Err(e)).await,
             }
         }
         if let Some(last) = last_item.take() {
             v.as_mut().unwrap().push(last);
             co.yield_(Ok(construct(&mut v))).await;
         }
-    }).into_iter()
+    })
+    .into_iter()
 }

@@ -1,17 +1,20 @@
 use std::time::SystemTime;
 
-use anyhow::{Result, anyhow, bail};
-use tai64::Tai64N;
+use anyhow::{anyhow, bail, Result};
 use chrono::{DateTime, Local, Utc};
+use tai64::Tai64N;
 
-use crate::{text::parseutil::{first_rest, take_while, char_is_white, parse_hex, drop_n},
-            fp::complement,
-            time::excel::exceldays_from_unixtime};
-
+use crate::{
+    fp::complement,
+    text::parseutil::{
+        char_is_white, drop_n, first_rest, parse_hex, take_while,
+    },
+    time::excel::exceldays_from_unixtime,
+};
 
 pub fn parse_timestamp(s: &str) -> Result<(Tai64N, &str)> {
-    let (c0, r) = first_rest(s).ok_or_else(
-        || anyhow!("empty line, missing timestamp"))?;
+    let (c0, r) = first_rest(s)
+        .ok_or_else(|| anyhow!("empty line, missing timestamp"))?;
     if c0 != '@' {
         bail!("line does not start with @")
     }
@@ -55,8 +58,10 @@ impl Tai64Format for Tai64N {
     /// `+01:00`.
     fn to_exceldays(&self, offset_hours: f64) -> f64 {
         let st = self.to_system_time();
-        let t = st.duration_since(SystemTime::UNIX_EPOCH)
-            .expect("no overflows?").as_secs_f64();
+        let t = st
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("no overflows?")
+            .as_secs_f64();
         exceldays_from_unixtime(t, offset_hours)
     }
 }

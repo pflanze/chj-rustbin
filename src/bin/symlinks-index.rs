@@ -14,7 +14,6 @@ use std::path::{Path, PathBuf};
 
 use chj_rustbin::text::startswith::StartsWith;
 
-
 #[derive(clap::Parser, Debug)]
 /// On startup creates an in-memory index of the symlinks
 /// contained in specified directories, then repeatedly

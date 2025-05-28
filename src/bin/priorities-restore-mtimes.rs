@@ -6,14 +6,19 @@ use std::str::FromStr;
 
 fn main() -> Result<()> {
     let path = "test/priorities.mtimes";
-    let file = BufReader::new(File::open(path).with_context(|| anyhow!("opening {path:?}"))?);
+    let file = BufReader::new(
+        File::open(path).with_context(|| anyhow!("opening {path:?}"))?,
+    );
 
     for (index, line) in file.lines().enumerate() {
         let line = line.with_context(|| anyhow!("reading from {path:?}"))?;
         let parts: Vec<&str> = line.split("\t").collect();
 
         if parts.len() != 2 {
-            bail!("In {path:?}: line {} does not have 2 fields separated by tab", index + 1);
+            bail!(
+                "In {path:?}: line {} does not have 2 fields separated by tab",
+                index + 1
+            );
         }
         let timestamp = parts[0];
         let filename = parts[1];

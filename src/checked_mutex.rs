@@ -1,18 +1,20 @@
-
 //! Check whether the thread itself already locks the mutex; only a
 //! *hack* currently, won't be generally reliable, right? Should
 //! probably use cooptex or tracing-mutex instead.
 
 //! To use conditionally in debug mode, import as:
-//! 
+//!
 //!     #[cfg(debug_assertions)]
 //!     use chj_rustbin::checked_mutex::{CheckedMutex as Mutex, CheckedMutexGuard as MutexGuard};
 //!     #[cfg(not(debug_assertions))]
 //!     use std::sync::{Mutex, MutexGuard};
-//! 
+//!
 
-use std::{sync::{Mutex, MutexGuard},
-          thread::ThreadId, ops::{Deref, DerefMut}};
+use std::{
+    ops::{Deref, DerefMut},
+    sync::{Mutex, MutexGuard},
+    thread::ThreadId,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum CheckedMutexError {
@@ -21,18 +23,18 @@ pub enum CheckedMutexError {
     #[error("mutex is poisoned")]
     PoisonError,
     #[error("mutex is locked by the same thread already")]
-    LockedByOurselves
+    LockedByOurselves,
 }
 
 #[derive(Debug)]
 pub struct CheckedMutex<T> {
     locked_by: Mutex<Option<ThreadId>>,
-    mutex: Mutex<T>
+    mutex: Mutex<T>,
 }
 
 pub struct CheckedMutexGuard<'m, T> {
     checked_mutex: &'m CheckedMutex<T>,
-    guard: MutexGuard<'m, T>
+    guard: MutexGuard<'m, T>,
 }
 
 impl<'m, T> Deref for CheckedMutexGuard<'m, T> {
@@ -63,7 +65,7 @@ impl<T> CheckedMutex<T> {
     pub fn new(value: T) -> Self {
         Self {
             locked_by: Mutex::new(None),
-            mutex: Mutex::new(value)
+            mutex: Mutex::new(value),
         }
     }
 
@@ -77,7 +79,7 @@ impl<T> CheckedMutex<T> {
         let id = std::thread::current().id();
         if let Some(locking_id) = *locked_by {
             if locking_id == id {
-                return Err(CheckedMutexError::LockedByOurselves)
+                return Err(CheckedMutexError::LockedByOurselves);
             }
         }
         match self.mutex.lock() {
@@ -86,10 +88,10 @@ impl<T> CheckedMutex<T> {
                 *locked_by = Some(id);
                 Ok(CheckedMutexGuard {
                     checked_mutex: self,
-                    guard
+                    guard,
                 })
             }
-            Err(_e) => Err(CheckedMutexError::PoisonError)
+            Err(_e) => Err(CheckedMutexError::PoisonError),
         }
     }
 }

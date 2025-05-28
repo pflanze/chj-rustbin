@@ -1,4 +1,3 @@
-
 // #[macro_export]
 // macro_rules! alternatively {
 //     { $e1:tt, $var:ident : $E:ty => $e2:tt } => {
@@ -10,13 +9,12 @@
 //     }
 // }
 
-
 /// Try two approaches to generate `T`, if both fail, return the error
 /// of the second attempt (but `f2` could embed the error of the first
 /// attempt in that).
 pub fn alternatively_with_error<T, E1, E2>(
     f1: impl FnOnce() -> Result<T, E1>,
-    f2: impl FnOnce(E1) -> Result<T, E2>
+    f2: impl FnOnce(E1) -> Result<T, E2>,
 ) -> Result<T, E2> {
     f1().or_else(f2)
 }
@@ -30,7 +28,7 @@ pub fn alternatively_with_error<T, E1, E2>(
 /// the argument.
 pub fn alternatively_with_same_error_type<T, E>(
     f1: impl FnOnce() -> Result<T, E>,
-    f2: impl FnOnce(E) -> Result<T, E>
+    f2: impl FnOnce(E) -> Result<T, E>,
 ) -> Result<T, E> {
     f1().or_else(f2)
 }
@@ -44,8 +42,7 @@ pub fn alternatively_with_same_error_type<T, E>(
 /// (the first error is lost).
 pub fn alternatively<T, E>(
     f1: impl FnOnce() -> Result<T, E>,
-    f2: impl FnOnce() -> Result<T, E>
+    f2: impl FnOnce() -> Result<T, E>,
 ) -> Result<T, E> {
     f1().or_else(|_| f2())
 }
-

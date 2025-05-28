@@ -1,6 +1,9 @@
 //! A trait to represent maps (like HashMap or BTreeMap).
 
-use std::{collections::{HashMap, BTreeMap}, hash::Hash};
+use std::{
+    collections::{BTreeMap, HashMap},
+    hash::Hash,
+};
 
 pub trait MapTrait<K, V> {
     fn new() -> Self;
@@ -39,11 +42,10 @@ macro_rules! implement_map_trait_for {
             fn get_mut(&mut self, k: &K) -> Option<&mut V> {
                 $MapTypeName::get_mut(self, k)
             }
-        }        
+        }
     }
 }
 
-implement_map_trait_for!{HashMap, impl<K: Eq + Hash, V: Eq> MapTrait<K, V> for HashMap<K, V>}
+implement_map_trait_for! {HashMap, impl<K: Eq + Hash, V: Eq> MapTrait<K, V> for HashMap<K, V>}
 
-implement_map_trait_for!{BTreeMap, impl<K: Eq + Ord, V: Eq> MapTrait<K, V> for BTreeMap<K, V>}
-
+implement_map_trait_for! {BTreeMap, impl<K: Eq + Ord, V: Eq> MapTrait<K, V> for BTreeMap<K, V>}

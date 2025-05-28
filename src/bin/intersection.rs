@@ -1,18 +1,18 @@
-
-use anyhow::{Result, bail, Context, Error, anyhow};
+use anyhow::{anyhow, bail, Context, Error, Result};
 use clap::Parser;
-use thiserror::Error;
+use kstring::KString;
 use std::cmp::Ordering;
+use std::collections::{HashSet, VecDeque};
 use std::fs::File;
 use std::i64::MIN;
-use std::io::{BufReader, stdout, Write, BufWriter};
-use std::os::unix::prelude::{MetadataExt, FromRawFd};
+use std::io::{stdout, BufReader, BufWriter, Write};
+use std::os::unix::prelude::{FromRawFd, MetadataExt};
 use std::path::PathBuf;
-use std::collections::{VecDeque, HashSet};
-use kstring::KString;
+use thiserror::Error;
 
-use chj_rustbin::io::readwithcontext::{easy_read_line, open_file, ReadWithContext};
-
+use chj_rustbin::io::readwithcontext::{
+    easy_read_line, open_file, ReadWithContext,
+};
 
 #[derive(clap::Parser, Debug)]
 /// Print the lines that occur in all input files. By default, files
@@ -71,8 +71,9 @@ impl SortOrder {
     fn perhaps_parse_number(self, line: &str) -> Result<i64> {
         match self {
             SortOrder::Lexical => Ok(MIN),
-            SortOrder::Numeric => line.parse().with_context(
-                || anyhow!("not an i64 number: {:?}", line))
+            SortOrder::Numeric => line
+                .parse()
+                .with_context(|| anyhow!("not an i64 number: {:?}", line)),
         }
     }
     fn compare(self, l1: &Line, l2: &Line) -> Ordering {
@@ -98,8 +99,11 @@ impl Line {
             i64: MIN,
         }
     }
-    fn read_and_parse_line(&mut self, inp: &mut BufReader<File>, sortorder: SortOrder)
-                           -> Result<bool> {
+    fn read_and_parse_line(
+        &mut self,
+        inp: &mut BufReader<File>,
+        sortorder: SortOrder,
+    ) -> Result<bool> {
         let line = &mut self.string;
         let have_line = easy_read_line(inp, line)?;
         if have_line {
@@ -126,17 +130,20 @@ struct Input {
 
 impl Input {
     fn current_line(&self) -> &Line {
-        if self.current_line_is_1 { &self.line1 } else { &self.line2 }
+        if self.current_line_is_1 {
+            &self.line1
+        } else {
+            &self.line2
+        }
     }
-    fn is_ordered(&self, sortorder: SortOrder)
-                  -> Result<bool> {
+    fn is_ordered(&self, sortorder: SortOrder) -> Result<bool> {
         // eprintln!("is_ordered({:?})...", self.path);
-        Ok(
-            if self.current_line_is_1 {
-                sortorder.compare(&self.line1, &self.line2)
-            } else {
-                sortorder.compare(&self.line2, &self.line1)
-            }.is_ge())
+        Ok(if self.current_line_is_1 {
+            sortorder.compare(&self.line1, &self.line2)
+        } else {
+            sortorder.compare(&self.line2, &self.line1)
+        }
+        .is_ge())
     }
     // returns false on EOF
     fn next(&mut self, sortorder: SortOrder) -> Result<bool> {
@@ -147,12 +154,11 @@ impl Input {
                 if !self.current_line_is_in_set {
                     // copy-paste of current_line algo, once more
                     // (make a macro?):
-                    let current_line =
-                        if self.current_line_is_1 {
-                            &mut self.line1
-                        } else {
-                            &mut self.line2
-                        };
+                    let current_line = if self.current_line_is_1 {
+                        &mut self.line1
+                    } else {
+                        &mut self.line2
+                    };
                     // eprintln!("next({:?}): drop {:?}", self.path,
                     //           &current_line.string);
                     println(output, &current_line.string)?;
@@ -162,16 +168,15 @@ impl Input {
             // Switch around line buffers and get the next line
             let current_line_is_1 = !self.current_line_is_1;
             self.current_line_is_1 = current_line_is_1;
-            let current_line =
-                if current_line_is_1 {
-                    &mut self.line1
-                } else {
-                    &mut self.line2
-                };
+            let current_line = if current_line_is_1 {
+                &mut self.line1
+            } else {
+                &mut self.line2
+            };
             self.linenum += 1;
             if current_line.read_and_parse_line(&mut self.input, sortorder)? {
                 // eprintln!("next({:?}): new: {:?}", self.path, &current_line.string);
-                if ! self.is_ordered(sortorder)? {
+                if !self.is_ordered(sortorder)? {
                     bail!("file is not ordered")
                 }
                 Ok(true)
@@ -182,8 +187,8 @@ impl Input {
                 self.current_line_is_in_set = true;
                 Ok(false)
             }
-        })().with_context(
-            || anyhow!("file {:?} line {}", self.path, self.linenum))
+        })()
+        .with_context(|| anyhow!("file {:?} line {}", self.path, self.linenum))
     }
 }
 
@@ -200,14 +205,16 @@ impl Inputs {
     /// The index into Inputs that has the line furthest along in
     /// sorted processing (if multiple, the one with the largest index
     /// (since `max_by` returns the last one per its docs)).
-    fn largest_input_index(
-        &self,
-        sortorder: SortOrder
-    ) -> usize {
-        let res = self.inputs.iter().enumerate()
-            .max_by(|a, b| sortorder.compare(a.1.current_line(),
-                                             b.1.current_line()))
-            .unwrap().0;
+    fn largest_input_index(&self, sortorder: SortOrder) -> usize {
+        let res = self
+            .inputs
+            .iter()
+            .enumerate()
+            .max_by(|a, b| {
+                sortorder.compare(a.1.current_line(), b.1.current_line())
+            })
+            .unwrap()
+            .0;
         // eprintln!("largest_input_index() = {} {:?}", res,
         //           self.inputs[res].current_line().string);
         res
@@ -227,7 +234,7 @@ enum Signal {
     #[error("signal: finished")]
     Finished,
     #[error("signal: error {0:?}")]
-    Error(Error)
+    Error(Error),
 }
 
 enum Mode {
@@ -263,23 +270,22 @@ fn p_print(nam: &str, siz: usize) {
 }
 macro_rules! p {
     ( $t:ty ) => {
-        let typename =
-            if false {
-                std::any::type_name::<$t>()
-            } else {
-                stringify!($t)
-            };
+        let typename = if false {
+            std::any::type_name::<$t>()
+        } else {
+            stringify!($t)
+        };
         p_print(typename, std::mem::size_of::<$t>())
-    }
+    };
 }
 fn print_sizes() {
-    p!{Opt};
-    p!{Line};
-    p!{Input};
-    p!{Inputs};
-    p!{SortOrder};
-    p!{Signal};
-    p!{Mode};
+    p! {Opt};
+    p! {Line};
+    p! {Input};
+    p! {Inputs};
+    p! {SortOrder};
+    p! {Signal};
+    p! {Mode};
 }
 
 fn output_fd_for_input_index(i: usize) -> i32 {
@@ -288,57 +294,63 @@ fn output_fd_for_input_index(i: usize) -> i32 {
 
 fn main() -> Result<()> {
     let (mode, mut paths, fddrop) = {
-        let opt : Opt = Opt::from_args();
+        let opt: Opt = Opt::from_args();
         let paths: VecDeque<PathBuf> = opt.file_paths.into();
 
-        let mode =
-            if opt.numeric {
-                Mode::Sorted(SortOrder::Numeric)
-            } else if opt.sorted {
-                Mode::Sorted(SortOrder::Lexical)
-            } else if opt.set {
-                Mode::Set
-            } else if opt.structsizes {
-                Mode::StructSizes
-            } else {
-                Mode::SetThenLinear
-            };
+        let mode = if opt.numeric {
+            Mode::Sorted(SortOrder::Numeric)
+        } else if opt.sorted {
+            Mode::Sorted(SortOrder::Lexical)
+        } else if opt.set {
+            Mode::Set
+        } else if opt.structsizes {
+            Mode::StructSizes
+        } else {
+            Mode::SetThenLinear
+        };
 
         match mode {
-            Mode::Sorted(_) => 
+            Mode::Sorted(_) => {
                 if opt.set {
-                    bail!("only one of --set or --sorted (or --numeric) is valid");
+                    bail!(
+                        "only one of --set or --sorted (or --numeric) is valid"
+                    );
                 }
-            _ => ()
+            }
+            _ => (),
         }
 
         (mode, paths, opt.fddrop)
     };
 
     if paths.len() < mode.min_paths_len() {
-        bail!("need at least {} input file(s) in {} mode", mode.min_paths_len(),
-              mode.name());
+        bail!(
+            "need at least {} input file(s) in {} mode",
+            mode.min_paths_len(),
+            mode.name()
+        );
     }
 
     match mode {
         Mode::Sorted(sortorder) => {
-            match
-                paths.into_iter().enumerate().map(|(i, path)| {
+            match paths
+                .into_iter()
+                .enumerate()
+                .map(|(i, path)| {
                     let mut input = open_file(&path).map_err(Signal::Error)?;
                     let mut line = Line::new();
-                    if line.read_and_parse_line(&mut input, sortorder)
+                    if line
+                        .read_and_parse_line(&mut input, sortorder)
                         .with_context(|| anyhow!("file {:?} line 1", path))
                         .map_err(Signal::Error)?
                     {
-                        let output =
-                            if fddrop {
-                                Some(
-                                    BufWriter::new(unsafe {
-                                        File::from_raw_fd(output_fd_for_input_index(i))
-                                    }))
-                            } else {
-                                None
-                            };
+                        let output = if fddrop {
+                            Some(BufWriter::new(unsafe {
+                                File::from_raw_fd(output_fd_for_input_index(i))
+                            }))
+                        } else {
+                            None
+                        };
                         Ok(Input {
                             path,
                             input,
@@ -352,7 +364,8 @@ fn main() -> Result<()> {
                     } else {
                         Err(Signal::Finished)
                     }
-                }).collect::<Result<Vec<Input>, Signal>>()
+                })
+                .collect::<Result<Vec<Input>, Signal>>()
             {
                 Ok(inputs) => {
                     // eprintln!("inputs = {:?}", inputs.iter().map(
@@ -365,11 +378,13 @@ fn main() -> Result<()> {
                         // Get the largest value--this is what we aim for
                         // when retrieving values from the other
                         // inputs.
-                        let largest_input_i = inputs.largest_input_index(sortorder);
+                        let largest_input_i =
+                            inputs.largest_input_index(sortorder);
                         // Are the others the same, or can we update them
                         // to the same value?
                         let mut all_same = true;
-                        let mut largest = inputs.input(largest_input_i).current_line();
+                        let mut largest =
+                            inputs.input(largest_input_i).current_line();
                         for i in 0..inputs.len() {
                             // eprintln!("for input (largest_input_i = {}, i = {})...",
                             //           largest_input_i, i);
@@ -385,10 +400,14 @@ fn main() -> Result<()> {
                                             break 'this_input;
                                         }
                                         Ordering::Less => {
-                                            if ! inputs.input_mut(i).next(sortorder)? {
+                                            if !inputs
+                                                .input_mut(i)
+                                                .next(sortorder)?
+                                            {
                                                 break 'full;
                                             }
-                                            largest = inputs.input(largest_input_i)
+                                            largest = inputs
+                                                .input(largest_input_i)
                                                 .current_line();
                                         }
                                     }
@@ -406,19 +425,20 @@ fn main() -> Result<()> {
                             // One of them has to advance; empirically it
                             // has to be the (originally!) largest one. XX
                             // Why?
-                            inputs.input_mut(largest_input_i).next(sortorder)?;
+                            inputs
+                                .input_mut(largest_input_i)
+                                .next(sortorder)?;
                         }
                     }
 
                     // eprintln!("---finish----");
-                    out.flush().with_context(
-                        || anyhow!("flushing stdout"))?;
+                    out.flush().with_context(|| anyhow!("flushing stdout"))?;
                     for (i, input) in inputs.inputs.iter_mut().enumerate() {
                         if input.output.is_some() {
                             // Re-use next() to copy over the
                             // remainder of the file. (Wasteful? No,
                             // verifications should be done anyway.)
-                            
+
                             while input.next(sortorder)? {}
                             input.output.as_mut().expect(
                                 "always have a buffer because we already checked in the above if let")
@@ -435,26 +455,26 @@ fn main() -> Result<()> {
                     Err(e)?;
                 }
             }
-
         }
         Mode::Set | Mode::SetThenLinear => {
             let mut set: HashSet<KString> = HashSet::new();
             let mut tmpline = String::new();
 
-            let last_path =
-                match mode {
-                    Mode::Set => None,
-                    Mode::SetThenLinear => Some(paths.pop_back().unwrap()),
-                    _ => panic!()
-                };
+            let last_path = match mode {
+                Mode::Set => None,
+                Mode::SetThenLinear => Some(paths.pop_back().unwrap()),
+                _ => panic!(),
+            };
 
-            let mut paths_meta: VecDeque<(PathBuf, u64)> =
-                paths.into_iter().map(
-                    |path| {
-                        let s = path.metadata().with_context(
-                            || anyhow!("stat on file {:?}", path))?.size();
-                        Ok((path, s))}
-                )
+            let mut paths_meta: VecDeque<(PathBuf, u64)> = paths
+                .into_iter()
+                .map(|path| {
+                    let s = path
+                        .metadata()
+                        .with_context(|| anyhow!("stat on file {:?}", path))?
+                        .size();
+                    Ok((path, s))
+                })
                 .collect::<Result<_>>()?;
             paths_meta.make_contiguous().sort_by_key(|x| x.1);
 
@@ -469,7 +489,7 @@ fn main() -> Result<()> {
 
             for (path, _) in paths_meta {
                 if set.is_empty() {
-                    break
+                    break;
                 }
                 let mut inp = ReadWithContext::open_path(&path)?;
                 let mut newset = HashSet::new();
@@ -502,12 +522,12 @@ fn main() -> Result<()> {
                         }
                     }
                 }
-                _ => panic!()
+                _ => panic!(),
             }
             out.flush()?;
         }
-        Mode::StructSizes => print_sizes()
+        Mode::StructSizes => print_sizes(),
     }
-    
+
     Ok(())
 }

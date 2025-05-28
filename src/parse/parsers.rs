@@ -6,7 +6,7 @@ use genawaiter::rc::Gen;
 
 use crate::parse::parse_error::ParseError;
 
-use super::parse_error::{StringParseContext, IntoOwningBacking, Backing};
+use super::parse_error::{Backing, IntoOwningBacking, StringParseContext};
 
 #[derive(Debug, Copy, PartialEq, Eq)]
 pub struct ParseableStr<'t, B: Backing> {
@@ -17,11 +17,15 @@ pub struct ParseableStr<'t, B: Backing> {
 
 impl<'t, B: Backing> Clone for ParseableStr<'t, B> {
     fn clone(&self) -> Self {
-        let ParseableStr { position, backing, s } = self;
+        let ParseableStr {
+            position,
+            backing,
+            s,
+        } = self;
         Self {
             position: *position,
             backing: *backing,
-            s
+            s,
         }
     }
 }
@@ -31,13 +35,15 @@ impl<'t, B: Backing> ParseableStr<'t, B> {
         Self {
             position: 0,
             backing,
-            s: backing.as_ref()
+            s: backing.as_ref(),
         }
     }
 
     /// Panics if to is before self.
     pub fn position_difference(&self, to: &Self) -> usize {
-        to.position.checked_sub(self.position).expect("to is after self")
+        to.position
+            .checked_sub(self.position)
+            .expect("to is after self")
     }
 
     /// Panics if to is before self.
@@ -46,7 +52,7 @@ impl<'t, B: Backing> ParseableStr<'t, B> {
         Self {
             position: self.position,
             backing: self.backing,
-            s: &self.s[0..len]
+            s: &self.s[0..len],
         }
     }
 
@@ -55,7 +61,7 @@ impl<'t, B: Backing> ParseableStr<'t, B> {
         ParseableStr {
             position: self.position + self.s.len(),
             backing: self.backing,
-            s: ""
+            s: "",
         }
     }
 
@@ -72,7 +78,7 @@ impl<'t, B: Backing> ParseableStr<'t, B> {
     pub fn first(&self) -> Option<char> {
         self.s.chars().next()
     }
-    
+
     /// You usually want `drop_str` instead.
     pub fn starts_with(&self, s: &str) -> bool {
         self.s.starts_with(s)
@@ -80,8 +86,9 @@ impl<'t, B: Backing> ParseableStr<'t, B> {
 }
 
 impl<'s, B: Backing> IntoOwningBacking<B::Owned> for ParseableStr<'s, B>
-where &'s B: Backing,
-      B::Owned: Backing
+where
+    &'s B: Backing,
+    B::Owned: Backing,
 {
     type Owning = StringParseContext<B::Owned>;
 
@@ -97,36 +104,46 @@ where &'s B: Backing,
 // about From and Into instead of ToOwned and Borrow?
 
 impl<'s, B: Backing> From<ParseableStr<'s, B>> for StringParseContext<&'s B>
-    where &'s B: Backing
+where
+    &'s B: Backing,
 {
     fn from(value: ParseableStr<'s, B>) -> Self {
-        let ParseableStr { position, backing, s: _ } = value;
+        let ParseableStr {
+            position,
+            backing,
+            s: _,
+        } = value;
         StringParseContext { position, backing }
     }
 }
 
-impl<'r, 's, B: Backing> From<&'r ParseableStr<'s, B>> for StringParseContext<&'s B>
-    where &'s B: Backing
+impl<'r, 's, B: Backing> From<&'r ParseableStr<'s, B>>
+    for StringParseContext<&'s B>
+where
+    &'s B: Backing,
 {
     fn from(value: &'r ParseableStr<'s, B>) -> Self {
-        let ParseableStr { position, backing, s: _ } = *value;
+        let ParseableStr {
+            position,
+            backing,
+            s: _,
+        } = *value;
         StringParseContext { position, backing }
     }
 }
-
 
 #[derive(Debug, thiserror::Error)]
 #[error("expected {:?}", self.needle)]
 pub struct ExpectedString<'t, B: Backing> {
     pub needle: &'t str,
-    pub context: ParseableStr<'t, B>
+    pub context: ParseableStr<'t, B>,
 }
 
 #[derive(Debug, PartialEq, thiserror::Error)]
 #[error("expected {}", self.desc)]
 pub struct Expected<'t, B: Backing> {
     pub desc: &'t str,
-    pub context: ParseableStr<'t, B>
+    pub context: ParseableStr<'t, B>,
 }
 
 #[derive(Debug, PartialEq, thiserror::Error)]
@@ -136,11 +153,13 @@ pub struct FromStrError {
     // that would preclude passing FromStrError as dyn.
     pub type_: &'static str,
     pub error: String,
-    pub position: usize
+    pub position: usize,
 }
 
-impl<'t, B: Backing> From<Box<ExpectedString<'t, B>>> for ParseError<StringParseContext<&'t B>>
-    where &'t B: Backing
+impl<'t, B: Backing> From<Box<ExpectedString<'t, B>>>
+    for ParseError<StringParseContext<&'t B>>
+where
+    &'t B: Backing,
 {
     fn from(e: Box<ExpectedString<'t, B>>) -> Self {
         // Do not use parseerror! macro, since the frame here isn't
@@ -153,8 +172,10 @@ impl<'t, B: Backing> From<Box<ExpectedString<'t, B>>> for ParseError<StringParse
     }
 }
 
-impl<'t, B: Backing> From<Box<Expected<'t, B>>> for ParseError<StringParseContext<&'t B>>
-    where &'t B: Backing
+impl<'t, B: Backing> From<Box<Expected<'t, B>>>
+    for ParseError<StringParseContext<&'t B>>
+where
+    &'t B: Backing,
 {
     fn from(e: Box<Expected<'t, B>>) -> Self {
         // Do not use parseerror! macro, since the frame here isn't
@@ -166,8 +187,6 @@ impl<'t, B: Backing> From<Box<Expected<'t, B>>> for ParseError<StringParseContex
         }
     }
 }
-
-
 
 #[derive(Debug, thiserror::Error)]
 pub enum ParseFailure {
@@ -183,15 +202,21 @@ pub enum ParseFailure {
 
 impl<'t, B: Backing> From<&'t B> for ParseableStr<'t, B> {
     fn from(s: &'t B) -> Self {
-        ParseableStr { position: 0, backing: s, s: s.as_ref() }
+        ParseableStr {
+            position: 0,
+            backing: s,
+            s: s.as_ref(),
+        }
     }
 }
 
 pub trait FromParseableStr<'s, B: Backing + 's>: Sized
-where &'s B: Backing
+where
+    &'s B: Backing,
 {
-    fn from_parseable_str(s: &ParseableStr<'s, B>)
-                          -> Result<Self, ParseError<StringParseContext<&'s B>>>;
+    fn from_parseable_str(
+        s: &ParseableStr<'s, B>,
+    ) -> Result<Self, ParseError<StringParseContext<&'s B>>>;
 }
 
 #[derive(Debug, Clone)]
@@ -199,56 +224,69 @@ pub struct Separator {
     /// Note: `required` does not matter if `alternatives` is empty
     /// (no separator is actually expected in that case).
     pub required: bool,
-    pub alternatives: &'static[&'static str]
+    pub alternatives: &'static [&'static str],
 }
 
-impl<'t, B: Backing> ParseableStr<'t, B>
-{
+impl<'t, B: Backing> ParseableStr<'t, B> {
     /// Parse the whole string via `FromStr`, returning error information.
     pub fn parse<T: FromStr>(&self) -> Result<T, Box<FromStrError>>
-        where T::Err: Display
+    where
+        T::Err: Display,
     {
-        self.s.parse().map_err(|e: T::Err| FromStrError {
-            type_: type_name::<T>(),
-            error: e.to_string(),
-            position: self.position,
-        }.into())
+        self.s.parse().map_err(|e: T::Err| {
+            FromStrError {
+                type_: type_name::<T>(),
+                error: e.to_string(),
+                position: self.position,
+            }
+            .into()
+        })
     }
 
     /// Try to parse the whole string via `FromStr`.
     // try_ prefix is usually used for Result; use opt_, maybe_ ?
-    pub fn opt_parse<T: FromStr>(&self) -> Option<T>
-    {
+    pub fn opt_parse<T: FromStr>(&self) -> Option<T> {
         self.s.parse().ok()
     }
-    
+
     /// Skip the given number of bytes from the beginning. Panics if
     /// num_bytes goes beyond the end of self, and will lead to later
     /// panics if the result is not pointing at a character boundary.
     pub fn skip_bytes(&self, num_bytes: usize) -> ParseableStr<'t, B> {
-        let ParseableStr { position, backing, s } = self;
+        let ParseableStr {
+            position,
+            backing,
+            s,
+        } = self;
         Self {
             position: position + num_bytes,
             backing,
-            s: &s[num_bytes..]
+            s: &s[num_bytes..],
         }
     }
 
     /// Split at the given number of bytes from the beginning. Panics if
     /// mid > len, or not pointing at a character boundary.
-    pub fn split_at(&self, mid: usize) -> (ParseableStr<'t, B>, ParseableStr<'t, B>) {
-        let ParseableStr { position, backing, s } = *self;
+    pub fn split_at(
+        &self,
+        mid: usize,
+    ) -> (ParseableStr<'t, B>, ParseableStr<'t, B>) {
+        let ParseableStr {
+            position,
+            backing,
+            s,
+        } = *self;
         (
             Self {
                 position,
                 backing,
-                s: &s[..mid]
+                s: &s[..mid],
             },
             Self {
                 position: position + mid,
                 backing,
-                s: &s[mid..]
-            }
+                s: &s[mid..],
+            },
         )
     }
 
@@ -258,7 +296,7 @@ impl<'t, B: Backing> ParseableStr<'t, B>
         Self {
             s: s1.trim_end(),
             backing: self.backing,
-            position: self.position + (self.len() - s1.len())
+            position: self.position + (self.len() - s1.len()),
         }
     }
 
@@ -268,7 +306,7 @@ impl<'t, B: Backing> ParseableStr<'t, B>
         Self {
             s: s1,
             backing: self.backing,
-            position: self.position + (self.len() - s1.len())
+            position: self.position + (self.len() - s1.len()),
         }
     }
 
@@ -277,61 +315,78 @@ impl<'t, B: Backing> ParseableStr<'t, B>
         Self {
             s: self.s.trim_end(),
             backing: self.backing,
-            position: self.position
+            position: self.position,
         }
     }
 
     /// Find the first occurrence of `needle` in self, return
     /// the needle and what follows.
     pub fn find_str(&self, needle: &str) -> Option<ParseableStr<'t, B>> {
-        let ParseableStr { position, backing, s } = self;
+        let ParseableStr {
+            position,
+            backing,
+            s,
+        } = self;
         let offset = s.find(needle)?;
         Some(ParseableStr {
             position: position + offset,
             backing,
-            s: &s[offset..]
+            s: &s[offset..],
         })
     }
 
     /// Find the first occurrence of `needle` in self, return the
     /// needle itself (with the position information of where it was
     /// found) and the rest after it.
-    pub fn find_str_rest(&self, needle: &str)
-                         -> Option<(ParseableStr<'t, B>, ParseableStr<'t, B>)>
-    {
-        let ParseableStr { position, backing, s } = self;
+    pub fn find_str_rest(
+        &self,
+        needle: &str,
+    ) -> Option<(ParseableStr<'t, B>, ParseableStr<'t, B>)> {
+        let ParseableStr {
+            position,
+            backing,
+            s,
+        } = self;
         let offset = s.find(needle)?;
         Some((
             ParseableStr {
                 position: position + offset,
                 backing,
-                s: &s[offset..offset + needle.len()]
+                s: &s[offset..offset + needle.len()],
             },
             ParseableStr {
                 position: position + offset + needle.len(),
                 backing,
-                s: &s[offset + needle.len()..]
-            }
+                s: &s[offset + needle.len()..],
+            },
         ))
     }
 
     /// Find the first occurrence of `needle` in self, return
     /// the rest after it.
     pub fn after_str(&self, needle: &str) -> Option<ParseableStr<'t, B>> {
-        let ParseableStr { position, backing, s } = self;
+        let ParseableStr {
+            position,
+            backing,
+            s,
+        } = self;
         let pos = s.find(needle)?;
         let offset = pos + needle.len();
         Some(ParseableStr {
             position: position + offset,
             backing,
-            s: &s[offset..]
+            s: &s[offset..],
         })
     }
 
     /// Expect `beginning` at the start of self, if so return the
     /// remainder after it.
     pub fn drop_str(&self, beginning: &str) -> Option<ParseableStr<'t, B>> {
-        let ParseableStr { position, backing, s } = *self;
+        let ParseableStr {
+            position,
+            backing,
+            s,
+        } = *self;
         if s.starts_with(beginning) {
             Some(ParseableStr {
                 position: position + beginning.len(),
@@ -345,19 +400,31 @@ impl<'t, B: Backing> ParseableStr<'t, B>
 
     /// Same as `drop_str` but returns an error mentioning
     /// `beginning` if it doesn't match
-    pub fn expect_str(&self, beginning: &'t str)
-                      -> Result<ParseableStr<'t, B>, Box<ExpectedString<'t, B>>>
-    {
-        let ParseableStr { position, backing, s } = *self;
-        self.drop_str(beginning).ok_or_else(
-            || ExpectedString {
+    pub fn expect_str(
+        &self,
+        beginning: &'t str,
+    ) -> Result<ParseableStr<'t, B>, Box<ExpectedString<'t, B>>> {
+        let ParseableStr {
+            position,
+            backing,
+            s,
+        } = *self;
+        self.drop_str(beginning).ok_or_else(|| {
+            ExpectedString {
                 needle: beginning,
-                context: ParseableStr { position, backing, s }
-            }.into())
+                context: ParseableStr {
+                    position,
+                    backing,
+                    s,
+                },
+            }
+            .into()
+        })
     }
 
     pub fn expect_str_or_eos(
-        &self, beginning: &'t str
+        &self,
+        beginning: &'t str,
     ) -> Result<ParseableStr<'t, B>, Box<ExpectedString<'t, B>>> {
         if self.is_empty() {
             return Ok(self.clone());
@@ -369,7 +436,8 @@ impl<'t, B: Backing> ParseableStr<'t, B>
     // which are 'static, but it also contains self now, thus lifetime
     // 't.
     pub fn expect_separator(
-        &self, separator: &Separator
+        &self,
+        separator: &Separator,
     ) -> Result<ParseableStr<'t, B>, Box<ExpectedString<'t, B>>> {
         let mut last_e = None;
         for &sep in separator.alternatives {
@@ -393,60 +461,79 @@ impl<'t, B: Backing> ParseableStr<'t, B>
     /// Find the first occurrence of `needle` in self, return the part
     /// left of it.
     pub fn take_until_str(&self, needle: &str) -> Option<ParseableStr<'t, B>> {
-        let ParseableStr { position, backing, s } = *self;
+        let ParseableStr {
+            position,
+            backing,
+            s,
+        } = *self;
         let pos = s.find(needle)?;
         Some(ParseableStr {
             position,
             backing,
-            s: &s[0..pos]
+            s: &s[0..pos],
         })
     }
 
     /// Split at the first occurrence of `needle`, returning the parts
     /// before and after it.
-    pub fn split_at_str(&self, needle: &str)
-                        -> Option<(ParseableStr<'t, B>, ParseableStr<'t, B>)>
-    {
-        let ParseableStr { position, backing, s } = *self;
+    pub fn split_at_str(
+        &self,
+        needle: &str,
+    ) -> Option<(ParseableStr<'t, B>, ParseableStr<'t, B>)> {
+        let ParseableStr {
+            position,
+            backing,
+            s,
+        } = *self;
         let pos = s.find(needle)?;
         Some((
             ParseableStr {
                 position,
                 backing,
-                s: &s[0..pos]
+                s: &s[0..pos],
             },
             ParseableStr {
                 position: position + pos + needle.len(),
                 backing,
-                s: &s[pos + needle.len()..]
-            }
+                s: &s[pos + needle.len()..],
+            },
         ))
     }
 
     /// Take every character for which `pred` returns true, return the
     /// string making up those characters and the remainder.
-    pub fn take_while(&self, mut pred: impl FnMut(char) -> bool)
-                  -> (ParseableStr<'t, B>, ParseableStr<'t, B>) {
-        let ParseableStr { position, backing, s } = *self;
+    pub fn take_while(
+        &self,
+        mut pred: impl FnMut(char) -> bool,
+    ) -> (ParseableStr<'t, B>, ParseableStr<'t, B>) {
+        let ParseableStr {
+            position,
+            backing,
+            s,
+        } = *self;
         for (pos, c) in s.char_indices() {
             if !pred(c) {
                 return (
                     ParseableStr {
                         position,
                         backing,
-                        s: &s[0..pos]
+                        s: &s[0..pos],
                     },
                     ParseableStr {
                         position: position + pos,
                         backing,
-                        s: &s[pos..]
+                        s: &s[pos..],
                     },
                 );
             }
         }
         (
             self.clone(),
-            ParseableStr { s: "", position: position + s.len(), backing },
+            ParseableStr {
+                s: "",
+                position: position + s.len(),
+                backing,
+            },
         )
     }
 
@@ -455,55 +542,84 @@ impl<'t, B: Backing> ParseableStr<'t, B>
     pub fn expect1_matching(
         &self,
         pred: impl FnOnce(char) -> bool,
-        desc: &'t str
-    ) -> Result<ParseableStr<'t, B>, Box<Expected<'t, B>>>
-    {
-        let ParseableStr { position, backing, s } = self;
-        let err = || Err(Expected { desc, context: self.clone() }.into());
+        desc: &'t str,
+    ) -> Result<ParseableStr<'t, B>, Box<Expected<'t, B>>> {
+        let ParseableStr {
+            position,
+            backing,
+            s,
+        } = self;
+        let err = || {
+            Err(Expected {
+                desc,
+                context: self.clone(),
+            }
+            .into())
+        };
         if s.is_empty() {
             return err();
         }
         let mut cs = s.char_indices();
         let (_, c) = cs.next().unwrap();
-        if ! pred(c) {
+        if !pred(c) {
             return err();
         }
         let (pos, _) = cs.next().unwrap_or_else(|| (s.len(), ' '));
-        Ok(ParseableStr { position: position + pos, backing, s: &s[pos..] })
+        Ok(ParseableStr {
+            position: position + pos,
+            backing,
+            s: &s[pos..],
+        })
     }
 
     pub fn take_identifier(
-        &self
+        &self,
     ) -> Result<(ParseableStr<'t, B>, ParseableStr<'t, B>), Box<Expected<'t, B>>>
     {
         let rest = self.expect1_matching(
             |c| c.is_ascii_lowercase() && (c.is_ascii_alphabetic() || c == '_'),
-            "[a-z_] followed by [a-z0-9_]*"
+            "[a-z_] followed by [a-z0-9_]*",
         )?;
-        let rest = rest.drop_while(
-            |c| c.is_ascii_lowercase() && (c.is_ascii_alphanumeric() || c == '_'));
-        let ParseableStr { position, backing, s } = *self;
+        let rest = rest.drop_while(|c| {
+            c.is_ascii_lowercase() && (c.is_ascii_alphanumeric() || c == '_')
+        });
+        let ParseableStr {
+            position,
+            backing,
+            s,
+        } = *self;
         Ok((
-            ParseableStr { position, backing, s: &s[0..(rest.position - position)] },
-            rest
+            ParseableStr {
+                position,
+                backing,
+                s: &s[0..(rest.position - position)],
+            },
+            rest,
         ))
     }
 
-    pub fn drop_while(&self, mut pred: impl FnMut(char) -> bool) -> ParseableStr<'t, B> {
-        let ParseableStr { position, backing, s } = self;
+    pub fn drop_while(
+        &self,
+        mut pred: impl FnMut(char) -> bool,
+    ) -> ParseableStr<'t, B> {
+        let ParseableStr {
+            position,
+            backing,
+            s,
+        } = self;
         for (pos, c) in s.char_indices() {
             if !pred(c) {
                 return ParseableStr {
                     position: position + pos,
                     backing,
-                    s: &s[pos..]
+                    s: &s[pos..],
                 };
             }
         }
         ParseableStr {
             position: position + s.len(),
             backing,
-            s: ""
+            s: "",
         }
     }
 
@@ -514,8 +630,9 @@ impl<'t, B: Backing> ParseableStr<'t, B>
         &self,
         n: usize,
         pred: impl FnMut(char) -> bool,
-        desc: &'t str
-    ) -> Result<(ParseableStr<'t, B>, ParseableStr<'t, B>), Box<Expected<'t, B>>> {
+        desc: &'t str,
+    ) -> Result<(ParseableStr<'t, B>, ParseableStr<'t, B>), Box<Expected<'t, B>>>
+    {
         self.take_nrange_while(n, n, pred, desc)
     }
 
@@ -528,9 +645,14 @@ impl<'t, B: Backing> ParseableStr<'t, B>
         n_min: usize,
         n_max: usize, // inclusive
         mut pred: impl FnMut(char) -> bool,
-        desc: &'t str
-    ) -> Result<(ParseableStr<'t, B>, ParseableStr<'t, B>), Box<Expected<'t, B>>> {
-        let ParseableStr { position, backing, s } = *self;
+        desc: &'t str,
+    ) -> Result<(ParseableStr<'t, B>, ParseableStr<'t, B>), Box<Expected<'t, B>>>
+    {
+        let ParseableStr {
+            position,
+            backing,
+            s,
+        } = *self;
         let mut cs = s.char_indices();
         let mut failed_pos = None;
         for i in 0..n_max {
@@ -548,8 +670,9 @@ impl<'t, B: Backing> ParseableStr<'t, B>
                                 s,
                                 backing,
                                 position: position + pos,
-                            }
-                        }.into())
+                            },
+                        }
+                        .into());
                     }
                     failed_pos = Some(pos);
                     break;
@@ -566,8 +689,9 @@ impl<'t, B: Backing> ParseableStr<'t, B>
                             s,
                             backing,
                             position: position + s.len(),
-                        }
-                    }.into())
+                        },
+                    }
+                    .into());
                 }
             }
         }
@@ -581,12 +705,12 @@ impl<'t, B: Backing> ParseableStr<'t, B>
             ParseableStr {
                 position,
                 backing,
-                s: &s[0..pos]
+                s: &s[0..pos],
             },
             ParseableStr {
                 position: position + pos,
                 backing,
-                s: &s[pos..]
+                s: &s[pos..],
             },
         ))
     }
@@ -599,29 +723,35 @@ impl<'t, B: Backing> ParseableStr<'t, B>
     /// is not included in the returned parts. If
     /// `omit_empty_last_item` is true, if there's an empty string
     /// after the last separator, it is not reported as an item.
-    pub fn split_str<'r, 'n>(&'r self, separator: &'n str, omit_empty_last_item: bool)
-                     -> Box<dyn Iterator<Item = ParseableStr<'t, B>> + 'n>
-    where 't: 'n,
-        'r: 'n
+    pub fn split_str<'r, 'n>(
+        &'r self,
+        separator: &'n str,
+        omit_empty_last_item: bool,
+    ) -> Box<dyn Iterator<Item = ParseableStr<'t, B>> + 'n>
+    where
+        't: 'n,
+        'r: 'n,
     {
-        Box::new(Gen::new(|co| async move {
-            let mut rest = self.clone();
-            loop {
-                if omit_empty_last_item && rest.is_empty() {
-                    break;
+        Box::new(
+            Gen::new(|co| async move {
+                let mut rest = self.clone();
+                loop {
+                    if omit_empty_last_item && rest.is_empty() {
+                        break;
+                    }
+                    if let Some(p2) = rest.find_str(separator) {
+                        co.yield_(rest.up_to(&p2)).await;
+                        rest = p2.skip_bytes(separator.len());
+                    } else {
+                        co.yield_(rest).await;
+                        break;
+                    }
                 }
-                if let Some(p2) = rest.find_str(separator) {
-                    co.yield_(rest.up_to(&p2)).await;
-                    rest = p2.skip_bytes(separator.len());
-                } else {
-                    co.yield_(rest).await;
-                    break;
-                }
-            }
-        }).into_iter())
+            })
+            .into_iter(),
+        )
     }
 }
-
 
 // pub fn expect_alternatives_2(
 //     s: ParseableStr,
@@ -639,8 +769,6 @@ impl<'t, B: Backing> ParseableStr<'t, B>
 //         }
 //     }
 // }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -666,131 +794,159 @@ mod tests {
 
     #[test]
     fn t_split_at_str() {
-        let_parseable!{ backing, s = "foo -- bar" }
-        assert_eq!(s.split_at_str("---"),
-                   None);
+        let_parseable! { backing, s = "foo -- bar" }
+        assert_eq!(s.split_at_str("---"), None);
 
-        let_parseable!{ backing, s = "foo -- bar" }
-        assert_eq!(s.split_at_str("--"),
-                   Some((
-                       ParseableStr { s: "foo ", backing: &backing, position: 0 },
-                       ParseableStr { s: " bar", backing: &backing, position: 6 },
-                   )));
+        let_parseable! { backing, s = "foo -- bar" }
+        assert_eq!(
+            s.split_at_str("--"),
+            Some((
+                ParseableStr {
+                    s: "foo ",
+                    backing: &backing,
+                    position: 0
+                },
+                ParseableStr {
+                    s: " bar",
+                    backing: &backing,
+                    position: 6
+                },
+            ))
+        );
     }
 
     #[test]
     fn t_split_str() {
         {
-            let_parseable!{ backing, s = "foo - bar- baz -  bam" }
+            let_parseable! { backing, s = "foo - bar- baz -  bam" }
             let r1: Vec<ParseableStr<_>> = s.split_str(" - ", false).collect();
-            assert_eq!(&*r1, &[
-                new!(backing, 0, "foo"),
-                new!(backing, 6, "bar- baz"),
-                new!(backing, 17, " bam")
-            ]);
+            assert_eq!(
+                &*r1,
+                &[
+                    new!(backing, 0, "foo"),
+                    new!(backing, 6, "bar- baz"),
+                    new!(backing, 17, " bam")
+                ]
+            );
         }
         {
-            let_parseable!{ backing, s = "foo - bar- baz - " }
+            let_parseable! { backing, s = "foo - bar- baz - " }
             let r1: Vec<ParseableStr<_>> = s.split_str(" - ", false).collect();
-            assert_eq!(&*r1, &[
-                new!(backing, 0, "foo"),
-                new!(backing, 6, "bar- baz"),
-                new!(backing, 17, "")
-            ]);
+            assert_eq!(
+                &*r1,
+                &[
+                    new!(backing, 0, "foo"),
+                    new!(backing, 6, "bar- baz"),
+                    new!(backing, 17, "")
+                ]
+            );
         }
         {
-            let_parseable!{ backing, s = "foo - bar- baz - " }
+            let_parseable! { backing, s = "foo - bar- baz - " }
             let r1: Vec<ParseableStr<_>> = s.split_str(" - ", true).collect();
-            assert_eq!(&*r1, &[
-                new!(backing, 0, "foo"),
-                new!(backing, 6, "bar- baz"),
-            ]);
+            assert_eq!(
+                &*r1,
+                &[new!(backing, 0, "foo"), new!(backing, 6, "bar- baz"),]
+            );
         }
         {
-            let_parseable!{ backing, s = " - " }
+            let_parseable! { backing, s = " - " }
             let r1: Vec<ParseableStr<_>> = s.split_str(" - ", false).collect();
-            assert_eq!(&*r1, &[
-                new!(backing, 0, ""),
-                new!(backing, 3, ""),
-            ]);
+            assert_eq!(&*r1, &[new!(backing, 0, ""), new!(backing, 3, ""),]);
         }
         {
-            let_parseable!{ backing, s = " - " }
+            let_parseable! { backing, s = " - " }
             let r1: Vec<ParseableStr<_>> = s.split_str(" - ", true).collect();
-            assert_eq!(&*r1, &[
-                new!(backing, 0, ""),
-            ]);
+            assert_eq!(&*r1, &[new!(backing, 0, ""),]);
         }
         {
-            let_parseable!{ backing, s = "" }
+            let_parseable! { backing, s = "" }
             let r1: Vec<ParseableStr<_>> = s.split_str(" - ", false).collect();
-            assert_eq!(&*r1, &[
-                new!(backing, 0, ""),
-            ]);
+            assert_eq!(&*r1, &[new!(backing, 0, ""),]);
         }
         {
-            let_parseable!{ backing, s = "" }
+            let_parseable! { backing, s = "" }
             let r1: Vec<ParseableStr<_>> = s.split_str(" - ", true).collect();
-            assert_eq!(&*r1, &[
-            ]);
+            assert_eq!(&*r1, &[]);
         }
     }
-    
+
     #[test]
     fn t_take_while() {
-        let_parseable!{ backing, s = "" }
-        assert_eq!(s.take_while(|c| c.is_alphanumeric()),
-                   (
-                       new!(backing, 0, ""),
-                       new!(backing, 0, ""),
-                   ));
+        let_parseable! { backing, s = "" }
+        assert_eq!(
+            s.take_while(|c| c.is_alphanumeric()),
+            (new!(backing, 0, ""), new!(backing, 0, ""),)
+        );
 
-        let_parseable!{ backing, s = " abc def" }
-        assert_eq!(s.take_while(|c| c.is_alphanumeric()),
-                   (
-                       new!(backing, 0, ""),
-                       new!(backing, 0, " abc def"),
-                   ));
+        let_parseable! { backing, s = " abc def" }
+        assert_eq!(
+            s.take_while(|c| c.is_alphanumeric()),
+            (new!(backing, 0, ""), new!(backing, 0, " abc def"),)
+        );
 
-        let_parseable!{ backing, s = "abc def" }
-        assert_eq!(s.take_while(|c| c.is_alphanumeric()),
-                   (
-                       new!(backing, 0, "abc"),
-                       new!(backing, 3, " def"),
-                   ));
+        let_parseable! { backing, s = "abc def" }
+        assert_eq!(
+            s.take_while(|c| c.is_alphanumeric()),
+            (new!(backing, 0, "abc"), new!(backing, 3, " def"),)
+        );
 
-        let_parseable!{ backing, s = "abcdef" }
-        assert_eq!(s.take_while(|c| c.is_alphanumeric()),
-                   (
-                       new!(backing, 0, "abcdef"),
-                       new!(backing, 6, ""),
-                   ));
+        let_parseable! { backing, s = "abcdef" }
+        assert_eq!(
+            s.take_while(|c| c.is_alphanumeric()),
+            (new!(backing, 0, "abcdef"), new!(backing, 6, ""),)
+        );
     }
 
     #[test]
     fn t_take_n_while() {
-        fn t<'s, 't>(s: &'s ParseableStr<'t, String>, n: usize)
-                     -> Result<(ParseableStr<'t, String>, ParseableStr<'t, String>),
-                               Box<Expected<'t, String>>>
-        {
+        fn t<'s, 't>(
+            s: &'s ParseableStr<'t, String>,
+            n: usize,
+        ) -> Result<
+            (ParseableStr<'t, String>, ParseableStr<'t, String>),
+            Box<Expected<'t, String>>,
+        > {
             s.take_n_while(
-                n, |c| c.is_ascii_digit(), "digit as part of year number")
+                n,
+                |c| c.is_ascii_digit(),
+                "digit as part of year number",
+            )
         }
 
-        fn ok<'s, 't>(backing: &'t String, s0: &'t str, position: usize, s1: &'t str)
-                      -> Result<(ParseableStr<'t, String>, ParseableStr<'t, String>),
-                                Box<Expected<'t, String>>>
-        {
+        fn ok<'s, 't>(
+            backing: &'t String,
+            s0: &'t str,
+            position: usize,
+            s1: &'t str,
+        ) -> Result<
+            (ParseableStr<'t, String>, ParseableStr<'t, String>),
+            Box<Expected<'t, String>>,
+        > {
             Ok((
-                ParseableStr { position: 0, backing, s: s0 },
-                ParseableStr { position, backing, s: s1 }
+                ParseableStr {
+                    position: 0,
+                    backing,
+                    s: s0,
+                },
+                ParseableStr {
+                    position,
+                    backing,
+                    s: s1,
+                },
             ))
         }
 
-        let err = |backing, position, desc, s| Err(Box::new(Expected {
-            desc,
-            context: ParseableStr { position, backing, s }
-        }));
+        let err = |backing, position, desc, s| {
+            Err(Box::new(Expected {
+                desc,
+                context: ParseableStr {
+                    position,
+                    backing,
+                    s,
+                },
+            }))
+        };
 
         macro_rules! test {
             { t($sourcestr:expr, $n:expr), ok($matchstr:expr, $matchpos:expr, $reststr:expr) } => {
@@ -807,35 +963,65 @@ mod tests {
         test!(t("2024-10", 3), ok("202", 3, "4-10"));
         test!(t("2024-10", 0), ok("", 0, "2024-10"));
         // XX in these err tests: is it correct to carry the whole string in `s`?:
-        test!(t("2024-10", 5), err(4, "digit as part of year number", "2024-10"));
+        test!(
+            t("2024-10", 5),
+            err(4, "digit as part of year number", "2024-10")
+        );
         test!(t("2024", 5), err(4, "digit as part of year number", "2024"));
         test!(t("2024", 4), ok("2024", 4, ""));
     }
 
     #[test]
     fn t_take_nrange_while() {
-        fn t<'s, 't>(s: &ParseableStr<'t, String>, n_min: usize, n_max: usize)
-                     -> Result<(ParseableStr<'t, String>, ParseableStr<'t, String>),
-                               Box<Expected<'t, String>>>
-        {
+        fn t<'s, 't>(
+            s: &ParseableStr<'t, String>,
+            n_min: usize,
+            n_max: usize,
+        ) -> Result<
+            (ParseableStr<'t, String>, ParseableStr<'t, String>),
+            Box<Expected<'t, String>>,
+        > {
             s.take_nrange_while(
-                n_min, n_max, |c| c.is_ascii_digit(), "digit as part of year number")
+                n_min,
+                n_max,
+                |c| c.is_ascii_digit(),
+                "digit as part of year number",
+            )
         }
 
-        fn ok<'s, 't>(backing: &'t String, s0: &'t str, position: usize, s1: &'t str)
-                      -> Result<(ParseableStr<'t, String>, ParseableStr<'t, String>),
-                                Box<Expected<'t, String>>>
-        {
+        fn ok<'s, 't>(
+            backing: &'t String,
+            s0: &'t str,
+            position: usize,
+            s1: &'t str,
+        ) -> Result<
+            (ParseableStr<'t, String>, ParseableStr<'t, String>),
+            Box<Expected<'t, String>>,
+        > {
             Ok((
-                ParseableStr { position: 0, backing, s: s0 },
-                ParseableStr { position, backing, s: s1 }
+                ParseableStr {
+                    position: 0,
+                    backing,
+                    s: s0,
+                },
+                ParseableStr {
+                    position,
+                    backing,
+                    s: s1,
+                },
             ))
         }
 
-        let err = |backing, position, desc, s| Err(Box::new(Expected {
-            desc,
-            context: ParseableStr { position, backing, s }
-        }));
+        let err = |backing, position, desc, s| {
+            Err(Box::new(Expected {
+                desc,
+                context: ParseableStr {
+                    position,
+                    backing,
+                    s,
+                },
+            }))
+        };
 
         macro_rules! test {
             { t($sourcestr:expr, $n_min:expr, $n_max:expr), ok($matchstr:expr, $matchpos:expr, $reststr:expr) } => {
@@ -854,7 +1040,10 @@ mod tests {
         test!(t("2024-10", 3, 0), ok("", 0, "2024-10"));
         test!(t("2024-10", 4, 5), ok("2024", 4, "-10"));
         // XX is it correct to carry the whole string in `s`?:
-        test!(t("2024-10 abc", 5, 6), err(4, "digit as part of year number", "2024-10 abc"));
+        test!(
+            t("2024-10 abc", 5, 6),
+            err(4, "digit as part of year number", "2024-10 abc")
+        );
         test!(t("2024", 3, 4), ok("2024", 4, ""));
         test!(t("2024x", 4, 5), ok("2024", 4, "x"));
         test!(t("2024", 4, 5), ok("2024", 4, ""));

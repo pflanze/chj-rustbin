@@ -1,5 +1,4 @@
-use anyhow::{Result, bail, anyhow};
-
+use anyhow::{anyhow, bail, Result};
 
 pub fn is_all(s: &str, pred: impl Fn(char) -> bool) -> bool {
     s.chars().all(pred)
@@ -15,7 +14,7 @@ pub fn is_all_white(s: &str) -> bool {
 
 pub fn key_val(s: &str) -> Option<(&str, &str)> {
     let i = s.find(':')?;
-    Some((&s[0..i], &s[i+1..]))
+    Some((&s[0..i], &s[i + 1..]))
 }
 
 pub fn first_rest(s: &str) -> Option<(char, &str)> {
@@ -27,7 +26,7 @@ pub fn drop_white(s: &str) -> &str {
     // s.chars().skip_while(|c| c.is_ascii_whitespace())  but now ?  lol
     let mut p = s;
     while let Some((c, r)) = first_rest(p) {
-        if ! c.is_ascii_whitespace() {
+        if !c.is_ascii_whitespace() {
             return p;
         }
         p = r;
@@ -38,11 +37,11 @@ pub fn drop_white(s: &str) -> &str {
 /// drop whitespace from the end
 pub fn drop_white_end(s: &str) -> &str {
     for (i, b) in s.bytes().rev().enumerate() {
-        if ! (b as char).is_ascii_whitespace() {
-            return &s[0 .. s.len() - i]
+        if !(b as char).is_ascii_whitespace() {
+            return &s[0..s.len() - i];
         }
     }
-    return ""
+    return "";
 }
 
 pub fn after_white(s: &str) -> Option<&str> {
@@ -106,8 +105,8 @@ mod tests {
 pub fn take_while(s: &str, pred: impl Fn(char) -> bool) -> (&str, &str) {
     let mut it = s.chars().enumerate();
     while let Some((i, c)) = it.next() {
-        if ! pred(c) {
-            return (&s[0..i], &s[i..])
+        if !pred(c) {
+            return (&s[0..i], &s[i..]);
         }
     }
     (s, "")
@@ -127,10 +126,10 @@ pub fn parse_hex_digit(c: char) -> Result<u32> {
 }
 
 pub fn next_hex_digit<I>(cs: &mut I) -> Result<u32>
-where I: Iterator<Item = char>
+where
+    I: Iterator<Item = char>,
 {
-    parse_hex_digit(
-        cs.next().ok_or_else(|| anyhow!("hex string too short"))?)
+    parse_hex_digit(cs.next().ok_or_else(|| anyhow!("hex string too short"))?)
 }
 
 pub fn parse_hex<const N: usize>(s: &str) -> Result<[u8; N]> {
@@ -153,9 +152,11 @@ pub fn drop_n(s: &str, n: usize, f: impl Fn(char) -> bool) -> Result<&str> {
     let mut i = 0;
     while i < n {
         if let Some((c, r)) = first_rest(p) {
-            if ! f(c) {
-                bail!("drop_n: non-matching character after {i} \
-                       instead of {n} characters")
+            if !f(c) {
+                bail!(
+                    "drop_n: non-matching character after {i} \
+                       instead of {n} characters"
+                )
             }
             p = r;
         } else {
@@ -183,4 +184,3 @@ pub fn parse_byte_multiplier(s: &str) -> Result<u64> {
         bail!("unknown multiplier {s:?}")
     }
 }
-

@@ -1,6 +1,5 @@
-use std::{fmt::Write, sync::Arc};
 use std::rc::Rc;
-
+use std::{fmt::Write, sync::Arc};
 
 // Can't do this with ToOwned, because ToOwned is auto-implemented
 // when Clone exists, and ParseableStr needs Clone, thus ParseableStr
@@ -14,7 +13,6 @@ pub trait IntoOwningBacking<S: AsRef<str>> {
     type Owning;
     fn into_owning_backing(self) -> Self::Owning;
 }
-
 
 /// A Source for parsing (XX rename it to Source?), without the
 /// location info.
@@ -32,8 +30,6 @@ impl Backing for Rc<str> {}
 // AsRef<str>, but String does that, too, no? So what's up?
 // impl Backing for Arc<String> {}
 // impl Backing for Rc<String> {}
-
-
 
 pub trait ParseContext: PartialEq {
     /// Shows the error with the context in the original string.
@@ -68,8 +64,9 @@ pub struct StringParseContext<B: Backing> {
 // }
 
 impl<'t, B: Backing> IntoOwningBacking<B::Owned> for StringParseContext<&'t B>
-where B::Owned: Backing,
-      &'t B: Backing
+where
+    B::Owned: Backing,
+    &'t B: Backing,
 {
     type Owning = StringParseContext<B::Owned>;
 
@@ -77,11 +74,10 @@ where B::Owned: Backing,
         let Self { position, backing } = self;
         StringParseContext {
             position,
-            backing: backing.to_owned()
+            backing: backing.to_owned(),
         }
     }
 }
-
 
 // Do not use derive because then StringParseContext would *always*
 // require S: Clone.
@@ -89,7 +85,7 @@ impl<B: Backing + Clone> Clone for StringParseContext<B> {
     fn clone(&self) -> Self {
         Self {
             position: self.position,
-            backing: self.backing.clone()
+            backing: self.backing.clone(),
         }
     }
 }
@@ -112,7 +108,6 @@ impl<B: Backing> ParseContext for StringParseContext<B> {
     }
 }
 
-
 #[derive(Debug)]
 pub struct ParseError<C: ParseContext> {
     pub message: String,
@@ -120,21 +115,33 @@ pub struct ParseError<C: ParseContext> {
     pub backtrace: Vec<FileLocation>,
 }
 
-impl<'t, B: Backing> IntoOwningBacking<B::Owned> for ParseError<StringParseContext<&'t B>>
-where B::Owned: Backing,
-      &'t B: Backing
+impl<'t, B: Backing> IntoOwningBacking<B::Owned>
+    for ParseError<StringParseContext<&'t B>>
+where
+    B::Owned: Backing,
+    &'t B: Backing,
 {
     type Owning = ParseError<StringParseContext<B::Owned>>;
 
     fn into_owning_backing(self) -> Self::Owning {
-        let ParseError { message, context, backtrace } = self;
-        ParseError { message, context: context.into_owning_backing(), backtrace }
+        let ParseError {
+            message,
+            context,
+            backtrace,
+        } = self;
+        ParseError {
+            message,
+            context: context.into_owning_backing(),
+            backtrace,
+        }
     }
 }
 
 impl<C: ParseContext> ParseError<C> {
     pub fn to_string_showing_location(&self, show_backtrace: bool) -> String {
-        let ParseError { message, context, .. } = self;
+        let ParseError {
+            message, context, ..
+        } = self;
         let mut message = message.clone();
         context.show_context(&mut message);
         if show_backtrace {
@@ -164,8 +171,7 @@ impl<C: ParseContext> ParseError<C> {
 /// just debugging information)
 impl<C: ParseContext> PartialEq for ParseError<C> {
     fn eq(&self, other: &Self) -> bool {
-        self.message == other.message
-            && self.context == other.context
+        self.message == other.message && self.context == other.context
     }
 }
 
@@ -173,7 +179,7 @@ impl<C: ParseContext> PartialEq for ParseError<C> {
 pub struct FileLocation {
     pub file: &'static str,
     pub line: u32,
-    pub column: u32
+    pub column: u32,
 }
 
 impl FileLocation {

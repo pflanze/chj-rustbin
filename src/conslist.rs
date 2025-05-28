@@ -8,7 +8,7 @@
 
 pub enum List<'t, T> {
     Pair(T, &'t List<'t, T>),
-    Null
+    Null,
 }
 
 pub fn cons<'l, T>(v: T, r: &'l List<T>) -> List<'l, T> {
@@ -59,7 +59,8 @@ impl<'t, T> List<'t, T> {
         vs
     }
     pub fn to_vec(&self) -> Vec<T>
-    where T: Clone
+    where
+        T: Clone,
     {
         let mut vs: Vec<T> = Vec::new();
         let mut r = self;
@@ -82,11 +83,13 @@ impl<'t, T: PartialEq> List<'t, T> {
         let mut l = self;
         loop {
             match l {
-                List::Pair(v, rest) => if v == val {
-                    return true;
-                } else {
-                    l = rest;
-                },
+                List::Pair(v, rest) => {
+                    if v == val {
+                        return true;
+                    } else {
+                        l = rest;
+                    }
+                }
                 List::Null => return false,
             }
         }
@@ -100,17 +103,18 @@ impl<'t, K: PartialEq, V> List<'t, (K, V)> {
         let mut l = self;
         loop {
             match l {
-                List::Pair((k, v), rest) => if k == key {
-                    return Some(v)
-                } else {
-                    l = rest;
-                },
+                List::Pair((k, v), rest) => {
+                    if k == key {
+                        return Some(v);
+                    } else {
+                        l = rest;
+                    }
+                }
                 List::Null => return None,
             }
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

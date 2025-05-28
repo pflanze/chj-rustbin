@@ -1,18 +1,21 @@
-
 /// Get the file extension from a path given as bytes (since there is
 /// no path from CStr to PathBuf, right?). If the extension can't be
 /// decoded as UTF-8, returns None. Invalid encoding in other parts of
 /// the path does not matter, though (as long as the `path_separator`
 /// and `b'.'` are still encoded as such).
-pub fn extension_from_ascii_or_utf8_bytes(path: &[u8], path_separator: u8) -> Option<&str> {
+pub fn extension_from_ascii_or_utf8_bytes(
+    path: &[u8],
+    path_separator: u8,
+) -> Option<&str> {
     let dot_pos = path.iter().rposition(|b| *b == b'.')?;
-    if let Some(separator_pos) = path.iter().rposition(|b| *b == path_separator) {
+    if let Some(separator_pos) = path.iter().rposition(|b| *b == path_separator)
+    {
         if !(separator_pos + 1 < dot_pos) {
-            return None
+            return None;
         }
     } else {
         if dot_pos < 1 {
-            return None
+            return None;
         }
     }
     let slice = &path[dot_pos + 1..];
@@ -25,7 +28,9 @@ pub fn extension_from_ascii_or_utf8_bytes(path: &[u8], path_separator: u8) -> Op
 
 #[test]
 fn t_extension_from_ascii_or_utf8_bytes() {
-    fn t(s: &str) -> Option<&str> { extension_from_ascii_or_utf8_bytes(s.as_bytes(), b'/') }
+    fn t(s: &str) -> Option<&str> {
+        extension_from_ascii_or_utf8_bytes(s.as_bytes(), b'/')
+    }
     assert_eq!(t("foo.bar"), Some("bar"));
     assert_eq!(t("foobar"), None);
     assert_eq!(t("foo/bar.xz"), Some("xz"));
@@ -49,4 +54,3 @@ fn t_extension_from_ascii_or_utf8_bytes() {
     bs[4] = 0xf0;
     assert_eq!(e(&bs, b'/'), None);
 }
-

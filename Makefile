@@ -41,5 +41,6 @@ install: /usr/local/bin/symlinks-index
 install: /usr/local/bin/e
 install: /usr/local/bin/intersection
 install: /usr/local/bin/priorities
+install: /usr/local/bin/duu
 
 .PHONY: test test_intersection

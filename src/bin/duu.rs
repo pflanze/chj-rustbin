@@ -218,28 +218,36 @@ fn main() -> Result<()> {
     subdirs.sort_by_key(|(total, _)| *total);
 
     let mut out = BufWriter::new(stdout().lock());
+    let write_line =
+        |kb: u64, filename: &[u8], out: &mut BufWriter<_>| -> Result<()> {
+            let indent = "            ";
+            let number = kb.to_string();
+            let spacing = if let Some(indent_rest) =
+                indent.len().checked_sub(number.len())
+            {
+                &indent[0..indent_rest]
+            } else {
+                " "
+            };
+            out.write_all(number.as_bytes())?;
+            out.write_all(spacing.as_bytes())?;
+            out.write_all(filename)?;
+            out.write_all(b"\n")?;
+            Ok(())
+        };
 
     for (total, subdir) in &subdirs {
         let kb = bytes_to_kb(*total);
         let filename =
             subdir.path.file_name().expect("subdir does have filename");
-        let indent = "            ";
-        let number = kb.to_string();
-        let spacing =
-            if let Some(indent_rest) = indent.len().checked_sub(number.len()) {
-                &indent[0..indent_rest]
-            } else {
-                " "
-            };
-        out.write_all(number.as_bytes())?;
-        out.write_all(spacing.as_bytes())?;
-        out.write_all(filename.as_bytes())?;
-        out.write_all(b"\n")?;
+        write_line(kb, filename.as_bytes(), &mut out)?;
     }
 
-    writeln!(
+    write_line(
+        total_kb,
+        format!("=== TOTAL: folders {dirs_kb} k, files {files_kb} k ===")
+            .as_bytes(),
         &mut out,
-        "TOTAL: folders {dirs_kb} k, files {files_kb} k\ndu -s: {total_kb}"
     )?;
 
     if !errors.is_empty() {
@@ -247,7 +255,7 @@ fn main() -> Result<()> {
             errors.pop();
             errors.push("...".into());
         }
-        writeln!(&mut out, "Ignored errors:")?;
+        writeln!(&mut out, "--- Ignored errors: ---")?;
         for error in &errors {
             writeln!(&mut out, "{error}")?;
         }

@@ -1,5 +1,5 @@
 all:
-	cargo build --release
+	cargo --offline build --release
 
 test_intersection: target/release/intersection
 	test/intersection-run
@@ -8,10 +8,10 @@ test_priorities: target/release/priorities
 	test/priorities-run
 
 test: test_intersection test_priorities
-	cargo test --release
+	cargo --offline test --release
 
 target/release/%: src/bin/%.rs src/*.rs src/io/*.rs src/parse/*.rs src/text/*.rs src/time/*.rs src/util/*.rs
-	cargo build --release
+	cargo --offline build --release
 	touch $@
 # ^ touch because cargo won't update binaries if they don't depend on
 # a src/*.rs file; and then running make as root again runs cargo

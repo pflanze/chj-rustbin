@@ -209,11 +209,11 @@ fn main() -> Result<()> {
     let mut subdirs: Vec<(u64, DirDiskUsage)> = du
         .subdirs
         .into_iter()
-        .map(|(_, du)| {
-            let du = du?;
-            Ok((du.total(), du))
+        .filter_map(|(_, du)| -> Option<_> {
+            let du = du.ok()?;
+            Some((du.total(), du))
         })
-        .collect::<Result<_>>()?;
+        .collect();
 
     subdirs.sort_by_key(|(total, _)| *total);
 

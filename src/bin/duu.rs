@@ -3,6 +3,7 @@ use std::{
     io::{stdout, BufWriter, Write},
     os::{linux::fs::MetadataExt, unix::prelude::OsStrExt},
     path::PathBuf,
+    process::exit,
     sync::Mutex,
 };
 
@@ -249,10 +250,12 @@ fn main() -> Result<()> {
             errors.pop();
             errors.push("...".into());
         }
-        writeln!(&mut out, "--- Ignored errors: ---")?;
+        writeln!(&mut out, "--- Errors: ---")?;
         for error in &errors {
             writeln!(&mut out, "{error}")?;
         }
+        drop(out);
+        exit(1);
     }
 
     Ok(())

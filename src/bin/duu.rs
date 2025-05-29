@@ -284,6 +284,7 @@ impl GetDirDiskUsage {
 #[derive(clap::Parser, Debug)]
 /// Show the space use of the immediate items (subdirectories, files)
 /// in a directory.
+#[clap(name = "duu")]
 struct Opts {
     /// Ignore other file system mounts
     #[clap(short = 'x', long)]

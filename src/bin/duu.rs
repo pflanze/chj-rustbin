@@ -181,6 +181,10 @@ struct Opts {
     #[clap(short = 'x', long)]
     one_file_system: bool,
 
+    /// Show all errors
+    #[clap(long)]
+    all_errors: bool,
+
     /// Path to the directory to show.
     #[clap(default_value = ".")]
     dir_path: PathBuf,
@@ -189,6 +193,7 @@ struct Opts {
 fn main() -> Result<()> {
     let Opts {
         one_file_system,
+        all_errors,
         dir_path,
     } = Opts::from_args();
     let du = dir_disk_usage(dir_path, None, one_file_system)?;
@@ -255,7 +260,7 @@ fn main() -> Result<()> {
     } else {
         errors.sort();
         let num_errors = errors.len();
-        if num_errors > ERRORS_LIMIT {
+        if !all_errors && num_errors > ERRORS_LIMIT {
             errors.truncate(ERRORS_LIMIT);
             errors.push("...".into());
         }

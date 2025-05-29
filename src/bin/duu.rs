@@ -250,11 +250,9 @@ fn main() -> Result<()> {
             .as_bytes(),
     )?;
 
-    write_line(
-        dirs_kb,
-        format!("k folders + {files_kb} k files = {total_kb} k").as_bytes(),
-        &mut out,
-    )?;
+    write_line(dirs_kb, "k folders".as_bytes(), &mut out)?;
+    write_line(files_kb, "k files".as_bytes(), &mut out)?;
+    write_line(total_kb, "k total".as_bytes(), &mut out)?;
 
     let exit_code;
     if errors.is_empty() {

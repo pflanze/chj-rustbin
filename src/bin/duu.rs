@@ -138,10 +138,8 @@ struct InodeData {
     bytes: u64,
     /// This is not the inode count (number of times an inode is used
     /// in the file system), but only the number of times this inode
-    /// is seen in the file system tree we're looking at. (Hmm, one
-    /// could argue that we should just divide by the former, though,
-    /// as deleting the tree would only, and only probabilistically,
-    /// delete a corresponding share, leave the usages outside up!)
+    /// is seen in the file system tree we're looking at. This is used
+    /// when `share_globally` is *not* true.
     share_count: u64,
 }
 
@@ -167,6 +165,7 @@ fn t_bytes_share_rounded() {
 
 struct GetDirDiskUsage {
     one_file_system: bool,
+    share_globally: bool,
     shared_inodes: Mutex<HashMap<InodeKey, InodeData>>,
 }
 
@@ -221,27 +220,33 @@ impl GetDirDiskUsage {
                         } else {
                             let nlink = metadata.st_nlink();
                             if nlink > 1 && blocks > 0 {
-                                let key = InodeKey {
-                                    dev: metadata.st_dev(),
-                                    inode: metadata.st_ino(),
-                                };
+                                if self.share_globally {
+                                    file_bytes += (blocks * blocksize
+                                        + (nlink + 1) / 2)
+                                        / nlink;
+                                } else {
+                                    let key = InodeKey {
+                                        dev: metadata.st_dev(),
+                                        inode: metadata.st_ino(),
+                                    };
 
-                                shared_files.push(key.clone());
+                                    shared_files.push(key.clone());
 
-                                let mut shared = self
-                                    .shared_inodes
-                                    .lock()
-                                    .expect("no crash");
-                                match shared.entry(key) {
-                                    Entry::Occupied(mut o) => {
-                                        let mut data = o.get_mut();
-                                        data.share_count += 1;
-                                    }
-                                    Entry::Vacant(v) => {
-                                        v.insert(InodeData {
-                                            share_count: 1,
-                                            bytes: blocks * blocksize,
-                                        });
+                                    let mut shared = self
+                                        .shared_inodes
+                                        .lock()
+                                        .expect("no crash");
+                                    match shared.entry(key) {
+                                        Entry::Occupied(mut o) => {
+                                            let mut data = o.get_mut();
+                                            data.share_count += 1;
+                                        }
+                                        Entry::Vacant(v) => {
+                                            v.insert(InodeData {
+                                                share_count: 1,
+                                                bytes: blocks * blocksize,
+                                            });
+                                        }
                                     }
                                 }
                             } else {
@@ -283,6 +288,21 @@ struct Opts {
     #[clap(short = 'x', long)]
     one_file_system: bool,
 
+    /// Calculate the space use of hard-linked inodes as shared across
+    /// the whole file system, not only the subtree. By default, the
+    /// space used by inodes is split up amongst all places in the
+    /// subtree pointed at by `dir_path`; i.e. an inode of `n` bytes
+    /// is also added as a total of `n` bytes to the result (but
+    /// reported in each subdir as per its usage, as `n /
+    /// num_total_usage_sites` per usage site). With this option,
+    /// instead `n / link_count` is added to each usage site (where
+    /// `link_count` is the cound in the file system, as reported by
+    /// stat), i.e. usage of the inode outside of the tree pointed to
+    /// by `dir_path` makes for fewer than `n` bytes added to the
+    /// total reported by duu.
+    #[clap(short = 'g', long)]
+    share_globally: bool,
+
     /// Show all errors
     #[clap(long)]
     all_errors: bool,
@@ -295,6 +315,7 @@ struct Opts {
 fn main() -> Result<()> {
     let Opts {
         one_file_system,
+        share_globally,
         all_errors,
         dir_path,
     } = Opts::from_args();
@@ -306,6 +327,7 @@ fn main() -> Result<()> {
 
     let gdu = GetDirDiskUsage {
         one_file_system,
+        share_globally,
         shared_inodes: Default::default(),
     };
     let du = gdu.dir_disk_usage(dir_path, top_metadata.st_dev())?;

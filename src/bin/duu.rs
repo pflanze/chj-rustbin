@@ -219,6 +219,9 @@ fn main() -> Result<()> {
 
     let mut out = BufWriter::new(stdout().lock());
     let write_line =
+        // Takes filename as bytes to allow for 'correct'
+        // representation of non-UTF8 filenames (although, no control
+        // of newline characters is done!)
         |kb: u64, filename: &[u8], out: &mut BufWriter<_>| -> Result<()> {
             let indent = "            ";
             let number = kb.to_string();

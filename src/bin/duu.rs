@@ -1,4 +1,5 @@
 use std::{
+    cmp::Ordering,
     collections::{hash_map::Entry, HashMap},
     ffi::OsString,
     io::{stdout, BufWriter, Write},
@@ -350,7 +351,9 @@ fn main() -> Result<()> {
         })
         .collect();
 
-    subdirs.sort_by_key(|(total, _)| *total);
+    subdirs.sort_by(|(total1, du1), (total2, du2)| -> Ordering {
+        total1.cmp(total2).then_with(|| du1.path.cmp(&du2.path))
+    });
 
     let mut out = BufWriter::new(stdout().lock());
     let write_line =

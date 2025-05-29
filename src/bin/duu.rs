@@ -10,7 +10,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context, Result};
-use chj_rustbin::io::file_path_type::FileType;
+use chj_rustbin::{io::file_path_type::FileType, get_terminal_width::get_terminal_width};
 use clap::Parser;
 
 // Bytes as KB, rounded up
@@ -285,6 +285,8 @@ impl GetDirDiskUsage {
 /// Show the space use of the immediate items (subdirectories, files)
 /// in a directory.
 #[clap(name = "duu")]
+#[clap(next_line_help = true)]
+#[clap(set_term_width = get_terminal_width())]
 struct Opts {
     /// Ignore other file system mounts
     #[clap(short = 'x', long)]

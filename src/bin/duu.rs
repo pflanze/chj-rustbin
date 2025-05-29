@@ -27,7 +27,7 @@ struct ItemError {
 struct DirDiskUsage {
     path: PathBuf,
     file_bytes: u64, // sum of (block * blocksize) of files only
-    subdirs: Vec<(OsString, Result<DirDiskUsage>)>,
+    subdirs: Vec<Result<DirDiskUsage>>,
     errors: Vec<ItemError>,
 }
 
@@ -38,7 +38,7 @@ impl DirDiskUsage {
             + self
                 .subdirs
                 .iter()
-                .map(|(_, result)| -> u64 {
+                .map(|result| -> u64 {
                     match result {
                         Ok(du) => du.total(),
                         Err(_) => 0,
@@ -62,7 +62,7 @@ impl DirDiskUsage {
         let dirs_bytes = self
             .subdirs
             .iter()
-            .map(|(_, result)| match result {
+            .map(|result| match result {
                 Ok(du) => du.total(),
                 Err(_) => 0,
             })
@@ -85,17 +85,14 @@ impl DirDiskUsage {
                 self.path
             ));
         }
-        for (file_name, subdir) in &self.subdirs {
+        for subdir in &self.subdirs {
             if out.len() >= limit {
                 return;
             }
             match subdir {
                 Ok(du) => du.get_errors(limit, out),
                 Err(error) => {
-                    out.push(format!(
-                        "subdir item {file_name:?} in {:?}: {error:#}",
-                        self.path
-                    ));
+                    out.push(format!("{error:#}",));
                 }
             }
         }
@@ -146,10 +143,7 @@ fn dir_disk_usage(
                                     Some(new_dev),
                                     one_file_system,
                                 );
-                                subdirs
-                                    .lock()
-                                    .expect("no crash")
-                                    .push((file_name, result));
+                                subdirs.lock().expect("no crash").push(result);
                             });
                         }
                     }
@@ -209,7 +203,7 @@ fn main() -> Result<()> {
     let mut subdirs: Vec<(u64, DirDiskUsage)> = du
         .subdirs
         .into_iter()
-        .filter_map(|(_, du)| -> Option<_> {
+        .filter_map(|du| -> Option<_> {
             let du = du.ok()?;
             Some((du.total(), du))
         })

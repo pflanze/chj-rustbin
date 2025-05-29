@@ -197,9 +197,9 @@ fn main() -> Result<()> {
     let files_kb = du.files_kb();
     let total_kb = du.total_kb();
 
-    const ERRORS_LIMIT: usize = 11;
+    const ERRORS_LIMIT: usize = 10;
     let mut errors = vec![];
-    du.get_errors(ERRORS_LIMIT, &mut errors);
+    du.get_errors(usize::MAX, &mut errors);
 
     let mut subdirs: Vec<(u64, DirDiskUsage)> = du
         .subdirs
@@ -238,10 +238,14 @@ fn main() -> Result<()> {
         write_line(kb, filename.as_bytes(), &mut out)?;
     }
 
+    out.write_all(
+        "-----------------------------------------------------------------\n"
+            .as_bytes(),
+    )?;
+
     write_line(
         total_kb,
-        format!("=== TOTAL: folders {dirs_kb} k, files {files_kb} k ===")
-            .as_bytes(),
+        format!("TOTAL, folders: {dirs_kb} k, files: {files_kb} k").as_bytes(),
         &mut out,
     )?;
 
@@ -249,11 +253,13 @@ fn main() -> Result<()> {
     if errors.is_empty() {
         exit_code = 0;
     } else {
-        if errors.len() == ERRORS_LIMIT {
-            errors.pop();
+        errors.sort();
+        let num_errors = errors.len();
+        if num_errors > ERRORS_LIMIT {
+            errors.truncate(ERRORS_LIMIT);
             errors.push("...".into());
         }
-        writeln!(&mut out, "--- Errors: ---")?;
+        writeln!(&mut out, "\n{num_errors} errors:")?;
         for error in &errors {
             writeln!(&mut out, "{error}")?;
         }

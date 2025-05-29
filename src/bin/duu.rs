@@ -251,8 +251,8 @@ fn main() -> Result<()> {
     )?;
 
     write_line(
-        total_kb,
-        format!("TOTAL, folders: {dirs_kb} k, files: {files_kb} k").as_bytes(),
+        dirs_kb,
+        format!("k folders + {files_kb} k files = {total_kb} k").as_bytes(),
         &mut out,
     )?;
 

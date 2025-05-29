@@ -10,7 +10,9 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context, Result};
-use chj_rustbin::{io::file_path_type::FileType, get_terminal_width::get_terminal_width};
+use chj_rustbin::{
+    get_terminal_width::get_terminal_width, io::file_path_type::FileType,
+};
 use clap::Parser;
 
 // Bytes as KB, rounded up

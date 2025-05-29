@@ -1,4 +1,5 @@
 use std::{
+    collections::{hash_map::Entry, HashMap},
     ffi::OsString,
     io::{stdout, BufWriter, Write},
     os::{linux::fs::MetadataExt, unix::prelude::OsStrExt},
@@ -16,7 +17,7 @@ fn bytes_to_kb(bytes: u64) -> u64 {
     (bytes + 1023) / 1024
 }
 
-// man 3type stat: st_blocks: Number of 512 B blocks allocated
+// `man 3type stat`: st_blocks: Number of 512 B blocks allocated
 const BLOCKSIZE: u64 = 512;
 
 struct ItemError {
@@ -25,52 +26,77 @@ struct ItemError {
     error: String,
 }
 
+/// Disk usage of the contents of a particular directory
 struct DirDiskUsage {
+    /// Path to this directory
     path: PathBuf,
+    /// Files directly inside this directory, including subdirectories
+    /// themselves (excluding their contents)
     file_bytes: u64, // sum of (block * blocksize) of files only
+    /// Files with a link count > 1 are recorded here, and added after
+    /// finishing the scan, when the actual share count is known, so
+    /// that their disk usage can be split across the usage sites
+    shared_files: Vec<InodeKey>,
+    /// Reflecting the *contents* of subdirectories
     subdirs: Vec<Result<DirDiskUsage>>,
+    /// Errors while processing the items directly inside this
+    /// directory (errors processing subdirectories are kept in
+    /// `subdirs` instead)
     errors: Vec<ItemError>,
 }
 
 impl DirDiskUsage {
-    // total bytes
-    fn total(&self) -> u64 {
+    /// in bytes
+    fn total_files(&self, shared_inodes: &HashMap<InodeKey, InodeData>) -> u64 {
         self.file_bytes
             + self
-                .subdirs
+                .shared_files
                 .iter()
-                .map(|result| -> u64 {
-                    match result {
-                        Ok(du) => du.total(),
-                        Err(_) => 0,
-                    }
+                .map(|inode_key| {
+                    shared_inodes.get(inode_key).expect(
+                        "given correct shared_inodes table, entries are always present"
+                    ).bytes_share_rounded()
                 })
                 .sum::<u64>()
     }
 
-    // total in KB, rounded up (OK?)
-    fn total_kb(&self) -> u64 {
-        bytes_to_kb(self.total())
-    }
-
-    // files in KB, rounded up (OK?)
-    fn files_kb(&self) -> u64 {
-        bytes_to_kb(self.file_bytes)
-    }
-
-    // subdirs in KB, rounded up (OK?)
-    fn dirs_kb(&self) -> u64 {
-        let dirs_bytes = self
-            .subdirs
+    /// in bytes
+    fn total_subdirs(
+        &self,
+        shared_inodes: &HashMap<InodeKey, InodeData>,
+    ) -> u64 {
+        self.subdirs
             .iter()
-            .map(|result| match result {
-                Ok(du) => du.total(),
-                Err(_) => 0,
+            .map(|result| -> u64 {
+                match result {
+                    Ok(du) => du.total(shared_inodes),
+                    Err(_) => 0,
+                }
             })
-            .sum::<u64>();
-        bytes_to_kb(dirs_bytes)
+            .sum()
     }
 
+    /// total in bytes
+    fn total(&self, shared_inodes: &HashMap<InodeKey, InodeData>) -> u64 {
+        self.total_files(shared_inodes) + self.total_subdirs(shared_inodes)
+    }
+
+    /// total in KB, rounded up (OK?)
+    fn total_kb(&self, shared_inodes: &HashMap<InodeKey, InodeData>) -> u64 {
+        bytes_to_kb(self.total(shared_inodes))
+    }
+
+    /// files in KB, rounded up (OK?)
+    fn files_kb(&self, shared_inodes: &HashMap<InodeKey, InodeData>) -> u64 {
+        bytes_to_kb(self.total_files(shared_inodes))
+    }
+
+    /// subdirs in KB, rounded up (OK?)
+    fn dirs_kb(&self, shared_inodes: &HashMap<InodeKey, InodeData>) -> u64 {
+        bytes_to_kb(self.total_subdirs(shared_inodes))
+    }
+
+    /// Collect all errors (of all kinds) of this tree into `out`
     fn get_errors(&self, limit: usize, out: &mut Vec<String>) {
         for ItemError {
             file_type,
@@ -100,71 +126,153 @@ impl DirDiskUsage {
     }
 }
 
-fn dir_disk_usage(
-    path: PathBuf,
-    current_dev: u64,
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct InodeKey {
+    dev: u64,
+    inode: u64,
+}
+
+struct InodeData {
+    /// The usual blocks * blocksize of the inode's storage (as per
+    /// stat)
+    bytes: u64,
+    /// This is not the inode count (number of times an inode is used
+    /// in the file system), but only the number of times this inode
+    /// is seen in the file system tree we're looking at. (Hmm, one
+    /// could argue that we should just divide by the former, though,
+    /// as deleting the tree would only, and only probabilistically,
+    /// delete a corresponding share, leave the usages outside up!)
+    share_count: u64,
+}
+
+impl InodeData {
+    /// The number of bytes to consider for each usage site
+    fn bytes_share_rounded(&self) -> u64 {
+        (self.bytes + (self.share_count + 1) / 2) / self.share_count
+    }
+}
+
+#[test]
+fn t_bytes_share_rounded() {
+    let t = |bytes, share_count| {
+        InodeData { share_count, bytes }.bytes_share_rounded()
+    };
+    assert_eq!(t(5, 3), 2);
+    assert_eq!(t(5, 4), 1);
+    assert_eq!(t(6, 3), 2);
+    assert_eq!(t(6, 2), 3);
+    assert_eq!(t(6, 4), 2);
+    assert_eq!(t(6, 5), 1);
+}
+
+struct GetDirDiskUsage {
     one_file_system: bool,
-) -> Result<DirDiskUsage> {
-    let items = std::fs::read_dir(&path)
-        .with_context(|| anyhow!("opening directory {path:?}"))?;
-    let mut file_bytes = 0;
-    let mut errors = vec![];
-    let subdirs = Mutex::new(vec![]);
-    rayon::scope(|scope| -> Result<()> {
-        for item in items {
-            let item =
-                item.with_context(|| anyhow!("reading items in {path:?}"))?;
-            let file_name = item.file_name();
-            match item.metadata() {
-                Ok(metadata) => {
-                    /* Number of 512 B blocks allocated */
-                    let blocks = metadata.st_blocks();
-                    let blocksize = BLOCKSIZE; // *not* s.st_blksize()!
+    shared_inodes: Mutex<HashMap<InodeKey, InodeData>>,
+}
 
-                    // Include counting the dirs too (the shells only):
-                    file_bytes += blocks * blocksize;
+impl GetDirDiskUsage {
+    fn dir_disk_usage(
+        &self,
+        path: PathBuf,
+        current_dev: u64,
+    ) -> Result<DirDiskUsage> {
+        let items = std::fs::read_dir(&path)
+            .with_context(|| anyhow!("opening directory {path:?}"))?;
+        let mut file_bytes = 0;
+        let mut errors = vec![];
+        let mut shared_files = vec![];
+        let subdirs = Mutex::new(vec![]);
+        rayon::scope(|scope| -> Result<()> {
+            for item in items {
+                let item =
+                    item.with_context(|| anyhow!("reading items in {path:?}"))?;
+                let file_name = item.file_name();
+                match item.metadata() {
+                    Ok(metadata) => {
+                        /* Number of 512 B blocks allocated */
+                        let blocks = metadata.st_blocks();
+                        let blocksize = BLOCKSIZE; // *not* s.st_blksize()!
 
-                    if metadata.is_dir() {
-                        let new_dev = metadata.st_dev();
+                        let mut inc_file_bytes = || {
+                            file_bytes += blocks * blocksize;
+                        };
 
-                        if (!one_file_system) || new_dev == current_dev {
-                            // recurse
-                            let mut path = path.clone();
-                            path.push(&file_name);
-                            let subdirs = &subdirs;
-                            scope.spawn(move |_| {
-                                let result = dir_disk_usage(
-                                    path,
-                                    new_dev,
-                                    one_file_system,
-                                );
-                                subdirs.lock().expect("no crash").push(result);
-                            });
+                        if metadata.is_dir() {
+                            // Include counting the dirs too (the shells only):
+                            inc_file_bytes();
+
+                            let new_dev = metadata.st_dev();
+
+                            if (!self.one_file_system) || new_dev == current_dev
+                            {
+                                // recurse
+                                let mut path = path.clone();
+                                path.push(&file_name);
+                                let subdirs = &subdirs;
+                                scope.spawn(move |_| {
+                                    let result =
+                                        self.dir_disk_usage(path, new_dev);
+                                    subdirs
+                                        .lock()
+                                        .expect("no crash")
+                                        .push(result);
+                                });
+                            }
+                        } else {
+                            let nlink = metadata.st_nlink();
+                            if nlink > 1 && blocks > 0 {
+                                let key = InodeKey {
+                                    dev: metadata.st_dev(),
+                                    inode: metadata.st_ino(),
+                                };
+
+                                shared_files.push(key.clone());
+
+                                let mut shared = self
+                                    .shared_inodes
+                                    .lock()
+                                    .expect("no crash");
+                                match shared.entry(key) {
+                                    Entry::Occupied(mut o) => {
+                                        let mut data = o.get_mut();
+                                        data.share_count += 1;
+                                    }
+                                    Entry::Vacant(v) => {
+                                        v.insert(InodeData {
+                                            share_count: 1,
+                                            bytes: blocks * blocksize,
+                                        });
+                                    }
+                                }
+                            } else {
+                                inc_file_bytes()
+                            }
                         }
                     }
-                }
-                Err(e) => {
-                    // This call should never fail on Linux?
-                    let file_type: FileType = (&item.file_type()?).into();
-                    errors.push(ItemError {
-                        file_type,
-                        file_name,
-                        error: format!("{e:#}"),
-                    });
+                    Err(e) => {
+                        // This call should never fail on Linux?
+                        let file_type: FileType = (&item.file_type()?).into();
+                        errors.push(ItemError {
+                            file_type,
+                            file_name,
+                            error: format!("{e:#}"),
+                        });
+                    }
                 }
             }
-        }
-        Ok(())
-    })?;
+            Ok(())
+        })?;
 
-    let subdirs = subdirs.into_inner().expect("no crash either");
+        let subdirs = subdirs.into_inner().expect("no crash either");
 
-    Ok(DirDiskUsage {
-        path,
-        file_bytes,
-        subdirs,
-        errors,
-    })
+        Ok(DirDiskUsage {
+            path,
+            file_bytes,
+            shared_files,
+            subdirs,
+            errors,
+        })
+    }
 }
 
 #[derive(clap::Parser, Debug)]
@@ -195,11 +303,17 @@ fn main() -> Result<()> {
     if !top_metadata.is_dir() {
         bail!("given path is not to a directory (add a slash if this is a symlink): {dir_path:?}")
     }
-    let du = dir_disk_usage(dir_path, top_metadata.st_dev(), one_file_system)?;
 
-    let dirs_kb = du.dirs_kb();
-    let files_kb = du.files_kb();
-    let total_kb = du.total_kb();
+    let gdu = GetDirDiskUsage {
+        one_file_system,
+        shared_inodes: Default::default(),
+    };
+    let du = gdu.dir_disk_usage(dir_path, top_metadata.st_dev())?;
+
+    let shared_inodes = gdu.shared_inodes.lock().expect("no crash");
+    let dirs_kb = du.dirs_kb(&*shared_inodes);
+    let files_kb = du.files_kb(&*shared_inodes);
+    let total_kb = du.total_kb(&*shared_inodes);
 
     const ERRORS_LIMIT: usize = 10;
     let mut errors = vec![];
@@ -210,7 +324,7 @@ fn main() -> Result<()> {
         .into_iter()
         .filter_map(|du| -> Option<_> {
             let du = du.ok()?;
-            Some((du.total(), du))
+            Some((du.total(&*shared_inodes), du))
         })
         .collect();
 

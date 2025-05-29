@@ -245,7 +245,10 @@ fn main() -> Result<()> {
         &mut out,
     )?;
 
-    if !errors.is_empty() {
+    let exit_code;
+    if errors.is_empty() {
+        exit_code = 0;
+    } else {
         if errors.len() == ERRORS_LIMIT {
             errors.pop();
             errors.push("...".into());
@@ -254,9 +257,9 @@ fn main() -> Result<()> {
         for error in &errors {
             writeln!(&mut out, "{error}")?;
         }
-        drop(out);
-        exit(1);
+        exit_code = 1;
     }
 
-    Ok(())
+    drop(out);
+    exit(exit_code);
 }

@@ -224,15 +224,16 @@ fn main() -> Result<()> {
         |kb: u64, filename: &[u8], out: &mut BufWriter<_>| -> Result<()> {
             let indent = "            ";
             let number = kb.to_string();
-            let spacing = if let Some(indent_rest) =
+            let indent = if let Some(indent_rest) =
                 indent.len().checked_sub(number.len())
             {
                 &indent[0..indent_rest]
             } else {
-                " "
+                ""
             };
+            out.write_all(indent.as_bytes())?;
             out.write_all(number.as_bytes())?;
-            out.write_all(spacing.as_bytes())?;
+            out.write_all(" ".as_bytes())?;
             out.write_all(filename)?;
             out.write_all(b"\n")?;
             Ok(())

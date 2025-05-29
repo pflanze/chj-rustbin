@@ -7,7 +7,7 @@ use std::{
     sync::Mutex,
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use chj_rustbin::io::file_path_type::FileType;
 use clap::Parser;
 
@@ -102,7 +102,7 @@ impl DirDiskUsage {
 
 fn dir_disk_usage(
     path: PathBuf,
-    current_dev: Option<u64>,
+    current_dev: u64,
     one_file_system: bool,
 ) -> Result<DirDiskUsage> {
     let items = std::fs::read_dir(&path)
@@ -127,21 +127,15 @@ fn dir_disk_usage(
                     if metadata.is_dir() {
                         let new_dev = metadata.st_dev();
 
-                        let do_recurse = if let Some(current_dev) = current_dev
-                        {
-                            (!one_file_system) || new_dev == current_dev
-                        } else {
-                            true
-                        };
-
-                        if do_recurse {
+                        if (!one_file_system) || new_dev == current_dev {
+                            // recurse
                             let mut path = path.clone();
                             path.push(&file_name);
                             let subdirs = &subdirs;
                             scope.spawn(move |_| {
                                 let result = dir_disk_usage(
                                     path,
-                                    Some(new_dev),
+                                    new_dev,
                                     one_file_system,
                                 );
                                 subdirs.lock().expect("no crash").push(result);
@@ -196,7 +190,12 @@ fn main() -> Result<()> {
         all_errors,
         dir_path,
     } = Opts::from_args();
-    let du = dir_disk_usage(dir_path, None, one_file_system)?;
+    let top_metadata = std::fs::symlink_metadata(&dir_path)
+        .with_context(|| anyhow!("getting metadata of {dir_path:?}"))?;
+    if !top_metadata.is_dir() {
+        bail!("given path is not to a directory (add a slash if this is a symlink): {dir_path:?}")
+    }
+    let du = dir_disk_usage(dir_path, top_metadata.st_dev(), one_file_system)?;
 
     let dirs_kb = du.dirs_kb();
     let files_kb = du.files_kb();

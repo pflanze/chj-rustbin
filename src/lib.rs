@@ -17,3 +17,4 @@ pub mod numbers;
 pub mod path_util;
 pub mod region;
 pub mod sequences;
+pub mod get_terminal_width;

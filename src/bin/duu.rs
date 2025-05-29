@@ -33,7 +33,7 @@ struct DirDiskUsage {
     path: PathBuf,
     /// Files directly inside this directory, including subdirectories
     /// themselves (excluding their contents)
-    file_bytes: u64, // sum of (block * blocksize) of files only
+    file_bytes: u64,
     /// Files with a link count > 1 are recorded here, and added after
     /// finishing the scan, when the actual share count is known, so
     /// that their disk usage can be split across the usage sites

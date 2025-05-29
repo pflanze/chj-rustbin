@@ -265,7 +265,8 @@ fn main() -> Result<()> {
             errors.truncate(ERRORS_LIMIT);
             errors.push("...".into());
         }
-        writeln!(&mut out, "\n{num_errors} errors:")?;
+        let s = if num_errors == 1 { "" } else { "s" };
+        writeln!(&mut out, "\n{num_errors} error{s}:")?;
         for error in &errors {
             writeln!(&mut out, "{error}")?;
         }

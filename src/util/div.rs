@@ -62,7 +62,7 @@ pub fn hashmap_try_insert<'m, K: Eq + Hash, V>(
     m: &'m mut HashMap<K, V>,
     key: K,
     value: V,
-) -> Result<&mut V, OccupiedEntry<K, V>> {
+) -> Result<&'m mut V, OccupiedEntry<'m, K, V>> {
     match m.entry(key) {
         Entry::Occupied(entry) => Err(entry),
         Entry::Vacant(entry) => Ok(entry.insert(value)),
@@ -77,7 +77,7 @@ pub fn btreemap_try_insert<'m, K: Ord, V>(
     m: &'m mut BTreeMap<K, V>,
     key: K,
     value: V,
-) -> Result<&'m mut V, btree_map::OccupiedEntry<K, V>> {
+) -> Result<&'m mut V, btree_map::OccupiedEntry<'m, K, V>> {
     match m.entry(key) {
         btree_map::Entry::Occupied(entry) => Err(entry),
         btree_map::Entry::Vacant(entry) => Ok(entry.insert(value)),

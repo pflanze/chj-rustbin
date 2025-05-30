@@ -2,6 +2,7 @@ use std::{
     cmp::Ordering,
     collections::{hash_map::Entry, HashMap},
     ffi::OsString,
+    fs::DirEntry,
     io::{stdout, BufWriter, Write},
     os::{linux::fs::MetadataExt, unix::prelude::OsStrExt},
     path::PathBuf,
@@ -14,6 +15,7 @@ use chj_rustbin::{
     get_terminal_width::get_terminal_width, io::file_path_type::FileType,
 };
 use clap::Parser;
+use rayon::iter::{ParallelBridge, ParallelIterator};
 
 // Bytes as KB, rounded up
 fn bytes_to_kb(bytes: u64) -> u64 {
@@ -180,12 +182,19 @@ impl GetDirDiskUsage {
     ) -> Result<DirDiskUsage> {
         let items = std::fs::read_dir(&path)
             .with_context(|| anyhow!("opening directory {path:?}"))?;
-        let mut file_bytes = 0;
-        let mut errors = vec![];
-        let mut shared_files = vec![];
-        let subdirs = Mutex::new(vec![]);
-        rayon::scope(|scope| -> Result<()> {
-            for item in items {
+
+        enum ItemResult {
+            Error(ItemError),
+            SharedFile(InodeKey),
+            File(u64),
+            // Include counting the space of dirs in `file_bytes` too
+            // (the 'shells' only)
+            Subdir(u64, Result<DirDiskUsage>),
+        }
+
+        let item_results: Vec<ItemResult> = items
+            .par_bridge()
+            .map(|item: Result<DirEntry, _>| -> Result<Option<ItemResult>> {
                 let item =
                     item.with_context(|| anyhow!("reading items in {path:?}"))?;
                 let file_name = item.file_name();
@@ -195,14 +204,9 @@ impl GetDirDiskUsage {
                         let blocks = metadata.st_blocks();
                         let blocksize = BLOCKSIZE; // *not* s.st_blksize()!
 
-                        let mut inc_file_bytes = || {
-                            file_bytes += blocks * blocksize;
-                        };
+                        let inc_file_bytes = blocks * blocksize;
 
                         if metadata.is_dir() {
-                            // Include counting the dirs too (the shells only):
-                            inc_file_bytes();
-
                             let new_dev = metadata.st_dev();
 
                             if (!self.one_file_system) || new_dev == current_dev
@@ -210,36 +214,36 @@ impl GetDirDiskUsage {
                                 // recurse
                                 let mut path = path.clone();
                                 path.push(&file_name);
-                                let subdirs = &subdirs;
-                                scope.spawn(move |_| {
-                                    let result =
-                                        self.dir_disk_usage(path, new_dev);
-                                    subdirs
-                                        .lock()
-                                        .expect("no crash")
-                                        .push(result);
-                                });
+
+                                Ok(Some(ItemResult::Subdir(
+                                    inc_file_bytes,
+                                    self.dir_disk_usage(path, new_dev),
+                                )))
+                            } else {
+                                // Don't even count the size of the
+                                // directory 'shell', since it lies on
+                                // the other file system.
+                                Ok(None)
                             }
                         } else {
                             let nlink = metadata.st_nlink();
                             if nlink > 1 && blocks > 0 {
                                 if self.share_globally {
-                                    file_bytes += (blocks * blocksize
+                                    let inc_file_bytes = (blocks * blocksize
                                         + (nlink + 1) / 2)
                                         / nlink;
+                                    Ok(Some(ItemResult::File(inc_file_bytes)))
                                 } else {
                                     let key = InodeKey {
                                         dev: metadata.st_dev(),
                                         inode: metadata.st_ino(),
                                     };
 
-                                    shared_files.push(key.clone());
-
                                     let mut shared = self
                                         .shared_inodes
                                         .lock()
                                         .expect("no crash");
-                                    match shared.entry(key) {
+                                    match shared.entry(key.clone()) {
                                         Entry::Occupied(mut o) => {
                                             let data = o.get_mut();
                                             data.share_count += 1;
@@ -251,27 +255,46 @@ impl GetDirDiskUsage {
                                             });
                                         }
                                     }
+
+                                    Ok(Some(ItemResult::SharedFile(key)))
                                 }
                             } else {
-                                inc_file_bytes()
+                                Ok(Some(ItemResult::File(inc_file_bytes)))
                             }
                         }
                     }
                     Err(e) => {
                         // This call should never fail on Linux?
                         let file_type: FileType = (&item.file_type()?).into();
-                        errors.push(ItemError {
+                        Ok(Some(ItemResult::Error(ItemError {
                             file_type,
                             file_name,
                             error: format!("{e:#}"),
-                        });
+                        })))
                     }
                 }
-            }
-            Ok(())
-        })?;
+            })
+            .filter_map(|result_of_option| result_of_option.transpose())
+            .collect::<Result<_>>()?;
 
-        let subdirs = subdirs.into_inner().expect("no crash either");
+        let mut file_bytes = 0;
+        let mut errors = vec![];
+        let mut shared_files = vec![];
+        let mut subdirs = vec![];
+
+        for item in item_results {
+            match item {
+                ItemResult::Error(item_error) => errors.push(item_error),
+                ItemResult::SharedFile(inode_key) => {
+                    shared_files.push(inode_key)
+                }
+                ItemResult::File(bytes) => file_bytes += bytes,
+                ItemResult::Subdir(bytes, dir_disk_usage) => {
+                    file_bytes += bytes;
+                    subdirs.push(dir_disk_usage);
+                }
+            }
+        }
 
         Ok(DirDiskUsage {
             path,

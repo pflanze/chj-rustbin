@@ -200,13 +200,17 @@ impl GetDirDiskUsage {
                         };
 
                         if metadata.is_dir() {
-                            // Include counting the dirs too (the shells only):
-                            inc_file_bytes();
-
                             let new_dev = metadata.st_dev();
 
                             if (!self.one_file_system) || new_dev == current_dev
                             {
+                                // Include counting the dir too (the
+                                // 'shell' only; and only if
+                                // recursing, since otherwise the
+                                // space use is on the other file
+                                // system):
+                                inc_file_bytes();
+
                                 // recurse
                                 let mut path = path.clone();
                                 path.push(&file_name);

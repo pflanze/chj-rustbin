@@ -192,7 +192,7 @@ impl GetDirDiskUsage {
             Subdir(u64, Result<DirDiskUsage>),
         }
 
-        let item_results: Vec<ItemResult> = items
+        let item_results = items
             .par_bridge()
             .map(|item: Result<DirEntry, _>| -> Result<Option<ItemResult>> {
                 let item =
@@ -274,34 +274,36 @@ impl GetDirDiskUsage {
                     }
                 }
             })
-            .filter_map(|result_of_option| result_of_option.transpose())
-            .collect::<Result<_>>()?;
+            .filter_map(|result_of_option| result_of_option.transpose());
 
-        let mut file_bytes = 0;
-        let mut errors = vec![];
-        let mut shared_files = vec![];
-        let mut subdirs = vec![];
+        let file_bytes = Mutex::new(0);
+        let errors = Mutex::new(vec![]);
+        let shared_files = Mutex::new(vec![]);
+        let subdirs = Mutex::new(vec![]);
 
-        for item in item_results {
-            match item {
-                ItemResult::Error(item_error) => errors.push(item_error),
-                ItemResult::SharedFile(inode_key) => {
-                    shared_files.push(inode_key)
+        item_results.try_for_each(|item| -> Result<_> {
+            match item? {
+                ItemResult::Error(item_error) => {
+                    errors.lock().unwrap().push(item_error)
                 }
-                ItemResult::File(bytes) => file_bytes += bytes,
+                ItemResult::SharedFile(inode_key) => {
+                    shared_files.lock().unwrap().push(inode_key)
+                }
+                ItemResult::File(bytes) => *file_bytes.lock().unwrap() += bytes,
                 ItemResult::Subdir(bytes, dir_disk_usage) => {
-                    file_bytes += bytes;
-                    subdirs.push(dir_disk_usage);
+                    *file_bytes.lock().unwrap() += bytes;
+                    subdirs.lock().unwrap().push(dir_disk_usage);
                 }
             }
-        }
+            Ok(())
+        })?;
 
         Ok(DirDiskUsage {
             path,
-            file_bytes,
-            shared_files,
-            subdirs,
-            errors,
+            file_bytes: file_bytes.into_inner().unwrap(),
+            shared_files: shared_files.into_inner().unwrap(),
+            subdirs: subdirs.into_inner().unwrap(),
+            errors: errors.into_inner().unwrap(),
         })
     }
 }

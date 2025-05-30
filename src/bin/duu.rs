@@ -241,7 +241,7 @@ impl GetDirDiskUsage {
                                         .expect("no crash");
                                     match shared.entry(key) {
                                         Entry::Occupied(mut o) => {
-                                            let mut data = o.get_mut();
+                                            let data = o.get_mut();
                                             data.share_count += 1;
                                         }
                                         Entry::Vacant(v) => {

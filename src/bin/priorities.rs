@@ -2139,13 +2139,15 @@ where
     }
 }
 
+#[cfg(test)]
+impl<C: ParseContext> PartialEq for TaskInfoDeclarations<C> {
+    fn eq(&self, other: &Self) -> bool {
+        self.custom_eq(other, |_a, _b| panic!("unused"))
+    }
+}
+
 #[test]
 fn t_find_marker_status() {
-    impl<C: ParseContext> PartialEq for TaskInfoDeclarations<C> {
-        fn eq(&self, other: &Self) -> bool {
-            self.custom_eq(other, |_a, _b| panic!("unused"))
-        }
-    }
     let backing = String::new();
     let t = |s| {
         find_marker_status(find_all_parsed_markers(find_all_markers(

@@ -15,6 +15,8 @@ pub mod fp;
 pub mod get_terminal_width;
 pub mod index_map;
 pub mod numbers;
+pub mod path_from;
 pub mod path_util;
 pub mod region;
 pub mod sequences;
+pub mod whichgit;

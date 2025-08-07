@@ -6,7 +6,6 @@ use std::env::VarError;
 use std::ffi::{CStr, CString, OsStr, OsString};
 use std::fs::OpenOptions;
 use std::io::{stderr, BufRead, BufReader, Write};
-use std::os::unix::ffi::OsStringExt;
 use std::os::unix::io::{FromRawFd, RawFd};
 use std::os::unix::prelude::OsStrExt;
 use std::path::{Path, PathBuf};
@@ -14,6 +13,8 @@ use std::{env, writeln};
 
 use anyhow::{anyhow, bail, Context, Result};
 use bstr_parse::{BStrParse, FromBStr, ParseIntError};
+use chj_rustbin::path_from::{MoreFrom, MoreTryFrom};
+use chj_rustbin::whichgit::git_working_dir;
 use libc::_exit;
 use nix::errno::Errno;
 use nix::fcntl::{open, OFlag};
@@ -47,7 +48,7 @@ const PATH_SEPARATOR: u8 = b'/';
 fn cstrings_from_osstrings(osstrs: &[OsString]) -> Result<Vec<CString>> {
     let mut v: Vec<CString> = Vec::new();
     for s in osstrs {
-        v.push(CString::new(s.clone().into_vec())?);
+        v.push(CString::more_try_from(s)?);
     }
     Ok(v)
 }
@@ -561,13 +562,38 @@ mod tests2 {
 /// A file argument string, parsed into file path and optional
 /// position info.
 enum PathOrMore<'s> {
-    OnlyPathFallback(&'s CStr),
+    OnlyPathFallback(Cow<'s, CStr>),
     /// The strings here came from a `CStr`, hence can always be
     /// converted back to a (`CStr`? or) `CString`.
-    Parsed(&'s str, Option<&'s str>),
+    Parsed {
+        path: Cow<'s, str>,
+        pos: Option<Cow<'s, str>>,
+    },
 }
 
 impl<'s> PathOrMore<'s> {
+    fn with_path(&self, path: PathBuf) -> Result<Self> {
+        match self {
+            PathOrMore::OnlyPathFallback(_) => {
+                Ok(PathOrMore::OnlyPathFallback(Cow::Owned(
+                    CString::more_try_from(path)?,
+                )))
+            }
+            PathOrMore::Parsed { path: _, pos } => Ok(PathOrMore::Parsed {
+                path: path
+                    .to_str()
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "given path can't be represented as string: {path:?}"
+                        )
+                    })?
+                    .to_owned()
+                    .into(),
+                pos: pos.clone(),
+            }),
+        }
+    }
+
     /// Tries to decode `s` as UTF-8 string (if not successful,
     /// returns None).  If the string starts with `a/` or `b/` and a
     /// non-'/' character afterwards, check if a directory of the same
@@ -597,50 +623,71 @@ impl<'s> PathOrMore<'s> {
                     Some(parse_file_description(s))
                 }
             {
-                PathOrMore::Parsed(path, pos)
+                PathOrMore::Parsed {
+                    path: path.into(),
+                    pos: pos.map(Into::into),
+                }
             } else {
                 // Not cleaned, so can just as well use the fallback
                 // FileOrMore::OnlyPathCleaned(s)
-                PathOrMore::OnlyPathFallback(path_or_more)
+                PathOrMore::OnlyPathFallback(path_or_more.into())
             }
         } else {
-            PathOrMore::OnlyPathFallback(path_or_more)
+            PathOrMore::OnlyPathFallback(path_or_more.into())
         }
     }
 
     /// Construct the right kind of `PathOrMore`, depending on whether
     /// the original path or parsed one exist--does file IO to find
     /// out.
-    fn new(path_or_more: &'s CStr) -> Self {
+    fn new(path_or_more: &'s CStr) -> Result<Self> {
         if path_is_normal_file(&path_or_more) {
-            PathOrMore::OnlyPathFallback(&path_or_more)
-        } else {
-            let slf = PathOrMore::parse_from_cstring(&path_or_more);
-            if path_is_normal_file(slf.path().as_ref()) {
-                slf
-            } else {
-                // There's no reason a non-existing path would
-                // have line/column numbers added, thus assume
-                // the user wants to edit the original path.
-                PathOrMore::OnlyPathFallback(&path_or_more)
+            return Ok(PathOrMore::OnlyPathFallback(Cow::Borrowed(
+                &path_or_more,
+            )));
+        }
+        let slf = PathOrMore::parse_from_cstring(&path_or_more);
+        if path_is_normal_file(slf.path_cstr().as_ref()) {
+            // found the right match
+            return Ok(slf);
+        }
+        // Might the path be based on the Git working directory?
+        if let Some(path_from_git_base) = git_working_dir()? {
+            let mut path_from_git_base = PathBuf::from(path_from_git_base);
+            path_from_git_base.push(slf.path());
+            let cstring_path = CString::more_try_from(&path_from_git_base)?;
+            if path_is_normal_file(&cstring_path) {
+                return slf.with_path(path_from_git_base);
+            }
+        }
+
+        // There's no reason a non-existing path would
+        // have line/column numbers added, thus assume
+        // the user wants to edit the original path.
+        Ok(PathOrMore::OnlyPathFallback(Cow::Borrowed(path_or_more)))
+    }
+
+    // Returns a Cow because in one branch it allocates internally.
+    fn path_cstr(&self) -> Cow<CStr> {
+        match self {
+            PathOrMore::OnlyPathFallback(p) => (&**p).into(),
+            PathOrMore::Parsed { path, pos: _ } => {
+                CString::new(path.as_bytes())
+                    .expect("came from CStr thus no problem with \0 possible")
+                    .into()
             }
         }
     }
 
-    fn path(&self) -> Cow<CStr> {
-        match self {
-            PathOrMore::OnlyPathFallback(p) => (*p).into(),
-            PathOrMore::Parsed(s, _) => CString::new(s.as_bytes())
-                .expect("came from CStr thus no problem with \0 possible")
-                .into(),
-        }
+    fn path(&self) -> PathBuf {
+        PathBuf::more_from(&*self.path_cstr())
     }
 
     /// Only returns a suffix if it is decodeable as &str.
     fn extension(&self) -> Option<&str> {
         let bytes = match self {
             PathOrMore::OnlyPathFallback(p) => p.to_bytes(),
-            PathOrMore::Parsed(p, _pos) => p.as_bytes(),
+            PathOrMore::Parsed { path, pos: _ } => path.as_bytes(),
         };
         extension_from_ascii_or_utf8_bytes(bytes, PATH_SEPARATOR)
     }
@@ -660,20 +707,23 @@ impl<'s> PathOrMore<'s> {
         };
         match self {
             PathOrMore::OnlyPathFallback(path) => {
-                append_unchanged((*path).to_owned())
+                append_unchanged(Cow::into_owned(path.clone()));
             }
-            PathOrMore::Parsed(path, None) => {
+            PathOrMore::Parsed { path, pos: None } => {
                 let path_cstr = CString::new(path.as_bytes()).expect(
                     "`file` came from CStr thus no problem with \0 possible",
                 );
                 append_unchanged(path_cstr);
             }
-            PathOrMore::Parsed(path, Some(pos)) => match mode {
+            PathOrMore::Parsed {
+                path,
+                pos: Some(pos),
+            } => match mode {
                 ProgramMode::Emacs => {
                     cmd.append(&mut vec![
                         cstring(&format!("+{pos}")),
                         cstring("--"),
-                        cstring(*path),
+                        cstring(path.as_ref()),
                     ]);
                 }
                 ProgramMode::VSCodium => {
@@ -974,7 +1024,7 @@ fn main() -> Result<()> {
         // we then wait on.
         let mut pids: HashMap<Pid, Vec<CString>> = HashMap::new();
         for file in files_or_args {
-            let path_or_more = PathOrMore::new(&file);
+            let path_or_more = PathOrMore::new(&file)?;
             let mode = if let Some(re) = f_suffices_re.as_ref() {
                 if let Some(ext) = path_or_more.extension() {
                     if re.is_match(ext) {

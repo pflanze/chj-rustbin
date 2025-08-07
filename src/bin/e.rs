@@ -31,7 +31,7 @@ use regex::Regex;
 use thiserror::Error;
 
 use chj_rustbin::io::rawfdreader::RawFdReader;
-use chj_rustbin::io::unix_fs::path_is_normal;
+use chj_rustbin::io::unix_fs::path_is_normal_file;
 use chj_rustbin::path_util::extension_from_ascii_or_utf8_bytes;
 
 fn do_debug() -> bool {
@@ -612,11 +612,11 @@ impl<'s> PathOrMore<'s> {
     /// the original path or parsed one exist--does file IO to find
     /// out.
     fn new(path_or_more: &'s CStr) -> Self {
-        if path_is_normal(&path_or_more) {
+        if path_is_normal_file(&path_or_more) {
             PathOrMore::OnlyPathFallback(&path_or_more)
         } else {
             let slf = PathOrMore::parse_from_cstring(&path_or_more);
-            if path_is_normal(slf.path().as_ref()) {
+            if path_is_normal_file(slf.path().as_ref()) {
                 slf
             } else {
                 // There's no reason a non-existing path would
@@ -895,7 +895,7 @@ fn main() -> Result<()> {
                 if a.as_bytes() == program_name.as_bytes() {
                     e_exists()
                 } else if is_hr(a.as_bytes()) {
-                    path_is_normal(a)
+                    path_is_normal_file(a)
                 } else {
                     true
                 }

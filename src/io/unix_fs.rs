@@ -75,7 +75,7 @@ pub fn path_is_chardevice(path: &CStr) -> bool {
     path_is_type(path, &[FileType::CharDevice], false)
 }
 
-pub fn path_is_normal(path: &CStr) -> bool {
+pub fn path_is_normal_file(path: &CStr) -> bool {
     path_is_type(path, &[FileType::File, FileType::Dir], true)
 }
 
@@ -100,10 +100,10 @@ mod tests {
         t(path_is_chardevice, "/dev/null", true);
         t(path_is_chardevice, "/dev/loop0", false);
         t(path_is_blockdevice, "/dev/loop0", true);
-        t(path_is_normal, "/dev/loop0", false);
-        t(path_is_normal, "8hbrr2kz8kmztb4dqh4", false);
-        t(path_is_normal, "/etc/fstab", true);
+        t(path_is_normal_file, "/dev/loop0", false);
+        t(path_is_normal_file, "8hbrr2kz8kmztb4dqh4", false);
+        t(path_is_normal_file, "/etc/fstab", true);
         t(path_is_link, "/etc/localtime", true);
-        t(path_is_normal, "/etc/localtime", true);
+        t(path_is_normal_file, "/etc/localtime", true);
     }
 }

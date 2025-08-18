@@ -28,7 +28,7 @@ impl<'t, T> List<'t, T> {
             List::Null => None,
         }
     }
-    pub fn rest(&self) -> Option<&List<T>> {
+    pub fn rest(&self) -> Option<&List<'_, T>> {
         match self {
             List::Pair(_, r) => Some(r),
             List::Null => None,

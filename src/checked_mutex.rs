@@ -69,7 +69,7 @@ impl<T> CheckedMutex<T> {
         }
     }
 
-    pub fn lock(&self) -> Result<CheckedMutexGuard<T>, CheckedMutexError> {
+    pub fn lock(&self) -> Result<CheckedMutexGuard<'_, T>, CheckedMutexError> {
         // The idea is to lock `locked_by`, if us then give error, if
         // not, get lock on `mutex`, when gotten, enter us into
         // `locked_by` and unlock that field. On dropping

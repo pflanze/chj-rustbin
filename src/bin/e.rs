@@ -681,7 +681,7 @@ impl<'s> PathOrMore<'s> {
     }
 
     // Returns a Cow because in one branch it allocates internally.
-    fn path_cstr(&self) -> Cow<CStr> {
+    fn path_cstr(&self) -> Cow<'_, CStr> {
         match self {
             PathOrMore::OnlyPathFallback(p) => (&**p).into(),
             PathOrMore::Parsed { path, pos: _ } => {

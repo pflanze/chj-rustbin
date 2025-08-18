@@ -669,7 +669,9 @@ impl<'s> PathOrMore<'s> {
                 // dbg!(&path_from_git_base);
                 let cstring_path = CString::more_try_from(&path_from_git_base)?;
                 if path_is_normal_file(&cstring_path) {
-                    return slf.with_path(path_from_git_base);
+                    return Ok(PathOrMore::OnlyPathFallback(
+                        cstring_path.into(),
+                    ));
                 }
             }
         }

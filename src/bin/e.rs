@@ -653,11 +653,24 @@ impl<'s> PathOrMore<'s> {
         }
         // Might the path be based on the Git working directory?
         if let Some(path_from_git_base) = git_working_dir()? {
-            let mut path_from_git_base = PathBuf::from(path_from_git_base);
-            path_from_git_base.push(slf.path());
-            let cstring_path = CString::more_try_from(&path_from_git_base)?;
-            if path_is_normal_file(&cstring_path) {
-                return slf.with_path(path_from_git_base);
+            let path_from_git_base = PathBuf::from(path_from_git_base);
+            {
+                let mut path_from_git_base = path_from_git_base.clone();
+                path_from_git_base.push(slf.path());
+                // dbg!(&path_from_git_base);
+                let cstring_path = CString::more_try_from(&path_from_git_base)?;
+                if path_is_normal_file(&cstring_path) {
+                    return slf.with_path(path_from_git_base);
+                }
+            }
+            if let Ok(subpath) = str::from_utf8(path_or_more.to_bytes()) {
+                let mut path_from_git_base = path_from_git_base.clone();
+                path_from_git_base.push(subpath);
+                // dbg!(&path_from_git_base);
+                let cstring_path = CString::more_try_from(&path_from_git_base)?;
+                if path_is_normal_file(&cstring_path) {
+                    return slf.with_path(path_from_git_base);
+                }
             }
         }
 

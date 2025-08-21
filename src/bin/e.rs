@@ -28,6 +28,7 @@ use nix::unistd::{
     close, dup2, execvp, fork, getpid, getuid, pipe, read, setsid, write,
     ForkResult,
 };
+use nix::NixPath;
 use regex::Regex;
 use thiserror::Error;
 
@@ -572,6 +573,15 @@ enum PathOrMore<'s> {
 }
 
 impl<'s> PathOrMore<'s> {
+    fn pos(&self) -> Option<&str> {
+        match self {
+            PathOrMore::OnlyPathFallback(_) => None,
+            PathOrMore::Parsed { path: _, pos } => {
+                pos.as_ref().map(|s| s.as_ref())
+            }
+        }
+    }
+
     fn with_path(&self, path: PathBuf) -> Result<Self> {
         match self {
             PathOrMore::OnlyPathFallback(_) => {
@@ -639,8 +649,10 @@ impl<'s> PathOrMore<'s> {
 
     /// Construct the right kind of `PathOrMore`, depending on whether
     /// the original path or parsed one exist--does file IO to find
-    /// out.
-    fn new(path_or_more: &'s CStr) -> Result<Self> {
+    /// out. A true `have_hr` means that we are dealing with a
+    /// copy-paste from gitk, meaning paths *will* be from the git
+    /// root.
+    fn new(path_or_more: &'s CStr, have_hr: bool) -> Result<Self> {
         if path_is_normal_file(&path_or_more) {
             return Ok(PathOrMore::OnlyPathFallback(Cow::Borrowed(
                 &path_or_more,
@@ -652,23 +664,78 @@ impl<'s> PathOrMore<'s> {
             return Ok(slf);
         }
         // Might the path be based on the Git working directory?
-        if let Some(path_from_git_base) = git_working_dir()? {
-            let path_from_git_base = PathBuf::from(path_from_git_base);
-            {
-                let mut path_from_git_base = path_from_git_base.clone();
-                path_from_git_base.push(slf.path());
-                // dbg!(&path_from_git_base);
-                let cstring_path = CString::more_try_from(&path_from_git_base)?;
-                if path_is_normal_file(&cstring_path) {
-                    return slf.with_path(path_from_git_base);
+        if let Some(git_base) = git_working_dir()? {
+            let git_base = PathBuf::from(git_base);
+            // Return a different path, from git_base, if it's the
+            // correct one. At this point, we know that `subpath` (is
+            // relative?, and taken from the current directory) does
+            // not exist.
+            let if_from_git_base = |subpath: &Path,
+                                    has_pos: bool|
+             -> Result<Option<PathBuf>> {
+                // XX is this necessary or do we know that subpath
+                // is never absolute?
+                if subpath.is_absolute() {
+                    return Ok(None);
                 }
-            }
-            if let Ok(subpath) = std::str::from_utf8(path_or_more.to_bytes()) {
-                let mut path_from_git_base = path_from_git_base.clone();
+
+                // If the subpath starts with "./" then never
+                // change it, this is a user's escape hatch to say don't change it!
+                if let Some(first) = subpath.iter().next() {
+                    if first == "." {
+                        return Ok(None);
+                    }
+                }
+
+                let mut path_from_git_base = git_base.clone();
                 path_from_git_base.push(subpath);
-                // dbg!(&path_from_git_base);
+
+                // First, require the path to exist; all cases
+                // where git-based is the right choice assume it
+                // is already in git, i.e. exists. (Hmm, what
+                // about history?)
                 let cstring_path = CString::more_try_from(&path_from_git_base)?;
-                if path_is_normal_file(&cstring_path) {
+                if !path_is_normal_file(&cstring_path) {
+                    return Ok(None);
+                }
+
+                // Do we have indicators that this is a copy-paste
+                // from gitk, or that a tool saw it (if there is a
+                // pos into the file, the file must exist)?
+                if have_hr || has_pos {
+                    // dbg!((have_hr, has_pos));
+                    return Ok(Some(path_from_git_base));
+                }
+
+                if let Some(subpath_parent) = subpath.parent() {
+                    // dbg!(subpath_parent);
+                    // e.g. "README.md" leads to subpath_parent ""
+                    if subpath_parent.is_empty() || subpath_parent.exists() {
+                        return Ok(None);
+                    }
+                } else {
+                    // eprintln!("no parent");
+                    return Ok(None);
+                }
+
+                Ok(Some(path_from_git_base))
+            };
+
+            if let Some(path_from_git_base) =
+                if_from_git_base(&slf.path(), slf.pos().is_some())?
+            {
+                return slf.with_path(path_from_git_base);
+            }
+
+            // Have to use a string, right? OK since if it doesn't
+            // decode, it won't be a subpath for git.
+            if let Ok(subpath) = std::str::from_utf8(path_or_more.to_bytes()) {
+                let subpath: &Path = subpath.as_ref();
+                if let Some(path_from_git_base) =
+                    if_from_git_base(subpath, false)?
+                {
+                    let cstring_path =
+                        CString::more_try_from(&path_from_git_base)?;
                     return Ok(PathOrMore::OnlyPathFallback(
                         cstring_path.into(),
                     ));
@@ -938,8 +1005,9 @@ fn main() -> Result<()> {
 
     // Drop superfluous `e` arguments from accidentally running
     // e.g. `e e foo`, and file paths consisting of 3 or more `-`
-    // characters (copy pastes from gitk).
-    let files_or_args = if args_is_all_files {
+    // characters (copy pastes from gitk). `have_hr` indicates whether
+    // there where any hr (`---` that don't exist as files).
+    let (files_or_args, have_hr) = if args_is_all_files {
         let mut e_exists = {
             // I had a Lazy something somewhere; not the one from
             // once_cell.
@@ -954,20 +1022,26 @@ fn main() -> Result<()> {
                 }
             }
         };
-        files_or_args
+        let mut have_hr = false;
+        let files_or_args = files_or_args
             .into_iter()
             .filter(|a| {
                 if a.as_bytes() == program_name.as_bytes() {
                     e_exists()
                 } else if is_hr(a.as_bytes()) {
-                    path_is_normal_file(a)
+                    let is_file = path_is_normal_file(a);
+                    if !is_file {
+                        have_hr = true;
+                    }
+                    is_file
                 } else {
                     true
                 }
             })
-            .collect()
+            .collect();
+        (files_or_args, have_hr)
     } else {
-        files_or_args
+        (files_or_args, false)
     };
 
     let (is_running_in_terminal, add_nw_option) =
@@ -1039,7 +1113,7 @@ fn main() -> Result<()> {
         // we then wait on.
         let mut pids: HashMap<Pid, Vec<CString>> = HashMap::new();
         for file in files_or_args {
-            let path_or_more = PathOrMore::new(&file)?;
+            let path_or_more = PathOrMore::new(&file, have_hr)?;
             let mode = if let Some(re) = f_suffices_re.as_ref() {
                 if let Some(ext) = path_or_more.extension() {
                     if re.is_match(ext) {

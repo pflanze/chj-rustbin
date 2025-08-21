@@ -663,7 +663,7 @@ impl<'s> PathOrMore<'s> {
                     return slf.with_path(path_from_git_base);
                 }
             }
-            if let Ok(subpath) = str::from_utf8(path_or_more.to_bytes()) {
+            if let Ok(subpath) = std::str::from_utf8(path_or_more.to_bytes()) {
                 let mut path_from_git_base = path_from_git_base.clone();
                 path_from_git_base.push(subpath);
                 // dbg!(&path_from_git_base);

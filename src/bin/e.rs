@@ -430,11 +430,7 @@ fn is_num(s: &str) -> bool {
 // "Garbage" is a ':' and any following string that is empty or
 // contains non-digit characters (except for ':').
 fn remove_trailing_garbage(s: &str) -> &str {
-    if let Some((i, c)) = s
-        .char_indices()
-        .rev()
-        .find(|(_i, c)| *c == ':' || *c == '/')
-    {
+    if let Some((i, c)) = s.char_indices().rev().find(|(_i, c)| *c == ':') {
         if c == '/' {
             return s;
         }
@@ -462,7 +458,10 @@ fn t_remove_trailing_garbage() {
     assert_eq!(t("foo:5b3:"), "foo:5b3");
     assert_eq!(t("a:1:1/foo:5b3"), "a:1:1/foo");
     assert_eq!(t("a:1:1/foo:5b3:"), "a:1:1/foo:5b3");
-    assert_eq!(t("a:1:1/fwef"), "a:1:1/fwef");
+    // assert_eq!(t("a:1:1/fwef"), "a:1:1/fwef"); -- why did I want that?
+    assert_eq!(t("a:1:fwef"), "a:1");
+    assert_eq!(t("a:1://"), "a:1");
+    assert_eq!(t("a:1:/fwef"), "a:1");
 }
 
 /// If `s` ends with ":" and some digits for line, and optionally
@@ -530,6 +529,8 @@ mod tests {
         assert_eq!(t("foo:12:3"), ("foo", Some("12:3")));
         assert_eq!(t("foo:12:3:"), ("foo", Some("12:3")));
         assert_eq!(t("foo:12:3:abc"), ("foo", Some("12:3")));
+        assert_eq!(t("foo:12:3://"), ("foo", Some("12:3")));
+        assert_eq!(t("foo://"), ("foo", None));
     }
 }
 

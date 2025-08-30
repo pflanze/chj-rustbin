@@ -1017,7 +1017,7 @@ fn main() -> Result<()> {
                 if let Some(val) = cache {
                     val
                 } else {
-                    let val = PathBuf::from(program_name).exists();
+                    let val = PathBuf::from("e").exists();
                     cache = Some(val);
                     val
                 }
@@ -1027,7 +1027,7 @@ fn main() -> Result<()> {
         let files_or_args = files_or_args
             .into_iter()
             .filter(|a| {
-                if a.as_bytes() == program_name.as_bytes() {
+                if a.as_bytes() == b"e" {
                     e_exists()
                 } else if is_hr(a.as_bytes()) {
                     let is_file = path_is_normal_file(a);

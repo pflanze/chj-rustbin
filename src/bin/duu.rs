@@ -317,6 +317,10 @@ struct Opts {
     #[clap(long)]
     all_errors: bool,
 
+    /// Show total only
+    #[clap(long, short)]
+    sum: bool,
+
     /// Path to the directory to show.
     #[clap(default_value = ".")]
     dir_path: PathBuf,
@@ -328,6 +332,7 @@ fn main() -> Result<()> {
         share_globally,
         all_errors,
         dir_path,
+        sum,
     } = Opts::from_args();
     let top_metadata = std::fs::symlink_metadata(&dir_path)
         .with_context(|| anyhow!("getting metadata of {dir_path:?}"))?;
@@ -343,29 +348,35 @@ fn main() -> Result<()> {
     let du = gdu.dir_disk_usage(dir_path, top_metadata.st_dev())?;
 
     let shared_inodes = gdu.shared_inodes.lock().expect("no crash");
-    let dirs_kb = du.dirs_kb(&*shared_inodes);
-    let files_kb = du.files_kb(&*shared_inodes);
+
+    let mut out = BufWriter::new(stdout().lock());
+
     let total_kb = du.total_kb(&*shared_inodes);
 
     const ERRORS_LIMIT: usize = 10;
     let mut errors = vec![];
     du.get_errors(usize::MAX, &mut errors);
 
-    let mut subdirs: Vec<(u64, DirDiskUsage)> = du
-        .subdirs
-        .into_iter()
-        .filter_map(|du| -> Option<_> {
-            let du = du.ok()?;
-            Some((du.total(&*shared_inodes), du))
-        })
-        .collect();
+    if sum {
+        writeln!(&mut out, "{total_kb}")?;
+    } else {
+        let dirs_kb = du.dirs_kb(&*shared_inodes);
+        let files_kb = du.files_kb(&*shared_inodes);
 
-    subdirs.sort_by(|(total1, du1), (total2, du2)| -> Ordering {
-        total1.cmp(total2).then_with(|| du1.path.cmp(&du2.path))
-    });
+        let mut subdirs: Vec<(u64, DirDiskUsage)> = du
+            .subdirs
+            .into_iter()
+            .filter_map(|du| -> Option<_> {
+                let du = du.ok()?;
+                Some((du.total(&*shared_inodes), du))
+            })
+            .collect();
 
-    let mut out = BufWriter::new(stdout().lock());
-    let write_line =
+        subdirs.sort_by(|(total1, du1), (total2, du2)| -> Ordering {
+            total1.cmp(total2).then_with(|| du1.path.cmp(&du2.path))
+        });
+
+        let write_line =
         // Takes filename as bytes to allow for 'correct'
         // representation of non-UTF8 filenames (although, no control
         // of newline characters is done!)
@@ -387,21 +398,22 @@ fn main() -> Result<()> {
             Ok(())
         };
 
-    for (total, subdir) in &subdirs {
-        let kb = bytes_to_kb(*total);
-        let filename =
-            subdir.path.file_name().expect("subdir does have filename");
-        write_line(kb, filename.as_bytes(), &mut out)?;
-    }
+        for (total, subdir) in &subdirs {
+            let kb = bytes_to_kb(*total);
+            let filename =
+                subdir.path.file_name().expect("subdir does have filename");
+            write_line(kb, filename.as_bytes(), &mut out)?;
+        }
 
-    out.write_all(
-        "-----------------------------------------------------------------\n"
+        out.write_all(
+            "-----------------------------------------------------------------\n"
             .as_bytes(),
-    )?;
+        )?;
 
-    write_line(dirs_kb, "k folders".as_bytes(), &mut out)?;
-    write_line(files_kb, "k files".as_bytes(), &mut out)?;
-    write_line(total_kb, "k total".as_bytes(), &mut out)?;
+        write_line(dirs_kb, "k folders".as_bytes(), &mut out)?;
+        write_line(files_kb, "k files".as_bytes(), &mut out)?;
+        write_line(total_kb, "k total".as_bytes(), &mut out)?;
+    }
 
     let exit_code;
     if errors.is_empty() {

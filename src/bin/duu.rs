@@ -466,9 +466,9 @@ fn main() -> Result<()> {
             .as_bytes(),
         )?;
 
-        write_line(dirs_string, "k folders".as_bytes(), &mut out)?;
-        write_line(files_string, "k files".as_bytes(), &mut out)?;
-        write_line(total_string, "k total".as_bytes(), &mut out)?;
+        write_line(dirs_string, "folders".as_bytes(), &mut out)?;
+        write_line(files_string, "files".as_bytes(), &mut out)?;
+        write_line(total_string, "total".as_bytes(), &mut out)?;
     }
 
     let exit_code;

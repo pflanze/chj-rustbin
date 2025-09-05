@@ -20,6 +20,49 @@ fn bytes_to_kb(bytes: u64) -> u64 {
     (bytes + 1023) / 1024
 }
 
+fn to_human_readable(
+    powers: u64,
+    si: bool,
+    // bytes
+    mut val: u64,
+) -> (u64, &'static str) {
+    let mut n = 0;
+    // What multiplier to use? Ah, `du` actually uses fractional
+    // format below some value, like "7.6G"
+    const MULTIPLIER: u64 = 10;
+    loop {
+        let val2 = val / powers;
+        if val2 > MULTIPLIER {
+            val = val2;
+            n += 1;
+        } else {
+            break;
+        }
+    }
+    let unit = match n {
+        0 => "",
+        1 => {
+            if si {
+                "k"
+            } else {
+                "K"
+            }
+        }
+        2 => "M",
+        3 => "G",
+        4 => "T",
+        5 => "P",
+        6 => "E",
+        7 => "Z",
+        8 => "Y",
+        9 => "R",
+        10 => "Q",
+        // doesn't fit into 64-bit anyway
+        _ => unreachable!("number too large, don't have a prefix"),
+    };
+    (val, unit)
+}
+
 // `man 3type stat`: st_blocks: Number of 512 B blocks allocated
 const BLOCKSIZE: u64 = 512;
 
@@ -82,21 +125,6 @@ impl DirDiskUsage {
     /// total in bytes
     fn total(&self, shared_inodes: &HashMap<InodeKey, InodeData>) -> u64 {
         self.total_files(shared_inodes) + self.total_subdirs(shared_inodes)
-    }
-
-    /// total in KB, rounded up (OK?)
-    fn total_kb(&self, shared_inodes: &HashMap<InodeKey, InodeData>) -> u64 {
-        bytes_to_kb(self.total(shared_inodes))
-    }
-
-    /// files in KB, rounded up (OK?)
-    fn files_kb(&self, shared_inodes: &HashMap<InodeKey, InodeData>) -> u64 {
-        bytes_to_kb(self.total_files(shared_inodes))
-    }
-
-    /// subdirs in KB, rounded up (OK?)
-    fn dirs_kb(&self, shared_inodes: &HashMap<InodeKey, InodeData>) -> u64 {
-        bytes_to_kb(self.total_subdirs(shared_inodes))
     }
 
     /// Collect all errors (of all kinds) of this tree into `out`
@@ -321,6 +349,14 @@ struct Opts {
     #[clap(long, short)]
     sum: bool,
 
+    /// Print sizes in human-readable format like `du`
+    #[clap(long, short)]
+    human_readable: bool,
+
+    /// Like -h, but use powers of 1000 not 1024
+    #[clap(long)]
+    si: bool,
+
     /// Path to the directory to show.
     #[clap(default_value = ".")]
     dir_path: PathBuf,
@@ -333,7 +369,18 @@ fn main() -> Result<()> {
         all_errors,
         dir_path,
         sum,
+        human_readable,
+        si,
     } = Opts::from_args();
+
+    let powers = if si {
+        Some(1000)
+    } else if human_readable {
+        Some(1024)
+    } else {
+        None
+    };
+
     let top_metadata = std::fs::symlink_metadata(&dir_path)
         .with_context(|| anyhow!("getting metadata of {dir_path:?}"))?;
     if !top_metadata.is_dir() {
@@ -351,17 +398,27 @@ fn main() -> Result<()> {
 
     let mut out = BufWriter::new(stdout().lock());
 
-    let total_kb = du.total_kb(&*shared_inodes);
-
     const ERRORS_LIMIT: usize = 10;
     let mut errors = vec![];
     du.get_errors(usize::MAX, &mut errors);
 
+    // possibly human-readable
+    let ph = |val| {
+        if let Some(powers) = &powers {
+            let (val, unit) = to_human_readable(*powers, si, val);
+            format!("{val}{unit}")
+        } else {
+            format!("{}", bytes_to_kb(val))
+        }
+    };
+
+    let total_string = ph(du.total(&*shared_inodes));
+
     if sum {
-        writeln!(&mut out, "{total_kb}")?;
+        writeln!(&mut out, "{total_string}")?;
     } else {
-        let dirs_kb = du.dirs_kb(&*shared_inodes);
-        let files_kb = du.files_kb(&*shared_inodes);
+        let dirs_string = ph(du.total_subdirs(&*shared_inodes));
+        let files_string = ph(du.total_files(&*shared_inodes));
 
         let mut subdirs: Vec<(u64, DirDiskUsage)> = du
             .subdirs
@@ -380,9 +437,8 @@ fn main() -> Result<()> {
         // Takes filename as bytes to allow for 'correct'
         // representation of non-UTF8 filenames (although, no control
         // of newline characters is done!)
-        |kb: u64, filename: &[u8], out: &mut BufWriter<_>| -> Result<()> {
+        |number: String, filename: &[u8], out: &mut BufWriter<_>| -> Result<()> {
             let indent = "            ";
-            let number = kb.to_string();
             let indent = if let Some(indent_rest) =
                 indent.len().checked_sub(number.len())
             {
@@ -399,10 +455,10 @@ fn main() -> Result<()> {
         };
 
         for (total, subdir) in &subdirs {
-            let kb = bytes_to_kb(*total);
+            let number = ph(*total);
             let filename =
                 subdir.path.file_name().expect("subdir does have filename");
-            write_line(kb, filename.as_bytes(), &mut out)?;
+            write_line(number, filename.as_bytes(), &mut out)?;
         }
 
         out.write_all(
@@ -410,9 +466,9 @@ fn main() -> Result<()> {
             .as_bytes(),
         )?;
 
-        write_line(dirs_kb, "k folders".as_bytes(), &mut out)?;
-        write_line(files_kb, "k files".as_bytes(), &mut out)?;
-        write_line(total_kb, "k total".as_bytes(), &mut out)?;
+        write_line(dirs_string, "k folders".as_bytes(), &mut out)?;
+        write_line(files_string, "k files".as_bytes(), &mut out)?;
+        write_line(total_string, "k total".as_bytes(), &mut out)?;
     }
 
     let exit_code;

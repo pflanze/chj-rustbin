@@ -31,7 +31,7 @@ fn to_human_readable(
     // format below some value, like "7.6G"
     const MULTIPLIER: u64 = 10;
     loop {
-        let val2 = val / powers;
+        let val2 = (val + powers / 2) / powers;
         if val2 > MULTIPLIER {
             val = val2;
             n += 1;

@@ -89,6 +89,21 @@ impl<'t, T> List<'t, T> {
         }
         vs
     }
+
+    pub fn any(&self, mut f: impl FnMut(&T) -> bool) -> bool {
+        let mut vs = self;
+        loop {
+            match vs {
+                List::Pair(val, list) => {
+                    if f(val) {
+                        return true;
+                    }
+                    vs = list;
+                }
+                List::Null => return false,
+            }
+        }
+    }
 }
 
 impl<'t, T: PartialEq> List<'t, T> {

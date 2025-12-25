@@ -25,6 +25,7 @@ use rayon::iter::ParallelIterator;
 use rayon::prelude::ParallelBridge;
 
 use chj_rustbin::{
+    chunks::ChunksOp,
     conslist::{cons, List},
     fp::compose,
     impl_item_options_from,
@@ -2425,10 +2426,9 @@ fn main() -> Result<()> {
     let mut errors = 0;
 
     for directory in directories {
-        let mut items: Vec<(
-            usize,
-            Result<TaskInfo<StringParseContext<String>>>,
-        )> = recursive_file_path_types_iter(
+        let mut itemss: Vec<
+            Vec<(usize, Result<TaskInfo<StringParseContext<String>>>)>,
+        > = recursive_file_path_types_iter(
             &region,
             region.store(directory.clone()),
             itemopts,
@@ -2436,55 +2436,74 @@ fn main() -> Result<()> {
             true,
         )
         .enumerate()
+        .chunks(1000)
         .par_bridge()
-        .filter_map(|(id, item)| -> Option<(usize, Result<_>)> {
-            match item {
-                Ok(item) => {
-                    if item.is_file() || item.is_dir() {
-                        Some((
-                            id,
-                            parse_path(
-                                id,
-                                opts.verbose,
-                                &region,
-                                &item,
-                                show_backtrace,
-                            ),
-                        ))
-                    } else {
-                        // XX: if it's a symlink, check if it has different OPEN info?
-                        None
-                    }
-                }
-                Err(e) => {
-                    // XX context?
-                    Some((id, Err(e)))
-                }
-            }
-        })
-        .collect();
-        items.sort_by_key(|(id, _)| *id);
-        for (_id, item) in items {
-            match item {
-                Ok(taskinfo) => {
-                    let taskinfo: Rc<TaskInfo<StringParseContext<String>>> =
-                        Rc::new(taskinfo);
-                    if let Some(key) = &taskinfo.dependency_key {
-                        if let Some(old_taskinfo) = taskinfo_by_key.get(key) {
-                            warning!(
-                                "duplicate task for key {key:?}: {:?} {:?}",
-                                taskinfo.path,
-                                old_taskinfo.path
-                            );
-                            errors += 1;
+        .filter_map(
+            |items: Vec<(usize, Result<FilePathType<'_, _>>)>| -> Option<
+                Vec<(usize, Result<TaskInfo<StringParseContext<String>>>)>,
+            > {
+                let items: Vec<_> = items
+                    .into_iter()
+                    .filter_map(|(id, item)| {
+                        match item {
+                            Ok(item) => {
+                                if item.is_file() || item.is_dir() {
+                                    Some((
+                                        id,
+                                        parse_path(
+                                            id,
+                                            opts.verbose,
+                                            &region,
+                                            &item,
+                                            show_backtrace,
+                                        ),
+                                    ))
+                                } else {
+                                    // XX: if it's a symlink, check if it has different OPEN info?
+                                    None
+                                }
+                            }
+                            Err(e) => {
+                                // XX context?
+                                Some((id, Err(e)))
+                            }
                         }
-                        taskinfo_by_key.insert(key.clone(), taskinfo.clone());
-                    }
-                    taskinfos.push(taskinfo);
+                    })
+                    .collect();
+                if items.is_empty() {
+                    None
+                } else {
+                    Some(items)
                 }
-                Err(e) => {
-                    errors += 1;
-                    warning!("{e}");
+            },
+        )
+        .collect();
+        itemss.sort_by_key(|vs| vs[0].0);
+        for items in itemss {
+            for (_id, item) in items {
+                match item {
+                    Ok(taskinfo) => {
+                        let taskinfo: Rc<TaskInfo<StringParseContext<String>>> =
+                            Rc::new(taskinfo);
+                        if let Some(key) = &taskinfo.dependency_key {
+                            if let Some(old_taskinfo) = taskinfo_by_key.get(key)
+                            {
+                                warning!(
+                                    "duplicate task for key {key:?}: {:?} {:?}",
+                                    taskinfo.path,
+                                    old_taskinfo.path
+                                );
+                                errors += 1;
+                            }
+                            taskinfo_by_key
+                                .insert(key.clone(), taskinfo.clone());
+                        }
+                        taskinfos.push(taskinfo);
+                    }
+                    Err(e) => {
+                        errors += 1;
+                        warning!("{e}");
+                    }
                 }
             }
         }

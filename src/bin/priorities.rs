@@ -65,6 +65,10 @@ macro_rules! warning {
 #[derive(clap::Parser, Debug)]
 /// Parse a folder with todo files with "OPEN.." or "TODO.." markers.
 struct Opts {
+    /// Show execution durations (for performance debugging)
+    #[clap(long)]
+    show_timings: bool,
+
     /// consider dirs
     #[clap(long)]
     dirs: bool,
@@ -2339,6 +2343,34 @@ fn parse_path(
     })
 }
 
+struct Timing {
+    now: SystemTime,
+    span_name: &'static str,
+}
+
+fn show_current_timing(
+    show: bool,
+    last_timing: Option<Timing>,
+    span_name: &'static str,
+) -> Option<Timing> {
+    if show {
+        let now = SystemTime::now();
+        if let Some(last_timing) = last_timing {
+            let dur = now
+                .duration_since(last_timing.now)
+                .expect("always increasing");
+            eprintln!(
+                "timing: {}: {} s",
+                last_timing.span_name,
+                dur.as_secs_f64()
+            );
+        }
+        Some(Timing { now, span_name })
+    } else {
+        None
+    }
+}
+
 fn main() -> Result<()> {
     let opts: Opts = Opts::from_args();
     let show_backtrace = true; // XX add option?
@@ -2382,6 +2414,8 @@ fn main() -> Result<()> {
         files: true,
         other: false,
     };
+
+    let current_timing = show_current_timing(opts.show_timings, None, "scan");
 
     let mut taskinfos: Vec<Rc<TaskInfo<_>>> = Default::default();
     let mut taskinfo_by_key: BTreeMap<DependencyKey, Rc<TaskInfo<_>>> =
@@ -2456,6 +2490,12 @@ fn main() -> Result<()> {
         }
     }
 
+    let current_timing = show_current_timing(
+        opts.show_timings,
+        current_timing,
+        "Calculate \"stand-alone\" priorities",
+    );
+
     // Calculate "stand-alone" priorities
     for ti in &taskinfos {
         // If there is an error (due date without year completed based
@@ -2472,6 +2512,12 @@ fn main() -> Result<()> {
             )
         })?;
     }
+
+    let current_timing = show_current_timing(
+        opts.show_timings,
+        current_timing,
+        "Verify dependency links and exert priority inheritance",
+    );
 
     // Verify dependency links and exert priority inheritance
     for ti in &taskinfos {
@@ -2514,6 +2560,9 @@ fn main() -> Result<()> {
         dbg!(&taskinfos);
     }
 
+    let current_timing =
+        show_current_timing(opts.show_timings, current_timing, "Sort them");
+
     // Sort them
     taskinfos.sort_by(|a, b| {
         a.calculated_priority()
@@ -2525,6 +2574,9 @@ fn main() -> Result<()> {
                     .expect("path comparisons never fail")
             })
     });
+
+    let current_timing =
+        show_current_timing(opts.show_timings, current_timing, "Print them");
 
     // Print them
     (|| -> std::io::Result<()> {
@@ -2565,6 +2617,8 @@ fn main() -> Result<()> {
         Ok(())
     })()
     .context("printing to stdout")?;
+
+    show_current_timing(opts.show_timings, current_timing, "END");
 
     if errors > 0 {
         eprintln!("{errors} error(s) shown as warnings");

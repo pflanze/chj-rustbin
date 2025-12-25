@@ -161,8 +161,7 @@ pub fn file_path_types_iter<'region, 't, P: FileParent<'t>>(
                         && ! excludes.filename_is_excluded(&file_name, false);
                     let handle_as_other = opt.other &&
                         (!ft.is_dir() && !ft.is_file());
-                    if handle_as_dir || (
-                        handle_as_file || handle_as_other) {
+                    if handle_as_dir || handle_as_file || handle_as_other {
                         let file_type = FileType::from(&ft);
                         Some(Ok(FilePathType { file_parent, file_name, file_type }))
                     } else {

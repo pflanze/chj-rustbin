@@ -20,6 +20,9 @@ use chrono::{
 };
 use clap::Parser;
 use kstring::KString;
+use once_cell::sync::OnceCell;
+use rayon::iter::ParallelIterator;
+use rayon::prelude::ParallelBridge;
 
 use chj_rustbin::{
     conslist::{cons, List},
@@ -36,11 +39,11 @@ use chj_rustbin::{
         },
         parsers::{FromParseableStr, ParseableStr, Separator},
     },
+    parse_error,
     region::Region,
     time::naive_date_time_without_year::NaiveDateTimeWithoutYear,
+    T,
 };
-use chj_rustbin::{parse_error, T};
-use once_cell::sync::OnceCell;
 
 const MONTH_SECONDS: i64 = 3600 * 24 * 30;
 
@@ -2388,7 +2391,10 @@ fn main() -> Result<()> {
     let mut errors = 0;
 
     for directory in directories {
-        for (id, item) in recursive_file_path_types_iter(
+        let mut items: Vec<(
+            usize,
+            Result<TaskInfo<StringParseContext<String>>>,
+        )> = recursive_file_path_types_iter(
             &region,
             region.store(directory.clone()),
             itemopts,
@@ -2396,40 +2402,57 @@ fn main() -> Result<()> {
             true,
         )
         .enumerate()
-        {
-            let item = item?; // XX context?
-            if item.is_file() || item.is_dir() {
-                match parse_path(
-                    id,
-                    opts.verbose,
-                    &region,
-                    &item,
-                    show_backtrace,
-                ) {
-                    Ok(taskinfo) => {
-                        let taskinfo = Rc::new(taskinfo);
-                        if let Some(key) = &taskinfo.dependency_key {
-                            if let Some(old_taskinfo) = taskinfo_by_key.get(key)
-                            {
-                                warning!(
-                                    "duplicate task for key {key:?}: {:?} {:?}",
-                                    taskinfo.path,
-                                    old_taskinfo.path
-                                );
-                                errors += 1;
-                            }
-                            taskinfo_by_key
-                                .insert(key.clone(), taskinfo.clone());
-                        }
-                        taskinfos.push(taskinfo);
-                    }
-                    Err(e) => {
-                        errors += 1;
-                        warning!("{e}");
+        .par_bridge()
+        .filter_map(|(id, item)| -> Option<(usize, Result<_>)> {
+            match item {
+                Ok(item) => {
+                    if item.is_file() || item.is_dir() {
+                        Some((
+                            id,
+                            parse_path(
+                                id,
+                                opts.verbose,
+                                &region,
+                                &item,
+                                show_backtrace,
+                            ),
+                        ))
+                    } else {
+                        // XX: if it's a symlink, check if it has different OPEN info?
+                        None
                     }
                 }
+                Err(e) => {
+                    // XX context?
+                    Some((id, Err(e)))
+                }
             }
-            // XX: if it's a symlink, check if it has different OPEN info?
+        })
+        .collect();
+        items.sort_by_key(|(id, _)| *id);
+        for (_id, item) in items {
+            match item {
+                Ok(taskinfo) => {
+                    let taskinfo: Rc<TaskInfo<StringParseContext<String>>> =
+                        Rc::new(taskinfo);
+                    if let Some(key) = &taskinfo.dependency_key {
+                        if let Some(old_taskinfo) = taskinfo_by_key.get(key) {
+                            warning!(
+                                "duplicate task for key {key:?}: {:?} {:?}",
+                                taskinfo.path,
+                                old_taskinfo.path
+                            );
+                            errors += 1;
+                        }
+                        taskinfo_by_key.insert(key.clone(), taskinfo.clone());
+                    }
+                    taskinfos.push(taskinfo);
+                }
+                Err(e) => {
+                    errors += 1;
+                    warning!("{e}");
+                }
+            }
         }
     }
 

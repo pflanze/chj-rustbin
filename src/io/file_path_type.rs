@@ -3,7 +3,7 @@ use std::path::Path;
 use std::{ffi::OsString, fmt::Debug, path::PathBuf};
 
 use anyhow::{anyhow, Context, Result};
-use genawaiter::rc::Gen;
+use genawaiter::sync::Gen;
 use log::trace;
 
 use crate::io::excludes::Excludes;
@@ -136,12 +136,12 @@ impl<'region, P: FileParent<'region>> FilePathType<'region, P> {
 /// Does not descend into dirs. You'll want to use `PathBuf` for `P`
 /// unless you have a need to store additional data in the parent
 /// nodes.
-pub fn file_path_types_iter<'region, 't, P: FileParent<'t>>(
+pub fn file_path_types_iter<'region, 't, P: FileParent<'t> + Send + Sync>(
     region: &'t Region<'region, P>,
     file_parent: RegionId<'region, P>,
     opt: ItemOptions,
     excludes: &'t Excludes,
-) -> Result<impl Iterator<Item = Result<FilePathType<'t, P>>> + 't> {
+) -> Result<impl Iterator<Item = Result<FilePathType<'t, P>>> + Send + 't> {
     // eprintln!("items({dir_path:?}, {opt:?})");
     let iterator = scope!{ fs::read_dir(region.get(file_parent).path()) }.with_context(
         || anyhow!("opening directory {:?} for reading", region.get(file_parent).path()))?
@@ -180,7 +180,7 @@ pub fn file_path_types_iter<'region, 't, P: FileParent<'t>>(
 }
 
 /// Does not descend into dirs.
-pub fn file_path_types_vec<'region, 't, P: FileParent<'t>>(
+pub fn file_path_types_vec<'region, 't, P: FileParent<'t> + Send + Sync>(
     region: &'t Region<'region, P>,
     file_parent: RegionId<'region, P>,
     opt: ItemOptions,
@@ -199,13 +199,17 @@ pub fn file_path_types_vec<'region, 't, P: FileParent<'t>>(
 /// Same API as `file_path_types_iter` but can yield sorted output
 /// (and in that case reports all file system errors directly from the
 /// call, items then always being Ok).
-pub fn file_path_types_sortable_iter<'region, 't, P: FileParent<'t>>(
+pub fn file_path_types_sortable_iter<
+    'region,
+    't,
+    P: FileParent<'t> + Send + Sync,
+>(
     region: &'t Region<'region, P>,
     file_parent: RegionId<'region, P>,
     opt: ItemOptions,
     excludes: &'t Excludes,
     sorted: bool,
-) -> Result<Box<dyn Iterator<Item = Result<FilePathType<'t, P>>> + 't>> {
+) -> Result<Box<dyn Iterator<Item = Result<FilePathType<'t, P>>> + Send + 't>> {
     if sorted {
         let vec =
             file_path_types_vec(region, file_parent, opt, excludes, true)?;
@@ -225,13 +229,17 @@ pub fn file_path_types_sortable_iter<'region, 't, P: FileParent<'t>>(
 /// `sorted == true`, sorts every directory level individually,
 /// yielding sorted output at only the memory cost of the largest
 /// directory.
-pub fn recursive_file_path_types_iter<'region, 't, P: FileParent<'t>>(
+pub fn recursive_file_path_types_iter<
+    'region,
+    't,
+    P: FileParent<'t> + Send + Sync,
+>(
     region: &'t Region<'region, P>,
     file_parent: RegionId<'region, P>,
     opt: ItemOptions,
     excludes: &'t Excludes,
     sorted: bool,
-) -> impl Iterator<Item = Result<FilePathType<'t, P>>> + 't {
+) -> impl Iterator<Item = Result<FilePathType<'t, P>>> + Send + 't {
     Gen::new(|co| async move {
         let orig_opt = opt;
         let opt_with_dir = ItemOptions {

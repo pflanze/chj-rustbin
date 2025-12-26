@@ -99,8 +99,8 @@ mod tests {
         t(path_is_file, "/etc/fstab", true);
         t(path_is_chardevice, "/dev/null", true);
         t(path_is_chardevice, "/dev/loop0", false);
-        t(path_is_blockdevice, "/dev/loop0", true);
-        t(path_is_normal_file, "/dev/loop0", false);
+        t(path_is_blockdevice, "/dev/sda", true);
+        t(path_is_normal_file, "/dev/sda", false);
         t(path_is_normal_file, "8hbrr2kz8kmztb4dqh4", false);
         t(path_is_normal_file, "/etc/fstab", true);
         t(path_is_link, "/etc/localtime", true);

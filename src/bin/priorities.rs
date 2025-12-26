@@ -20,6 +20,7 @@ use chrono::{
 };
 use clap::Parser;
 use kstring::KString;
+use mimalloc::MiMalloc;
 use once_cell::sync::OnceCell;
 use rayon::iter::ParallelIterator;
 use rayon::prelude::ParallelBridge;
@@ -45,6 +46,9 @@ use chj_rustbin::{
     time::naive_date_time_without_year::NaiveDateTimeWithoutYear,
     T,
 };
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 const MONTH_SECONDS: i64 = 3600 * 24 * 30;
 
@@ -2436,7 +2440,7 @@ fn main() -> Result<()> {
             true,
         )
         .enumerate()
-        .chunks(1000)
+        .chunks(200)
         .par_bridge()
         .filter_map(
             |items: Vec<(usize, Result<FilePathType<'_, _>>)>| -> Option<

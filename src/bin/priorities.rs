@@ -22,8 +22,8 @@ use clap::Parser;
 use kstring::KString;
 use mimalloc::MiMalloc;
 use once_cell::sync::OnceCell;
-use rayon::iter::ParallelIterator;
 use rayon::prelude::ParallelBridge;
+use rayon::{iter::ParallelIterator, slice::ParallelSliceMut};
 
 use chj_rustbin::{
     chunks::ChunksOp,
@@ -2482,7 +2482,7 @@ fn main() -> Result<()> {
             },
         )
         .collect();
-        itemss.sort_by_key(|vs| vs[0].0);
+        itemss.par_sort_by_key(|vs| vs[0].0);
         for items in itemss {
             for (_id, item) in items {
                 match item {

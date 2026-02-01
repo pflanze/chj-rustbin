@@ -10,6 +10,33 @@ use anyhow::{anyhow, Context, Result};
 
 use crate::io::file_path_type::FileType;
 
+/// In GiB fixed with 3 decimal places. Pads to 999.999 GiB.
+pub fn bytes_to_gib_string(bytes: u64) -> String {
+    let mb_times_1000 = (bytes / 1024 + 512) * 1000 / 1024;
+    let gb_times_1000 = mb_times_1000 / 1024;
+    let digits = gb_times_1000.to_string();
+    let len = digits.len();
+    if len <= 3 {
+        format!("  0.{gb_times_1000:03}")
+    } else {
+        let hi = &digits[0..len - 3];
+        let lo = &digits[len - 3..];
+        format!("{hi:>3}.{lo}")
+    }
+}
+
+#[test]
+fn t_bytes_to_gib_string() {
+    let t = bytes_to_gib_string;
+    assert_eq!(t(0), "  0.000");
+    assert_eq!(t(20000), "  0.000");
+    assert_eq!(t(500000), "  0.000");
+    assert_eq!(t(600000), "  0.001");
+    assert_eq!(t(1024 * 1024 * 1024), "  1.000");
+    assert_eq!(t(512 * 1024 * 1024), "  0.500");
+    assert_eq!(t(900 * 1024 * 1024 * 1024), "900.000");
+}
+
 // Bytes as KB, rounded up
 pub fn bytes_to_kb(bytes: u64) -> u64 {
     (bytes + 1023) / 1024

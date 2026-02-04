@@ -1,7 +1,7 @@
 use std::{
     cmp::Ordering,
     io::{stdout, BufWriter, Write},
-    os::{linux::fs::MetadataExt, unix::prelude::OsStrExt},
+    os::{unix::fs::MetadataExt, unix::prelude::OsStrExt},
     path::PathBuf,
     process::exit,
 };
@@ -90,7 +90,7 @@ fn main() -> Result<()> {
         share_globally,
         shared_inodes: Default::default(),
     };
-    let du = gdu.dir_disk_usage(dir_path, top_metadata.st_dev())?;
+    let du = gdu.dir_disk_usage(dir_path, top_metadata.dev())?;
 
     let shared_inodes = gdu.shared_inodes.lock().expect("no crash");
 

@@ -1,7 +1,7 @@
 use std::{
     collections::{hash_map::Entry, HashMap},
     ffi::OsString,
-    os::linux::fs::MetadataExt,
+    os::unix::fs::MetadataExt,
     path::PathBuf,
     sync::Mutex,
 };
@@ -245,15 +245,15 @@ impl GetDirDiskUsage {
                 match item.metadata() {
                     Ok(metadata) => {
                         /* Number of 512 B blocks allocated */
-                        let blocks = metadata.st_blocks();
-                        let blocksize = BLOCKSIZE; // *not* s.st_blksize()!
+                        let blocks = metadata.blocks();
+                        let blocksize = BLOCKSIZE; // *not* s.blksize()!
 
                         let mut inc_file_bytes = || {
                             file_bytes += blocks * blocksize;
                         };
 
                         if metadata.is_dir() {
-                            let new_dev = metadata.st_dev();
+                            let new_dev = metadata.dev();
 
                             if (!self.one_file_system) || new_dev == current_dev
                             {
@@ -278,7 +278,7 @@ impl GetDirDiskUsage {
                                 });
                             }
                         } else {
-                            let nlink = metadata.st_nlink();
+                            let nlink = metadata.nlink();
                             if nlink > 1 && blocks > 0 {
                                 if self.share_globally {
                                     file_bytes += (blocks * blocksize
@@ -286,8 +286,8 @@ impl GetDirDiskUsage {
                                         / nlink;
                                 } else {
                                     let key = InodeKey {
-                                        dev: metadata.st_dev(),
-                                        inode: metadata.st_ino(),
+                                        dev: metadata.dev(),
+                                        inode: metadata.ino(),
                                     };
 
                                     shared_files.push(key.clone());

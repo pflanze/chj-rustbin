@@ -6,7 +6,7 @@ use std::{
     time::SystemTime,
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 use rayon::prelude::{ParallelBridge, ParallelIterator};
 
@@ -22,25 +22,58 @@ struct Opt {
     #[clap(long)]
     zo: bool,
 
-    /// Sort in the reverse, show newest items first
+    /// Sort in the reverse, show newest items first. This is more
+    /// efficient than using default sort order and then the `reverse`
+    /// processing command.
     #[clap(long)]
     reverse: bool,
 
-    /// Skip up to n items from the top
-    #[clap(long)]
-    skip: Option<usize>,
+    /// Any number of post-processing commands after initial sorting:
+    /// `skip n` skips up to n items from the top, `head n` takes up
+    /// to the n top items, `tail n` takes up to the n bottom items,
+    /// `reverse` reverses the items in the selection.
+    processing_commands: Vec<String>,
+}
 
-    /// Print only up to the n bottom items (after skip)
-    #[clap(long)]
-    head: Option<usize>,
+enum ProcessingCommand {
+    Skip(usize),
+    Head(usize),
+    Tail(usize),
+    Reverse,
+}
 
-    /// Print only up to the n bottom items (after head)
-    #[clap(long)]
-    tail: Option<usize>,
-
-    /// Reverse after processing skip, head and tail
-    #[clap(long)]
-    reverse_after: bool,
+fn parse_processing_commands(
+    processing_commands: &[String],
+) -> Result<Vec<ProcessingCommand>> {
+    let mut cmds = Vec::new();
+    let mut i = 0;
+    while i < processing_commands.len() {
+        let cmd_str: &str = processing_commands[i].as_ref();
+        i += 1;
+        let parse_usize = |i: &mut usize| -> Result<usize> {
+            if *i < processing_commands.len() {
+                let arg_str: &str = processing_commands[*i].as_ref();
+                *i += 1;
+                Ok(arg_str.parse().with_context(|| anyhow!(
+                    "expecting number argument after processing command {cmd_str:?}, \
+                     got {arg_str:?}"))?)
+            } else {
+                bail!("missing number argument after processing command {cmd_str:?}")
+            }
+        };
+        let cmd = match cmd_str {
+            "skip" => ProcessingCommand::Skip(parse_usize(&mut i)?),
+            "head" => ProcessingCommand::Head(parse_usize(&mut i)?),
+            "tail" => ProcessingCommand::Tail(parse_usize(&mut i)?),
+            "reverse" => ProcessingCommand::Reverse,
+            _ => bail!(
+                "unknown processing command {cmd_str:?} -- \
+                 valid are skip, head, tail, reverse"
+            ),
+        };
+        cmds.push(cmd);
+    }
+    Ok(cmds)
 }
 
 fn chomp(v: &mut Vec<u8>, record_separator: u8) {
@@ -61,11 +94,11 @@ fn main() -> Result<()> {
         z,
         zo,
         reverse,
-        skip,
-        head,
-        tail,
-        reverse_after,
+        processing_commands,
     } = Opt::from_args();
+
+    let cmds = parse_processing_commands(&processing_commands)?;
+
     let input_record_separator = if z { 0 } else { b'\n' };
     let output_record_separator = if zo { 0 } else { b'\n' };
 
@@ -106,23 +139,25 @@ fn main() -> Result<()> {
     }
 
     let mut selected_items = &mut *items;
-    if let Some(skip) = skip {
-        let n = selected_items.len().min(skip);
-        selected_items = &mut selected_items[n..]
-    }
-    if let Some(head) = head {
-        let n = selected_items.len().min(head);
-        selected_items = &mut selected_items[..n]
-    }
-    if let Some(tail) = tail {
-        let n = selected_items.len().saturating_sub(tail);
-        selected_items = &mut selected_items[n..]
-    }
-
     #[allow(unused)]
     let items = ();
-    if reverse_after {
-        selected_items.reverse()
+
+    for cmd in cmds {
+        match cmd {
+            ProcessingCommand::Skip(n) => {
+                let n = selected_items.len().min(n);
+                selected_items = &mut selected_items[n..]
+            }
+            ProcessingCommand::Head(n) => {
+                let n = selected_items.len().min(n);
+                selected_items = &mut selected_items[..n]
+            }
+            ProcessingCommand::Tail(n) => {
+                let n = selected_items.len().saturating_sub(n);
+                selected_items = &mut selected_items[n..]
+            }
+            ProcessingCommand::Reverse => selected_items.reverse(),
+        }
     }
 
     let mut outp = BufWriter::new(stdout().lock());

@@ -8,6 +8,7 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
+use rayon::prelude::{ParallelBridge, ParallelIterator};
 
 #[derive(clap::Parser, Debug)]
 /// Read paths from stdin, print them sorted by time.
@@ -48,6 +49,7 @@ fn main() -> Result<()> {
     chomp(&mut all_entries, input_record_separator);
     let mut items: Vec<Item> = all_entries
         .split(|c| *c == input_record_separator)
+        .par_bridge()
         .map(|path| -> Result<Option<Item>> {
             let path: &OsStr = OsStr::from_bytes(path);
             let path: &Path = path.as_ref();

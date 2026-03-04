@@ -214,6 +214,21 @@ fn optimize_processing_commands(
         break;
     }
 
+    // Can only do these after the above is finished!
+
+    // Move the single remaining `Reverse` to the end, if present
+    if let Some((i, _v)) = out
+        .iter()
+        .enumerate()
+        .find(|(_i, v)| **v == ProcessingCommand::Reverse)
+    {
+        out.remove(i);
+        for item in &mut out[i..] {
+            *item = item.reversed();
+        }
+        out.push(ProcessingCommand::Reverse);
+    }
+
     out
 }
 

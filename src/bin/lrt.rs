@@ -186,30 +186,11 @@ fn remove_two<T>(vec: &mut Vec<T>, i1: usize, i2: usize) {
 fn optimize_processing_commands(
     cmds: &[ProcessingCommand],
 ) -> Vec<ProcessingCommand> {
-    let mut out: Vec<ProcessingCommand> = Vec::new();
-
-    // Eliminate series of Reverse commands
-    for cmd in cmds {
-        match cmd {
-            ProcessingCommand::Skip(_) => (),
-            ProcessingCommand::SkipTail(_) => (),
-            ProcessingCommand::Head(_) => (),
-            ProcessingCommand::Tail(_) => (),
-            ProcessingCommand::FilterDays(_) => (),
-            ProcessingCommand::Reverse => {
-                if let Some(last) = out.last() {
-                    if *last == ProcessingCommand::Reverse {
-                        out.pop();
-                        continue;
-                    }
-                }
-            }
-        }
-        out.push(cmd.clone());
-    }
+    let mut out: Vec<ProcessingCommand> =
+        cmds.iter().map(|v| v.clone()).collect();
 
     loop {
-        // Eliminate remaining duplicate Reverse commands
+        // Eliminate duplicate Reverse commands
         if let Some((i, _v)) = out
             .iter()
             .enumerate()

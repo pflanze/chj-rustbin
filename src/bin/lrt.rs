@@ -15,6 +15,10 @@ use rayon::prelude::{ParallelBridge, ParallelIterator};
 /// Read paths from stdin, print them sorted by time.
 #[clap(name = "lrt from chj-rustbin")]
 struct Opt {
+    /// Say what is done
+    #[clap(short, long)]
+    verbose: bool,
+
     /// Expect inputs trailed by zero-bytes
     #[clap(short, long)]
     z: bool,
@@ -29,6 +33,11 @@ struct Opt {
     #[clap(long)]
     reverse: bool,
 
+    /// Disable the optimizer for processing commands (in case there
+    /// are bugs in it!)
+    #[clap(long)]
+    no_optimize: bool,
+
     /// Any number of post-processing commands after initial sorting:
     /// `skip n` skips up to n items from the top, `head n` takes up
     /// to the n top items, `tail n` takes up to the n bottom items,
@@ -37,6 +46,7 @@ struct Opt {
     processing_commands: Vec<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum IntRange {
     At(u16),
     RangeFrom(u16),
@@ -62,6 +72,7 @@ impl FromStr for IntRange {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum ProcessingCommand {
     Skip(usize),
     Head(usize),
@@ -118,6 +129,30 @@ fn parse_processing_commands(
     Ok(cmds)
 }
 
+fn optimize_processing_commands(
+    cmds: &[ProcessingCommand],
+) -> Vec<ProcessingCommand> {
+    let mut out = Vec::new();
+    for cmd in cmds {
+        match cmd {
+            ProcessingCommand::Skip(_) => (),
+            ProcessingCommand::Head(_) => (),
+            ProcessingCommand::Tail(_) => (),
+            ProcessingCommand::FilterDays(_) => (),
+            ProcessingCommand::Reverse => {
+                if let Some(last) = out.last() {
+                    if *last == ProcessingCommand::Reverse {
+                        out.pop();
+                        continue;
+                    }
+                }
+            }
+        }
+        out.push(cmd.clone());
+    }
+    out
+}
+
 fn chomp(v: &mut Vec<u8>, record_separator: u8) {
     if let Some(last) = v.last() {
         if *last == record_separator {
@@ -145,13 +180,24 @@ impl<'t> Item<'t> {
 
 fn main() -> Result<()> {
     let Opt {
+        verbose,
         z,
         zo,
         reverse,
+        no_optimize,
         processing_commands,
     } = Opt::from_args();
 
-    let cmds = parse_processing_commands(&processing_commands)?;
+    let orig_cmds = parse_processing_commands(&processing_commands)?;
+    let cmds = if no_optimize {
+        orig_cmds
+    } else {
+        let cmds = optimize_processing_commands(&orig_cmds);
+        if verbose {
+            eprintln!("original:\n{orig_cmds:?}\noptimized:\n{cmds:?}");
+        }
+        cmds
+    };
 
     let input_record_separator = if z { 0 } else { b'\n' };
     let output_record_separator = if zo { 0 } else { b'\n' };

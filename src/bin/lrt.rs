@@ -3,6 +3,7 @@ use std::{
     io::{stdin, stdout, BufWriter, Read, Write},
     os::unix::prelude::OsStrExt,
     path::Path,
+    str::FromStr,
     time::SystemTime,
 };
 
@@ -31,14 +32,41 @@ struct Opt {
     /// Any number of post-processing commands after initial sorting:
     /// `skip n` skips up to n items from the top, `head n` takes up
     /// to the n top items, `tail n` takes up to the n bottom items,
-    /// `reverse` reverses the items in the selection.
+    /// `reverse` reverses the items in the selection, `filter-days
+    /// n|..n|n..|from..to` filters mtime age in rounded days.
     processing_commands: Vec<String>,
+}
+
+enum IntRange {
+    At(u16),
+    RangeFrom(u16),
+    RangeTo(u16),
+    RangeInclusive(u16, u16),
+}
+
+impl FromStr for IntRange {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Some((from, to)) = s.split_once("..") {
+            if from.is_empty() {
+                Ok(IntRange::RangeTo(to.parse()?))
+            } else if to.is_empty() {
+                Ok(IntRange::RangeFrom(from.parse()?))
+            } else {
+                Ok(IntRange::RangeInclusive(from.parse()?, to.parse()?))
+            }
+        } else {
+            Ok(IntRange::At(s.parse()?))
+        }
+    }
 }
 
 enum ProcessingCommand {
     Skip(usize),
     Head(usize),
     Tail(usize),
+    FilterDays(IntRange),
     Reverse,
 }
 
@@ -61,14 +89,28 @@ fn parse_processing_commands(
                 bail!("missing number argument after processing command {cmd_str:?}")
             }
         };
+        let parse_range = |i: &mut usize| -> Result<IntRange> {
+            if *i < processing_commands.len() {
+                let arg_str: &str = processing_commands[*i].as_ref();
+                *i += 1;
+                Ok(arg_str.parse().with_context(|| anyhow!(
+                    "expecting number/range argument after processing command {cmd_str:?}, \
+                     got {arg_str:?}"))?)
+            } else {
+                bail!("missing number argument after processing command {cmd_str:?}")
+            }
+        };
         let cmd = match cmd_str {
             "skip" => ProcessingCommand::Skip(parse_usize(&mut i)?),
             "head" => ProcessingCommand::Head(parse_usize(&mut i)?),
             "tail" => ProcessingCommand::Tail(parse_usize(&mut i)?),
             "reverse" => ProcessingCommand::Reverse,
+            "filter-days" => {
+                ProcessingCommand::FilterDays(parse_range(&mut i)?)
+            }
             _ => bail!(
                 "unknown processing command {cmd_str:?} -- \
-                 valid are skip, head, tail, reverse"
+                 valid are skip, head, tail, reverse, filter-days"
             ),
         };
         cmds.push(cmd);
@@ -84,9 +126,21 @@ fn chomp(v: &mut Vec<u8>, record_separator: u8) {
     }
 }
 
+#[derive(Clone)]
 struct Item<'t> {
     path: &'t Path,
     mtime: SystemTime,
+}
+
+impl<'t> Item<'t> {
+    fn age_secs(&self, now: SystemTime) -> Result<u64> {
+        let age = now.duration_since(self.mtime)?;
+        Ok(age.as_secs())
+    }
+
+    fn age_days(&self, now: SystemTime) -> Result<u64> {
+        Ok((self.age_secs(now)? + 12 * 3600) / (24 * 3600))
+    }
 }
 
 fn main() -> Result<()> {
@@ -101,6 +155,8 @@ fn main() -> Result<()> {
 
     let input_record_separator = if z { 0 } else { b'\n' };
     let output_record_separator = if zo { 0 } else { b'\n' };
+
+    let now = SystemTime::now();
 
     let mut all_entries = Vec::new();
     stdin()
@@ -139,8 +195,7 @@ fn main() -> Result<()> {
     }
 
     let mut selected_items = &mut *items;
-    #[allow(unused)]
-    let items = ();
+    let mut items: Vec<Item>;
 
     for cmd in cmds {
         match cmd {
@@ -157,6 +212,25 @@ fn main() -> Result<()> {
                 selected_items = &mut selected_items[n..]
             }
             ProcessingCommand::Reverse => selected_items.reverse(),
+            ProcessingCommand::FilterDays(range) => {
+                items = selected_items
+                    .into_iter()
+                    .map(|item| item.clone())
+                    .filter(|item| {
+                        let age_days = item.age_days(now).expect("age is ok");
+                        match range {
+                            IntRange::At(n) => u64::from(n) == age_days,
+                            IntRange::RangeFrom(n) => age_days >= u64::from(n),
+                            IntRange::RangeTo(n) => age_days <= u64::from(n),
+                            IntRange::RangeInclusive(from, to) => {
+                                age_days >= u64::from(from)
+                                    && age_days <= u64::from(to)
+                            }
+                        }
+                    })
+                    .collect();
+                selected_items = &mut *items;
+            }
         }
     }
 

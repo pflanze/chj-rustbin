@@ -95,12 +95,6 @@ struct Opt {
     #[clap(short, long)]
     reverse: bool,
 
-    /// In non-reversed order, sort entries with alphabetic sorting
-    /// reversed, like `ls -lrt`. Also ignores non-alphanumeric
-    /// characters except to disambiguate.
-    #[clap(long)]
-    like_ls: bool,
-
     /// Disable the optimizer for processing commands (in case there
     /// are bugs in it!)
     #[clap(long)]
@@ -354,7 +348,7 @@ mod tests {
                 }
             })
             .collect();
-        sort_items(&mut items, rng.gen_bool(0.5), false, rng.gen_bool(0.5));
+        sort_items(&mut items, rng.gen_bool(0.5), rng.gen_bool(0.5));
         let items = items;
 
         // Search for invalid optimizations
@@ -430,11 +424,26 @@ fn ci_cmp(a: &Path, b: &Path) -> Ordering {
             }
             let mut achars = filter(a.chars());
             let mut bchars = filter(b.chars());
+            // What the ordering is looking case sensitively, but
+            // still ignoring non-alphanumeric characters
+            let mut stricter_ordering = Ordering::Equal;
             loop {
                 if let Some(ac) = achars.next() {
                     if let Some(bc) = bchars.next() {
                         match ac.to_lowercase().cmp(bc.to_lowercase()) {
-                            Ordering::Equal => (),
+                            Ordering::Equal => {
+                                if stricter_ordering == Ordering::Equal {
+                                    // ac == bc in lower-case; now
+                                    // order lower-case versions
+                                    // *before* upper-case ones--the
+                                    // whole point of the
+                                    // stricter_ordering variable over
+                                    // just doing `a.cmp(b)` in the
+                                    // end
+                                    stricter_ordering = bc.cmp(&ac);
+                                }
+                                ()
+                            }
                             v => return v,
                         }
                     } else {
@@ -444,8 +453,9 @@ fn ci_cmp(a: &Path, b: &Path) -> Ordering {
                     if let Some(_) = bchars.next() {
                         return Ordering::Less;
                     } else {
-                        // return Ordering::Equal -- still make it deterministic:
-                        return a.cmp(b);
+                        // Don't return Equal, still make it
+                        // deterministic:
+                        return stricter_ordering.then_with(|| a.cmp(b));
                     }
                 }
             }
@@ -454,12 +464,9 @@ fn ci_cmp(a: &Path, b: &Path) -> Ordering {
     a.cmp(b)
 }
 
-/// The `ls` command with `-lrt` reverses the sort order and hence
-/// shows alphabetic reversed, too. `like_ls` imitates that.
 fn sort_items<'t: 'v, 'v>(
     items: &'v mut Vec<Item<'t>>,
     reverse: bool,
-    like_ls: bool,
     time: bool,
 ) {
     if !time {
@@ -469,30 +476,18 @@ fn sort_items<'t: 'v, 'v>(
             items.sort_by(|a, b| ci_cmp(&a.path, &b.path));
         }
     } else {
-        if like_ls {
-            if reverse {
-                items.sort_by(|b, a| {
-                    a.mtime()
-                        .cmp(&b.mtime())
-                        .then_with(|| ci_cmp(&a.path, &b.path))
-                });
-            } else {
-                items.sort_by(|a, b| {
-                    a.mtime()
-                        .cmp(&b.mtime())
-                        .then_with(|| ci_cmp(&b.path, &a.path))
-                });
-            }
+        if reverse {
+            items.sort_by(|a, b| {
+                a.mtime()
+                    .cmp(&b.mtime())
+                    .then_with(|| ci_cmp(&b.path, &a.path))
+            });
         } else {
-            if reverse {
-                items.sort_by(|b, a| {
-                    a.mtime().cmp(&b.mtime()).then_with(|| a.path.cmp(&b.path))
-                });
-            } else {
-                items.sort_by(|a, b| {
-                    a.mtime().cmp(&b.mtime()).then_with(|| a.path.cmp(&b.path))
-                });
-            }
+            items.sort_by(|b, a| {
+                a.mtime()
+                    .cmp(&b.mtime())
+                    .then_with(|| ci_cmp(&b.path, &a.path))
+            });
         }
     }
 }
@@ -979,7 +974,6 @@ fn main() -> Result<()> {
         zo,
         time,
         reverse,
-        like_ls,
         no_optimize,
         processing_commands,
     } = Opt::from_args();
@@ -1017,7 +1011,7 @@ fn main() -> Result<()> {
         .filter_map(|r| r.transpose())
         .collect::<Result<Vec<Item>>>()?;
 
-    sort_items(&mut items, reverse, like_ls, time);
+    sort_items(&mut items, reverse, time);
 
     let selected_items = run_processing_commands(&mut items, &cmds, now);
 

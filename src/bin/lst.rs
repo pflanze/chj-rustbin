@@ -62,7 +62,7 @@ impl FromStr for ColorMode {
 /// world-writable sticky folders (tmp folders), probably because the
 /// kernel inhibits following the link for non-symlink `stat`, and
 /// `ls` does something different.
-#[clap(name = "lrt from chj-rustbin")]
+#[clap(name = "lst from chj-rustbin")]
 struct Opt {
     /// Say what is done
     #[clap(short, long)]

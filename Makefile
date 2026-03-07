@@ -42,6 +42,6 @@ install: /usr/local/bin/e
 install: /usr/local/bin/intersection
 install: /usr/local/bin/priorities
 install: /usr/local/bin/duu
-install: /usr/local/bin/lrt
+install: /usr/local/bin/lst
 
 .PHONY: test test_intersection

@@ -95,6 +95,17 @@ struct Opt {
     #[clap(short, long)]
     reverse: bool,
 
+    /// When `--time` is given, change the sort order to be with the
+    /// newest items at the bottom by default. The fall-back sorting
+    /// happens *forward* alphabetically (a file with path `a` is
+    /// shown above a file with path `b` if both have the same
+    /// time). This is unlike `ls` which requires the `--reverse`
+    /// option to get this sort order, and then has the alpha fallback
+    /// on its head. `--reverse` reverses both time and alpha fallback
+    /// order (meaning alpha is then on its head, as expected).
+    #[clap(long)]
+    time_reversed: bool,
+
     /// Disable the optimizer for processing commands (in case there
     /// are bugs in it!)
     #[clap(long)]
@@ -348,7 +359,12 @@ mod tests {
                 }
             })
             .collect();
-        sort_items(&mut items, rng.gen_bool(0.5), rng.gen_bool(0.5));
+        sort_items(
+            &mut items,
+            rng.gen_bool(0.5),
+            rng.gen_bool(0.5),
+            rng.gen_bool(0.5),
+        );
         let items = items;
 
         // Search for invalid optimizations
@@ -464,10 +480,14 @@ fn ci_cmp(a: &Path, b: &Path) -> Ordering {
     a.cmp(b)
 }
 
+/// If `time_reversed`, then time sorting is with newest items at the
+/// bottom by default; this also changes to forward alphanumeric
+/// fallback for that sorting.
 fn sort_items<'t: 'v, 'v>(
     items: &'v mut Vec<Item<'t>>,
     reverse: bool,
     time: bool,
+    time_reversed: bool,
 ) {
     if !time {
         if reverse {
@@ -476,18 +496,34 @@ fn sort_items<'t: 'v, 'v>(
             items.sort_by(|a, b| ci_cmp(&a.path, &b.path));
         }
     } else {
-        if reverse {
-            items.sort_by(|a, b| {
-                a.mtime()
-                    .cmp(&b.mtime())
-                    .then_with(|| ci_cmp(&b.path, &a.path))
-            });
+        if time_reversed {
+            if !reverse {
+                items.sort_by(|a, b| {
+                    a.mtime()
+                        .cmp(&b.mtime())
+                        .then_with(|| ci_cmp(&a.path, &b.path))
+                });
+            } else {
+                items.sort_by(|b, a| {
+                    a.mtime()
+                        .cmp(&b.mtime())
+                        .then_with(|| ci_cmp(&a.path, &b.path))
+                });
+            }
         } else {
-            items.sort_by(|b, a| {
-                a.mtime()
-                    .cmp(&b.mtime())
-                    .then_with(|| ci_cmp(&b.path, &a.path))
-            });
+            if reverse {
+                items.sort_by(|a, b| {
+                    a.mtime()
+                        .cmp(&b.mtime())
+                        .then_with(|| ci_cmp(&b.path, &a.path))
+                });
+            } else {
+                items.sort_by(|b, a| {
+                    a.mtime()
+                        .cmp(&b.mtime())
+                        .then_with(|| ci_cmp(&b.path, &a.path))
+                });
+            }
         }
     }
 }
@@ -973,6 +1009,7 @@ fn main() -> Result<()> {
         z,
         zo,
         time,
+        time_reversed,
         reverse,
         no_optimize,
         processing_commands,
@@ -1011,7 +1048,7 @@ fn main() -> Result<()> {
         .filter_map(|r| r.transpose())
         .collect::<Result<Vec<Item>>>()?;
 
-    sort_items(&mut items, reverse, time);
+    sort_items(&mut items, reverse, time, time_reversed);
 
     let selected_items = run_processing_commands(&mut items, &cmds, now);
 

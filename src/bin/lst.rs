@@ -62,6 +62,8 @@ impl FromStr for ColorMode {
 /// world-writable sticky folders (tmp folders), probably because the
 /// kernel inhibits following the link for non-symlink `stat`, and
 /// `ls` does something different.
+///
+/// Sorting should behave like `ls` when `--like-ls` is given.
 #[clap(name = "lst from chj-rustbin")]
 struct Opt {
     /// Say what is done
@@ -73,7 +75,7 @@ struct Opt {
     long: bool,
 
     /// In `--long` mode, whether to show color
-    #[clap(short, long, default_value = "auto")]
+    #[clap(long, default_value = "auto")]
     color: ColorMode,
 
     /// Expect inputs trailed by zero-bytes
@@ -84,10 +86,13 @@ struct Opt {
     #[clap(long)]
     zo: bool,
 
-    /// Sort in the reverse, show newest items first. This is more
-    /// efficient than using default sort order and then the `reverse`
-    /// processing command.
-    #[clap(long)]
+    /// Sort by modification time
+    #[clap(short, long)]
+    time: bool,
+
+    /// Sort in the reverse. (This is more efficient than using
+    /// default sort order and then the `reverse` processing command.)
+    #[clap(short, long)]
     reverse: bool,
 
     /// In non-reversed order, sort entries with alphabetic sorting
@@ -96,20 +101,16 @@ struct Opt {
     #[clap(long)]
     like_ls: bool,
 
-    /// Sort alphabetically by path, not by time. Also ignores
-    /// non-alphanumeric characters except to disambiguate.
-    #[clap(long)]
-    alpha: bool,
-
     /// Disable the optimizer for processing commands (in case there
     /// are bugs in it!)
     #[clap(long)]
     no_optimize: bool,
 
     /// Any number of post-processing commands after initial sorting:
-    /// `skip n` skips up to n items from the top, `head n` takes up
-    /// to the n top items, `tail n` takes up to the n bottom items,
-    /// `reverse` reverses the items in the selection, `filter-days
+    /// `skip n` skips up to n items from the top, `skip-tail n` skips
+    /// up to n items from the bottom, `head n` takes up to the n top
+    /// items, `tail n` takes up to the n bottom items, `reverse`
+    /// reverses the items in the selection, `filter-days
     /// n|..n|n..|from..to` filters mtime age in rounded days.
     processing_commands: Vec<String>,
 }
@@ -353,7 +354,7 @@ mod tests {
                 }
             })
             .collect();
-        sort_items(&mut items, rng.gen_bool(0.5), false, false);
+        sort_items(&mut items, rng.gen_bool(0.5), false, rng.gen_bool(0.5));
         let items = items;
 
         // Search for invalid optimizations
@@ -459,9 +460,9 @@ fn sort_items<'t: 'v, 'v>(
     items: &'v mut Vec<Item<'t>>,
     reverse: bool,
     like_ls: bool,
-    alpha: bool,
+    time: bool,
 ) {
-    if alpha {
+    if !time {
         if reverse {
             items.sort_by(|b, a| ci_cmp(&a.path, &b.path));
         } else {
@@ -976,9 +977,9 @@ fn main() -> Result<()> {
         long,
         z,
         zo,
+        time,
         reverse,
         like_ls,
-        alpha,
         no_optimize,
         processing_commands,
     } = Opt::from_args();
@@ -1016,7 +1017,7 @@ fn main() -> Result<()> {
         .filter_map(|r| r.transpose())
         .collect::<Result<Vec<Item>>>()?;
 
-    sort_items(&mut items, reverse, like_ls, alpha);
+    sort_items(&mut items, reverse, like_ls, time);
 
     let selected_items = run_processing_commands(&mut items, &cmds, now);
 

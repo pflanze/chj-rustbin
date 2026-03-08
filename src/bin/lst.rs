@@ -309,6 +309,7 @@ fn optimize_processing_commands(
 mod tests {
     use super::*;
     use rand::{thread_rng, Rng};
+    use rayon::iter::IntoParallelIterator;
     use std::time::Duration;
 
     #[test]
@@ -368,67 +369,72 @@ mod tests {
         let items = items;
 
         // Search for invalid optimizations
-        for i in 0..10000 {
-            let max_len: usize = match rng.gen_range::<u8, _>(0..5) {
-                0 | 1 => 5,
-                2 => 10,
-                3 => 20,
-                4 => 100,
-                _ => unreachable!(),
-            };
-            let cmds_len: usize = rng.gen_range(1..max_len);
-            let cmds_original: Vec<ProcessingCommand> = (0..cmds_len)
-                .map(|_| {
-                    // reminder to add cases when it changes:
-                    match ProcessingCommand::Reverse {
-                        ProcessingCommand::Skip(_) => (),
-                        ProcessingCommand::SkipTail(_) => (),
-                        ProcessingCommand::Head(_) => (),
-                        ProcessingCommand::Tail(_) => (),
-                        ProcessingCommand::FilterDays(_) => (),
-                        ProcessingCommand::Reverse => (),
-                    }
-                    match rng.gen_range::<u8, _>(0..6) {
-                        0 => ProcessingCommand::Skip(
-                            rng.gen_range(0..APPROX_NUM_PATHS.into()),
-                        ),
-                        1 => ProcessingCommand::SkipTail(
-                            rng.gen_range(0..APPROX_NUM_PATHS.into()),
-                        ),
-                        2 => ProcessingCommand::Head(
-                            rng.gen_range(0..APPROX_NUM_PATHS.into()),
-                        ),
-                        3 => ProcessingCommand::Tail(
-                            rng.gen_range(0..APPROX_NUM_PATHS.into()),
-                        ),
-                        4 => ProcessingCommand::FilterDays(IntRange::random(
-                            &mut rng,
-                        )),
-                        5 => ProcessingCommand::Reverse,
-                        _ => unreachable!(),
-                    }
-                })
-                .collect();
-            let cmds_optimized = optimize_processing_commands(&cmds_original);
+        (0..100).into_par_iter().for_each(|thread_i| {
+            let mut rng = thread_rng();
 
-            let mut items1 = items.clone();
-            let results_original =
-                run_processing_commands(&mut items1, &cmds_original, now);
-            let mut items2 = items.clone();
-            let results_optimized =
-                run_processing_commands(&mut items2, &cmds_optimized, now);
-            if results_original != results_optimized {
-                panic!(
-                    "optimizer failure (i={i}):\n\
-                     items={items:#?}\n\
-                     results_original={results_original:#?}\n\
-                     results_optimized={results_optimized:#?}\n\
-                     cmds_original={cmds_original:#?}\n\
-                     cmds_optimized={cmds_optimized:#?}\n\
+            for i in 0..10000 {
+                let max_len: usize = match rng.gen_range::<u8, _>(0..5) {
+                    0 | 1 => 5,
+                    2 => 10,
+                    3 => 20,
+                    4 => 100,
+                    _ => unreachable!(),
+                };
+                let cmds_len: usize = rng.gen_range(1..max_len);
+                let cmds_original: Vec<ProcessingCommand> = (0..cmds_len)
+                    .map(|_| {
+                        // reminder to add cases when it changes:
+                        match ProcessingCommand::Reverse {
+                            ProcessingCommand::Skip(_) => (),
+                            ProcessingCommand::SkipTail(_) => (),
+                            ProcessingCommand::Head(_) => (),
+                            ProcessingCommand::Tail(_) => (),
+                            ProcessingCommand::FilterDays(_) => (),
+                            ProcessingCommand::Reverse => (),
+                        }
+                        match rng.gen_range::<u8, _>(0..6) {
+                            0 => ProcessingCommand::Skip(
+                                rng.gen_range(0..APPROX_NUM_PATHS.into()),
+                            ),
+                            1 => ProcessingCommand::SkipTail(
+                                rng.gen_range(0..APPROX_NUM_PATHS.into()),
+                            ),
+                            2 => ProcessingCommand::Head(
+                                rng.gen_range(0..APPROX_NUM_PATHS.into()),
+                            ),
+                            3 => ProcessingCommand::Tail(
+                                rng.gen_range(0..APPROX_NUM_PATHS.into()),
+                            ),
+                            4 => ProcessingCommand::FilterDays(
+                                IntRange::random(&mut rng),
+                            ),
+                            5 => ProcessingCommand::Reverse,
+                            _ => unreachable!(),
+                        }
+                    })
+                    .collect();
+                let cmds_optimized =
+                    optimize_processing_commands(&cmds_original);
+
+                let mut items1 = items.clone();
+                let results_original =
+                    run_processing_commands(&mut items1, &cmds_original, now);
+                let mut items2 = items.clone();
+                let results_optimized =
+                    run_processing_commands(&mut items2, &cmds_optimized, now);
+                if results_original != results_optimized {
+                    panic!(
+                        "optimizer failure (thread/i={thread_i}/{i}):\n\
+                         items={items:#?}\n\
+                         results_original={results_original:#?}\n\
+                         results_optimized={results_optimized:#?}\n\
+                         cmds_original={cmds_original:#?}\n\
+                         cmds_optimized={cmds_optimized:#?}\n\
                      "
-                )
+                    )
+                }
             }
-        }
+        });
     }
 }
 

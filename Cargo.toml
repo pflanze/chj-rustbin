@@ -4,7 +4,7 @@
 name = "chj-rustbin"
 version = "0.1.0"
 authors = ["Christian Jaeger <ch@christianjaeger.ch>"]
-edition = "2018"
+edition = "2021"
 
 [profile.dev.package."*"]
 opt-level = "s"
@@ -38,3 +38,5 @@ filetime = "0.2"
 regex = "1.4.6"
 terminal_size = "0.2"
 mimalloc = "0.1.43"
+rand = "0.8.5"
+anstyle = "1.0.7"

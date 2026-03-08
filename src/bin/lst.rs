@@ -14,6 +14,7 @@ use std::{
 use anstyle::{AnsiColor, Color, Style};
 use anyhow::{anyhow, bail, Context, Result};
 use chj_rustbin::{
+    chunks::ChunksOp,
     io::{
         unix_gr::{Gid, GrInfoCache},
         unix_pw::{PwInfoCache, Uid},
@@ -1044,14 +1045,28 @@ fn main() -> Result<()> {
     chomp(&mut all_entries, input_record_separator);
     let mut items: Vec<Item> = all_entries
         .split(|c| *c == input_record_separator)
+        .chunks(1000)
         .par_bridge()
-        .map(|path| -> Result<Option<Item>> {
-            let path: &OsStr = OsStr::from_bytes(path);
-            let path: &Path = path.as_ref();
-            Item::from_path(path, long)
+        .map(|paths| -> Result<Vec<Item>> {
+            paths
+                .into_iter()
+                .map(|path| -> Result<Option<Item>> {
+                    let path: &OsStr = OsStr::from_bytes(path);
+                    let path: &Path = path.as_ref();
+                    Item::from_path(path, long)
+                })
+                .filter_map(|r| r.transpose())
+                .collect::<Result<Vec<_>>>()
         })
-        .filter_map(|r| r.transpose())
-        .collect::<Result<Vec<Item>>>()?;
+        .reduce(
+            || Ok(Vec::new()),
+            |a, b| {
+                let mut a = a?;
+                let mut b = b?;
+                a.append(&mut b);
+                Ok(a)
+            },
+        )?;
 
     sort_items(&mut items, reverse, time, time_reversed);
 

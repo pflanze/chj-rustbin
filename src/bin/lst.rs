@@ -577,7 +577,6 @@ fn run_processing_commands<'t: 'v, 'v>(
                         }
                     })
                     .collect();
-                drop(selected_items);
                 *items = new_items;
                 selected_items = unsafe { hack_static(&mut **items) };
             }

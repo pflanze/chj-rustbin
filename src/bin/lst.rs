@@ -26,7 +26,10 @@ use chj_rustbin::{
 use chrono::{DateTime, Datelike, Local, Timelike};
 use clap::Parser;
 use rand::{rngs::ThreadRng, Rng};
-use rayon::prelude::{ParallelBridge, ParallelIterator};
+use rayon::{
+    prelude::{ParallelBridge, ParallelIterator},
+    slice::ParallelSliceMut,
+};
 
 #[derive(clap::ValueEnum, Clone, Debug)]
 enum ColorMode {
@@ -498,20 +501,20 @@ fn sort_items<'t: 'v, 'v>(
 ) {
     if !time {
         if reverse {
-            items.sort_by(|b, a| ci_cmp(&a.path, &b.path));
+            items.par_sort_by(|b, a| ci_cmp(&a.path, &b.path));
         } else {
-            items.sort_by(|a, b| ci_cmp(&a.path, &b.path));
+            items.par_sort_by(|a, b| ci_cmp(&a.path, &b.path));
         }
     } else {
         if time_reversed {
             if !reverse {
-                items.sort_by(|a, b| {
+                items.par_sort_by(|a, b| {
                     a.mtime()
                         .cmp(&b.mtime())
                         .then_with(|| ci_cmp(&a.path, &b.path))
                 });
             } else {
-                items.sort_by(|b, a| {
+                items.par_sort_by(|b, a| {
                     a.mtime()
                         .cmp(&b.mtime())
                         .then_with(|| ci_cmp(&a.path, &b.path))
@@ -519,13 +522,13 @@ fn sort_items<'t: 'v, 'v>(
             }
         } else {
             if reverse {
-                items.sort_by(|a, b| {
+                items.par_sort_by(|a, b| {
                     a.mtime()
                         .cmp(&b.mtime())
                         .then_with(|| ci_cmp(&b.path, &a.path))
                 });
             } else {
-                items.sort_by(|b, a| {
+                items.par_sort_by(|b, a| {
                     a.mtime()
                         .cmp(&b.mtime())
                         .then_with(|| ci_cmp(&b.path, &a.path))

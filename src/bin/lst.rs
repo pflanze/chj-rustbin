@@ -14,6 +14,7 @@ use std::{
 use anstyle::{AnsiColor, Color, Style};
 use anyhow::{anyhow, bail, Context, Result};
 use chj_rustbin::{
+    chunks::ChunksOp,
     io::{
         unix_gr::{Gid, GrInfoCache},
         unix_pw::{PwInfoCache, Uid},
@@ -26,8 +27,8 @@ use chrono::{DateTime, Datelike, Local, Timelike};
 use clap::Parser;
 use rand::{rngs::ThreadRng, Rng};
 use rayon::{
-    prelude::ParallelIterator,
-    slice::{ParallelSlice, ParallelSliceMut},
+    prelude::{ParallelBridge, ParallelIterator},
+    slice::ParallelSliceMut,
 };
 
 #[derive(clap::ValueEnum, Clone, Debug)]
@@ -1046,14 +1047,29 @@ fn main() -> Result<()> {
         .context("reading from stdin")?;
     chomp(&mut all_entries, input_record_separator);
     let mut items: Vec<Item> = all_entries
-        .par_split(|c| *c == input_record_separator)
-        .map(|path| -> Result<Option<Item>> {
-            let path: &OsStr = OsStr::from_bytes(path);
-            let path: &Path = path.as_ref();
-            Item::from_path(path, long)
+        .split(|c| *c == input_record_separator)
+        .chunks(1000)
+        .par_bridge()
+        .map(|paths| -> Result<Vec<Item>> {
+            paths
+                .into_iter()
+                .map(|path| -> Result<Option<Item>> {
+                    let path: &OsStr = OsStr::from_bytes(path);
+                    let path: &Path = path.as_ref();
+                    Item::from_path(path, long)
+                })
+                .filter_map(|r| r.transpose())
+                .collect::<Result<Vec<_>>>()
         })
-        .filter_map(|r| r.transpose())
-        .collect::<Result<Vec<_>>>()?;
+        .reduce(
+            || Ok(Vec::new()),
+            |a, b| {
+                let mut a = a?;
+                let mut b = b?;
+                a.append(&mut b);
+                Ok(a)
+            },
+        )?;
 
     sort_items(&mut items, reverse, time, time_reversed);
 

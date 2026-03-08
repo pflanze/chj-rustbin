@@ -109,7 +109,6 @@ dependencies = [
  "mimalloc",
  "nix",
  "num",
- "once_cell",
  "rand",
  "rayon",
  "regex",

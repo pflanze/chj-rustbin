@@ -453,8 +453,8 @@ fn ci_cmp(a: &Path, b: &Path) -> Ordering {
             }
             let mut achars = filter(a.chars());
             let mut bchars = filter(b.chars());
-            // What the ordering is looking case sensitively, but
-            // still ignoring non-alphanumeric characters
+            // What the ordering is case sensitively while still
+            // ignoring non-alphanumeric characters
             let mut stricter_ordering = Ordering::Equal;
             loop {
                 if let Some(ac) = achars.next() {

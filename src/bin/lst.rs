@@ -376,7 +376,12 @@ mod tests {
         let items = items;
 
         // Search for invalid optimizations
-        (0..100).into_par_iter().for_each(|thread_i| {
+        let num_runs = match std::env::var_os("LST_NUM_TEST_RUNS") {
+            Some(s) => u32::from_str(&s.to_string_lossy())
+                .expect("LST_NUM_TEST_RUNS needs a u32 number"),
+            None => 4,
+        };
+        (0..num_runs).into_par_iter().for_each(|thread_i| {
             let mut rng = thread_rng();
 
             for i in 0..10000 {

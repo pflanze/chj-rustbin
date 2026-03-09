@@ -10,7 +10,6 @@ use std::{
     process::exit,
     rc::Rc,
     str::FromStr,
-    sync::OnceLock,
     time::SystemTime,
 };
 
@@ -22,6 +21,7 @@ use chrono::{
 use clap::Parser;
 use kstring::KString;
 use mimalloc::MiMalloc;
+use once_cell::sync::OnceCell;
 use rayon::prelude::ParallelBridge;
 use rayon::{iter::ParallelIterator, slice::ParallelSliceMut};
 
@@ -1070,10 +1070,10 @@ impl<C: ParseContext + Clone> PartialOrd for TaskInfo<C> {
 }
 
 struct TaskInfoDeclarationsBuilder<C: ParseContext> {
-    tasksize: OnceLock<TaskSize>,
-    priority: OnceLock<Priority<C>>,
-    importance: OnceLock<Importance>,
-    dependencies: OnceLock<Dependencies>,
+    tasksize: OnceCell<TaskSize>,
+    priority: OnceCell<Priority<C>>,
+    importance: OnceCell<Importance>,
+    dependencies: OnceCell<Dependencies>,
 }
 
 // Can't *derive* Defaul due to it requiring C to implement Default,

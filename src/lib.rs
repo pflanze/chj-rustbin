@@ -12,6 +12,7 @@ pub mod alternatively;
 pub mod checked_mutex;
 pub mod chunks;
 pub mod conslist;
+pub mod cpu_probe;
 pub mod duu;
 pub mod fp;
 pub mod get_terminal_width;

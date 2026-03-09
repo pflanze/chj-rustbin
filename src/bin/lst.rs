@@ -1,12 +1,13 @@
 use std::{
     cmp::Ordering,
+    env::set_current_dir,
     ffi::OsStr,
     fmt::Display,
     fs::Metadata,
     io::{stdin, stdout, BufWriter, IoSlice, Read},
     marker::PhantomData,
     os::unix::prelude::{MetadataExt, OsStrExt},
-    path::Path,
+    path::{Path, PathBuf},
     str::{Chars, FromStr},
     time::SystemTime,
 };
@@ -33,6 +34,7 @@ use rayon::{
     prelude::{ParallelBridge, ParallelIterator},
     slice::{ParallelSlice, ParallelSliceMut},
 };
+use regex::Regex;
 
 #[derive(clap::ValueEnum, Clone, Debug)]
 enum ColorMode {
@@ -76,6 +78,16 @@ struct Opt {
     /// Say what is done
     #[clap(short, long)]
     verbose: bool,
+
+    /// Get the path listing internally instead of reading it from
+    /// stdin: list the file names in the given directory (1 level
+    /// deep)
+    #[clap(long)]
+    ls_dir: Option<PathBuf>,
+
+    /// Ignore paths matching the given regex (not glob pattern!)
+    #[clap(short, long)]
+    ignore: Vec<Regex>,
 
     /// Print entries as "long" listing, like `ls -l`
     #[clap(short, long)]
@@ -1149,6 +1161,8 @@ fn main() -> Result<()> {
 
     let Opt {
         verbose,
+        ls_dir,
+        ignore,
         color,
         long,
         z,
@@ -1183,14 +1197,30 @@ fn main() -> Result<()> {
     let now = SystemTime::now();
 
     let mut all_entries: Vec<u8> = Vec::new();
-    {
+    if let Some(basepath) = ls_dir {
+        // It would be cool to start par_bridge as soon as possible,
+        // and using Vec<u8> here is a bit of a hack. But it was
+        // convenient.
+        probe!("read dir");
+        set_current_dir(&basepath)
+            .with_context(|| anyhow!("changing to directory {basepath:?}"))?;
+        for item in std::fs::read_dir(".")
+            .with_context(|| anyhow!("reading directory {basepath:?}"))?
+        {
+            let item = item?;
+            let filename = item.file_name();
+            all_entries.extend_from_slice(filename.as_bytes());
+            all_entries.push(input_record_separator);
+        }
+    } else {
         probe!("copy stdin");
         stdin()
             .lock()
             .read_to_end(&mut all_entries)
-            .context("reading from stdin")?
+            .context("reading from stdin")?;
     };
     chomp(&mut all_entries, input_record_separator);
+    let all_entries = all_entries;
 
     let sortfn = sort_function(reverse, time, time_reversed);
 
@@ -1201,14 +1231,27 @@ fn main() -> Result<()> {
         // flatten them in one go at the end.
         let itemss: Vec<Vec<Item>> = all_entries
             .split(|c| *c == input_record_separator)
+            .map(|path| {
+                let path: &OsStr = OsStr::from_bytes(path);
+                let path: &Path = path.as_ref();
+                path
+            })
             .chunks(1000)
             .par_bridge()
             .map(|paths| -> Result<Vec<Vec<Item>>> {
                 Ok(vec![paths
                     .into_iter()
+                    .filter(|path: &&Path| -> bool {
+                        for pat in &ignore {
+                            // Would it be better security wise to
+                            // ignore non-UTF8 paths, or error out?
+                            if pat.is_match(&path.to_string_lossy()) {
+                                return false;
+                            }
+                        }
+                        true
+                    })
                     .map(|path| -> Result<Option<Item>> {
-                        let path: &OsStr = OsStr::from_bytes(path);
-                        let path: &Path = path.as_ref();
                         // Only stat linked files if used for
                         // coloring, and only in long format anyway.
                         Item::from_path(path, long, use_color)

@@ -3,7 +3,7 @@ use std::{
     ffi::OsStr,
     fmt::Display,
     fs::Metadata,
-    io::{stdin, stdout, BufWriter, Read},
+    io::{stdin, stdout, BufWriter, IoSlice, Read},
     marker::PhantomData,
     os::unix::prelude::{MetadataExt, OsStrExt},
     path::Path,
@@ -23,12 +23,13 @@ use chj_rustbin::{
     is_a_terminal::is_a_terminal,
     path_file_kind::{FileKind, ToFileKind},
     probe,
-    text::yattable::YatTable,
+    text::yattable::{Widths, YatTable},
 };
 use chrono::{DateTime, Datelike, Local, Timelike};
 use clap::Parser;
 use rand::{rngs::ThreadRng, Rng};
 use rayon::{
+    iter::IntoParallelIterator,
     prelude::{ParallelBridge, ParallelIterator},
     slice::{ParallelSlice, ParallelSliceMut},
 };
@@ -1245,20 +1246,53 @@ fn main() -> Result<()> {
                     gr_info_cache,
                 }
             };
-            let subtables: Vec<YatTable<7>> = selected_items
-                .par_chunks(5000)
-                .map(|items| table_from_items.run(items))
-                .collect();
 
-            let mut outp = BufWriter::new(stdout().lock());
-            for table in subtables {
-                table.write_out(
-                    &[false, true, false, false, true, false, false],
-                    output_record_separator,
-                    &mut outp,
-                )?;
+            let subtables: Vec<YatTable<7>> = {
+                probe!("subtables");
+                selected_items
+                    .par_chunks(2000)
+                    .map(|items| table_from_items.run(items))
+                    .collect()
+            };
+
+            let max_widths = {
+                probe!("max_widths");
+                let mut max_widths = Widths::default();
+                for table in &subtables {
+                    max_widths.update_max(table.max_widths());
+                }
+                max_widths
+            };
+
+            let alignments = &[false, true, false, false, true, false, false];
+
+            let output_chunks: Vec<Vec<u8>> = {
+                probe!("output_chunks");
+                subtables
+                    .into_par_iter()
+                    .map(|mut table| {
+                        table.set_max_widths(max_widths.clone());
+                        let mut outp = Vec::new();
+                        table
+                            .write_out(
+                                alignments,
+                                output_record_separator,
+                                &mut outp,
+                            )
+                            .expect("writing to mem doesn't fail");
+                        outp
+                    })
+                    .collect()
+            };
+
+            {
+                probe!("write out");
+                let mut outp = stdout().lock();
+                let output_ioslices: Vec<_> =
+                    output_chunks.iter().map(|v| IoSlice::new(v)).collect();
+                outp.write_vectored(&*output_ioslices)?;
+                outp.flush()?;
             }
-            outp.flush()?;
         }
         Ok(())
     })()

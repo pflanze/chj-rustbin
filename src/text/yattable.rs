@@ -21,7 +21,7 @@ impl<const COLUMNS: usize> Default for Widths<COLUMNS> {
 }
 
 impl<const COLUMNS: usize> Widths<COLUMNS> {
-    fn update_max(&mut self, new: &Self) {
+    pub fn update_max(&mut self, new: &Self) {
         for i in 0..COLUMNS {
             if new.0[i] > self.0[i] {
                 self.0[i] = new.0[i];
@@ -118,6 +118,14 @@ impl<const COLUMNS: usize> YatTable<COLUMNS> {
             written: 0,
             row: Default::default(),
         }
+    }
+
+    pub fn max_widths(&self) -> &Widths<COLUMNS> {
+        &self.max_widths
+    }
+
+    pub fn set_max_widths(&mut self, val: Widths<COLUMNS>) {
+        self.max_widths = val;
     }
 
     pub fn write_out(

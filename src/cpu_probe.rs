@@ -1,7 +1,9 @@
 //! Simple CPU time measurement probes, printing
 //! human-readable/somewhat-TSV format to stderr
 
-use std::{sync::atomic::AtomicBool, time::SystemTime};
+use std::{
+    os::unix::prelude::OsStrExt, sync::atomic::AtomicBool, time::SystemTime,
+};
 
 use anyhow::{bail, Result};
 
@@ -19,7 +21,7 @@ pub fn is_active() -> bool {
 /// variable. Returns an error for invalid values.
 pub fn init() -> Result<()> {
     let active = match std::env::var_os("CPU_PROBE") {
-        Some(s) => match s.as_encoded_bytes() {
+        Some(s) => match s.as_bytes() {
             b"0" | b"false" | b"f" | b"inactive" => false,
             b"1" | b"true" | b"t" | b"active" => true,
             _ => bail!(

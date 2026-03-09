@@ -21,6 +21,7 @@ use chj_rustbin::{
         unix_pw::{PwInfoCache, Uid},
     },
     is_a_terminal::is_a_terminal,
+    merge::merge,
     path_file_kind::{FileKind, ToFileKind},
     probe,
     text::yattable::{Widths, YatTable},
@@ -31,7 +32,7 @@ use rand::{rngs::ThreadRng, Rng};
 use rayon::{
     iter::IntoParallelIterator,
     prelude::{ParallelBridge, ParallelIterator},
-    slice::{ParallelSlice, ParallelSliceMut},
+    slice::ParallelSlice,
 };
 
 #[derive(clap::ValueEnum, Clone, Debug)]
@@ -1184,7 +1185,7 @@ fn main() -> Result<()> {
             .chunks(1000)
             .par_bridge()
             .map(|paths| -> Result<Vec<Item>> {
-                paths
+                let mut items = paths
                     .into_iter()
                     .map(|path| -> Result<Option<Item>> {
                         let path: &OsStr = OsStr::from_bytes(path);
@@ -1192,23 +1193,12 @@ fn main() -> Result<()> {
                         Item::from_path(path, long)
                     })
                     .filter_map(|r| r.transpose())
-                    .collect::<Result<Vec<_>>>()
+                    .collect::<Result<Vec<_>>>()?;
+                items.sort_unstable_by(sortfn);
+                Ok(items)
             })
-            .reduce(
-                || Ok(Vec::new()),
-                |a, b| {
-                    let mut a = a?;
-                    let mut b = b?;
-                    a.append(&mut b);
-                    Ok(a)
-                },
-            )?
+            .reduce(|| Ok(Vec::new()), |a, b| Ok(merge(a?, b?, sortfn)))?
     };
-
-    {
-        probe!("sort_items");
-        items.par_sort_by(sortfn);
-    }
 
     let selected_items = run_processing_commands(&mut items, &cmds, now);
 

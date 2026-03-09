@@ -87,7 +87,7 @@ impl PwInfoCache {
         Self::default()
     }
 
-    pub fn get_by_uid(&mut self, uid: Uid) -> Option<&PwInfo> {
+    pub fn lookup_by_uid(&mut self, uid: Uid) -> Option<&PwInfo> {
         match self.0.entry(uid) {
             std::collections::hash_map::Entry::Occupied(o) => {
                 Some(o.into_mut())
@@ -100,5 +100,9 @@ impl PwInfoCache {
                 }
             }
         }
+    }
+
+    pub fn get_by_uid(&self, uid: Uid) -> Option<&PwInfo> {
+        self.0.get(&uid)
     }
 }

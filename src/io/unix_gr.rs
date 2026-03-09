@@ -75,7 +75,7 @@ impl GrInfoCache {
         Self::default()
     }
 
-    pub fn get_by_gid(&mut self, gid: Gid) -> Option<&GrInfo> {
+    pub fn lookup_by_gid(&mut self, gid: Gid) -> Option<&GrInfo> {
         match self.0.entry(gid) {
             std::collections::hash_map::Entry::Occupied(o) => {
                 Some(o.into_mut())
@@ -88,5 +88,9 @@ impl GrInfoCache {
                 }
             }
         }
+    }
+
+    pub fn get_by_gid(&self, gid: Gid) -> Option<&GrInfo> {
+        self.0.get(&gid)
     }
 }

@@ -15,12 +15,14 @@ use anstyle::{AnsiColor, Color, Style};
 use anyhow::{anyhow, bail, Context, Result};
 use chj_rustbin::{
     chunks::ChunksOp,
+    cpu_probe,
     io::{
         unix_gr::{Gid, GrInfoCache},
         unix_pw::{PwInfoCache, Uid},
     },
     is_a_terminal::is_a_terminal,
     path_file_kind::{FileKind, ToFileKind},
+    probe,
     text::yattable::YatTable,
 };
 use chrono::{DateTime, Datelike, Local, Timelike};
@@ -499,6 +501,7 @@ fn sort_items<'t: 'v, 'v>(
     time: bool,
     time_reversed: bool,
 ) {
+    probe!("sort_items");
     if !time {
         if reverse {
             items.par_sort_by(|b, a| ci_cmp(&a.path, &b.path));
@@ -550,6 +553,7 @@ fn run_processing_commands<'t: 'v, 'v>(
     cmds: &[ProcessingCommand],
     now: SystemTime,
 ) -> &'v mut [Item<'t>] {
+    probe!("run_processing_commands");
     let mut selected_items = unsafe { hack_static(&mut **items) };
     for cmd in cmds {
         match cmd {
@@ -1011,6 +1015,8 @@ impl<'t> Item<'t> {
 }
 
 fn main() -> Result<()> {
+    cpu_probe::init()?;
+
     let Opt {
         verbose,
         color,
@@ -1040,36 +1046,42 @@ fn main() -> Result<()> {
 
     let now = SystemTime::now();
 
-    let mut all_entries = Vec::new();
-    stdin()
-        .lock()
-        .read_to_end(&mut all_entries)
-        .context("reading from stdin")?;
+    let mut all_entries: Vec<u8> = Vec::new();
+    {
+        probe!("copy stdin");
+        stdin()
+            .lock()
+            .read_to_end(&mut all_entries)
+            .context("reading from stdin")?
+    };
     chomp(&mut all_entries, input_record_separator);
-    let mut items: Vec<Item> = all_entries
-        .split(|c| *c == input_record_separator)
-        .chunks(1000)
-        .par_bridge()
-        .map(|paths| -> Result<Vec<Item>> {
-            paths
-                .into_iter()
-                .map(|path| -> Result<Option<Item>> {
-                    let path: &OsStr = OsStr::from_bytes(path);
-                    let path: &Path = path.as_ref();
-                    Item::from_path(path, long)
-                })
-                .filter_map(|r| r.transpose())
-                .collect::<Result<Vec<_>>>()
-        })
-        .reduce(
-            || Ok(Vec::new()),
-            |a, b| {
-                let mut a = a?;
-                let mut b = b?;
-                a.append(&mut b);
-                Ok(a)
-            },
-        )?;
+    let mut items: Vec<Item> = {
+        probe!("items");
+        all_entries
+            .split(|c| *c == input_record_separator)
+            .chunks(1000)
+            .par_bridge()
+            .map(|paths| -> Result<Vec<Item>> {
+                paths
+                    .into_iter()
+                    .map(|path| -> Result<Option<Item>> {
+                        let path: &OsStr = OsStr::from_bytes(path);
+                        let path: &Path = path.as_ref();
+                        Item::from_path(path, long)
+                    })
+                    .filter_map(|r| r.transpose())
+                    .collect::<Result<Vec<_>>>()
+            })
+            .reduce(
+                || Ok(Vec::new()),
+                |a, b| {
+                    let mut a = a?;
+                    let mut b = b?;
+                    a.append(&mut b);
+                    Ok(a)
+                },
+            )?
+    };
 
     sort_items(&mut items, reverse, time, time_reversed);
 
@@ -1078,6 +1090,7 @@ fn main() -> Result<()> {
     let mut pw_info_cache = PwInfoCache::new();
     let mut gr_info_cache = GrInfoCache::new();
 
+    probe!("writing to stdout");
     (|| -> Result<()> {
         use std::io::Write;
         if !long {

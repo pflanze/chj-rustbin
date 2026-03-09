@@ -1179,12 +1179,15 @@ fn main() -> Result<()> {
 
     let mut items: Vec<Item> = {
         probe!("items");
-        all_entries
+        // To avoid appending individual items multiple times (in
+        // multiple reduce layers), collect the original vectors then
+        // flatten them in one go at the end.
+        let itemss: Vec<Vec<Item>> = all_entries
             .split(|c| *c == input_record_separator)
             .chunks(1000)
             .par_bridge()
-            .map(|paths| -> Result<Vec<Item>> {
-                paths
+            .map(|paths| -> Result<Vec<Vec<Item>>> {
+                Ok(vec![paths
                     .into_iter()
                     .map(|path| -> Result<Option<Item>> {
                         let path: &OsStr = OsStr::from_bytes(path);
@@ -1192,7 +1195,7 @@ fn main() -> Result<()> {
                         Item::from_path(path, long)
                     })
                     .filter_map(|r| r.transpose())
-                    .collect::<Result<Vec<_>>>()
+                    .collect::<Result<Vec<_>>>()?])
             })
             .reduce(
                 || Ok(Vec::new()),
@@ -1202,7 +1205,9 @@ fn main() -> Result<()> {
                     a.append(&mut b);
                     Ok(a)
                 },
-            )?
+            )?;
+        // `into_par_iter` would be a large slow down here!
+        itemss.into_iter().flatten().collect()
     };
 
     {

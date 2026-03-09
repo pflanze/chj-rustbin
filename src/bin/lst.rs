@@ -961,8 +961,14 @@ struct Item<'t> {
 }
 
 impl<'t> Item<'t> {
-    /// Returns None if the path is not found
-    pub fn from_path(path: &'t Path, read_link: bool) -> Result<Option<Self>> {
+    /// Returns None if the path is not found. `read_link` is true,
+    /// retrieve the link target path; if `stat_link_target` is
+    /// additionally true, try to get the metadata for the target, too
+    pub fn from_path(
+        path: &'t Path,
+        read_link: bool,
+        stat_link_target: bool,
+    ) -> Result<Option<Self>> {
         match path.symlink_metadata() {
             Ok(s) => {
                 let metadata = EssentialMetadata::from_symlink_metadata(
@@ -973,7 +979,8 @@ impl<'t> Item<'t> {
                     if read_link && metadata.mode.filetype().is_link() {
                         match path.read_link() {
                             Ok(t) => {
-                                let metadata2 = path
+                                let metadata2 = if stat_link_target {
+                                    path
                                 .metadata()
                                 .ok()
                                 .map(|m| {
@@ -983,7 +990,10 @@ impl<'t> Item<'t> {
                                     )
                                     .ok()
                                 })
-                                .flatten();
+                                            .flatten()
+                                } else {
+                                    None
+                                };
                                 Some((t.into(), metadata2))
                             }
                             Err(_) => None,
@@ -1072,7 +1082,8 @@ impl TableFromItems {
                 "{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}"
             ));
 
-            let is_broken_link = item.metadata.mode.filetype().is_link()
+            let is_broken_link = *use_color
+                && item.metadata.mode.filetype().is_link()
                 && !item
                     .link_target
                     .as_ref()
@@ -1163,6 +1174,12 @@ fn main() -> Result<()> {
     let input_record_separator = if z { 0 } else { b'\n' };
     let output_record_separator = if zo { 0 } else { b'\n' };
 
+    let use_color = match color {
+        ColorMode::Always => true,
+        ColorMode::Never => false,
+        ColorMode::Auto => is_a_terminal(1),
+    };
+
     let now = SystemTime::now();
 
     let mut all_entries: Vec<u8> = Vec::new();
@@ -1192,7 +1209,9 @@ fn main() -> Result<()> {
                     .map(|path| -> Result<Option<Item>> {
                         let path: &OsStr = OsStr::from_bytes(path);
                         let path: &Path = path.as_ref();
-                        Item::from_path(path, long)
+                        // Only stat linked files if used for
+                        // coloring, and only in long format anyway.
+                        Item::from_path(path, long, use_color)
                     })
                     .filter_map(|r| r.transpose())
                     .collect::<Result<Vec<_>>>()?])
@@ -1228,12 +1247,6 @@ fn main() -> Result<()> {
             }
             outp.flush()?;
         } else {
-            let use_color = match color {
-                ColorMode::Always => true,
-                ColorMode::Never => false,
-                ColorMode::Auto => is_a_terminal(1),
-            };
-
             let table_from_items = {
                 probe!("resolve pw+gr info");
                 let mut pw_info_cache = PwInfoCache::new();

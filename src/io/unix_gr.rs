@@ -18,6 +18,9 @@ pub struct GrInfo {
     gr: group,
 }
 
+unsafe impl Sync for GrInfo {}
+unsafe impl Send for GrInfo {}
+
 impl GrInfo {
     /// Returns Null when not unicode, but also when name is NULL (not
     /// set?)

@@ -27,6 +27,9 @@ pub struct PwInfo {
     pwd: passwd,
 }
 
+unsafe impl Sync for PwInfo {}
+unsafe impl Send for PwInfo {}
+
 impl PwInfo {
     /// Returns Null when not unicode, but also when name is NULL (not
     /// set?)

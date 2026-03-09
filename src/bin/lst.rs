@@ -8,6 +8,7 @@ use std::{
     os::unix::prelude::{MetadataExt, OsStrExt},
     path::Path,
     str::{Chars, FromStr},
+    sync::Mutex,
     time::SystemTime,
 };
 
@@ -30,7 +31,7 @@ use clap::Parser;
 use rand::{rngs::ThreadRng, Rng};
 use rayon::{
     prelude::{ParallelBridge, ParallelIterator},
-    slice::ParallelSliceMut,
+    slice::{ParallelSlice, ParallelSliceMut},
 };
 
 #[derive(clap::ValueEnum, Clone, Debug)]
@@ -552,7 +553,7 @@ fn run_processing_commands<'t: 'v, 'v>(
     items: &'v mut Vec<Item<'t>>,
     cmds: &[ProcessingCommand],
     now: SystemTime,
-) -> &'v mut [Item<'t>] {
+) -> &'v [Item<'t>] {
     probe!("run_processing_commands");
     let mut selected_items = unsafe { hack_static(&mut **items) };
     for cmd in cmds {
@@ -1014,6 +1015,123 @@ impl<'t> Item<'t> {
     }
 }
 
+struct TableFromItems {
+    use_color: bool,
+    pw_info_cache: Mutex<PwInfoCache>,
+    gr_info_cache: Mutex<GrInfoCache>,
+}
+
+impl TableFromItems {
+    fn run<'t>(&self, items: &[Item<'t>]) -> YatTable<7> {
+        let Self {
+            use_color,
+            pw_info_cache,
+            gr_info_cache,
+        } = self;
+        let mut table = YatTable::new();
+        for item in items {
+            let mode = item.metadata.mode;
+            let nlink = item.metadata.nlink;
+            let size = item.metadata.size;
+            let uid = item.metadata.uid;
+            let gid = item.metadata.gid;
+
+            let mut row = table.new_row();
+            row.add_cell_fmt(format_args!("{mode}"));
+            row.add_cell_fmt(format_args!("{nlink}"));
+            {
+                let mut lock = pw_info_cache.lock().expect("no panics");
+                let username = lock
+                    .get_by_uid(uid)
+                    .and_then(|u| u.username())
+                    .unwrap_or("<unknown>");
+                row.add_cell_fmt(format_args!("{username}"));
+            }
+            {
+                let mut lock = gr_info_cache.lock().expect("no panics");
+                let groupname = lock
+                    .get_by_gid(gid)
+                    .and_then(|g| g.groupname())
+                    .unwrap_or("<unknown>");
+                row.add_cell_fmt(format_args!("{groupname}"));
+            }
+            if let Some(rdev) = item.metadata.device {
+                row.add_cell_fmt(format_args!(
+                    "{}, {}",
+                    rdev.major(),
+                    rdev.minor()
+                ));
+            } else {
+                row.add_cell_fmt(format_args!("{size}"));
+            }
+            let t: DateTime<Local> = item.metadata.mtime.into();
+            let (year, month, day, hour, minute) =
+                (t.year(), t.month(), t.day(), t.hour(), t.minute());
+            row.add_cell_fmt(format_args!(
+                "{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}"
+            ));
+
+            let is_broken_link = item.metadata.mode.filetype().is_link()
+                && !item
+                    .link_target
+                    .as_ref()
+                    .map(|(_, m)| m.is_some())
+                    .unwrap_or(false);
+            let style = if *use_color {
+                // Special color if it's a broken link
+                if is_broken_link {
+                    Some(
+                        Style::new()
+                            .bold()
+                            .fg_color(Some(Color::Ansi(AnsiColor::Red)))
+                            .bg_color(Some(Color::Ansi(AnsiColor::Black))),
+                    )
+                } else {
+                    // Otherwise (not a link, or not broken) what
+                    // the metadata dictates
+                    item.metadata.style()
+                }
+            } else {
+                None
+            };
+
+            if let Some(style) = style {
+                row.add_cell_fmt(format_args!("{style}"));
+                row.amend_cell_bytes(item.path.as_os_str().as_bytes());
+            } else {
+                row.add_cell_bytes(item.path.as_os_str().as_bytes());
+            }
+            if let Some(style) = style {
+                row.amend_cell_fmt(format_args!("{style:#}"));
+            }
+
+            if let Some((target_path, target_metadata)) = &item.link_target {
+                row.amend_cell_bytes(b" -> ");
+
+                let target_style = if *use_color {
+                    // If it's a broken link, re-use the same style as the main item
+                    if is_broken_link {
+                        style
+                    } else {
+                        target_metadata.as_ref().map(|m| m.style()).flatten()
+                    }
+                } else {
+                    None
+                };
+
+                if let Some(target_style) = target_style {
+                    row.amend_cell_fmt(format_args!("{target_style}"));
+                }
+                row.amend_cell_bytes(target_path.as_os_str().as_bytes());
+                if let Some(target_style) = target_style {
+                    row.amend_cell_fmt(format_args!("{target_style:#}"));
+                }
+            }
+        }
+        table
+    }
+}
+
 fn main() -> Result<()> {
     cpu_probe::init()?;
 
@@ -1087,9 +1205,6 @@ fn main() -> Result<()> {
 
     let selected_items = run_processing_commands(&mut items, &cmds, now);
 
-    let mut pw_info_cache = PwInfoCache::new();
-    let mut gr_info_cache = GrInfoCache::new();
-
     probe!("writing to stdout");
     (|| -> Result<()> {
         use std::io::Write;
@@ -1106,112 +1221,24 @@ fn main() -> Result<()> {
                 ColorMode::Never => false,
                 ColorMode::Auto => is_a_terminal(1),
             };
-            let mut table = YatTable::<7>::new();
-            for item in selected_items {
-                let mode = item.metadata.mode;
-                let nlink = item.metadata.nlink;
-                let size = item.metadata.size;
-                let uid = item.metadata.uid;
-                let gid = item.metadata.gid;
+            let table_from_items = TableFromItems {
+                use_color,
+                pw_info_cache: Mutex::new(PwInfoCache::new()),
+                gr_info_cache: Mutex::new(GrInfoCache::new()),
+            };
+            let subtables: Vec<YatTable<7>> = selected_items
+                .par_chunks(5000)
+                .map(|items| table_from_items.run(items))
+                .collect();
 
-                let username = pw_info_cache
-                    .get_by_uid(uid)
-                    .and_then(|u| u.username())
-                    .unwrap_or("<unknown>");
-
-                let groupname = gr_info_cache
-                    .get_by_gid(gid)
-                    .and_then(|g| g.groupname())
-                    .unwrap_or("<unknown>");
-
-                let mut row = table.new_row();
-                row.add_cell_fmt(format_args!("{mode}"));
-                row.add_cell_fmt(format_args!("{nlink}"));
-                row.add_cell_fmt(format_args!("{username}"));
-                row.add_cell_fmt(format_args!("{groupname}"));
-                if let Some(rdev) = item.metadata.device {
-                    row.add_cell_fmt(format_args!(
-                        "{}, {}",
-                        rdev.major(),
-                        rdev.minor()
-                    ));
-                } else {
-                    row.add_cell_fmt(format_args!("{size}"));
-                }
-                let t: DateTime<Local> = item.metadata.mtime.into();
-                let (year, month, day, hour, minute) =
-                    (t.year(), t.month(), t.day(), t.hour(), t.minute());
-                row.add_cell_fmt(format_args!(
-                    "{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}"
-                ));
-
-                let is_broken_link = item.metadata.mode.filetype().is_link()
-                    && !item
-                        .link_target
-                        .as_ref()
-                        .map(|(_, m)| m.is_some())
-                        .unwrap_or(false);
-                let style = if use_color {
-                    // Special color if it's a broken link
-                    if is_broken_link {
-                        Some(
-                            Style::new()
-                                .bold()
-                                .fg_color(Some(Color::Ansi(AnsiColor::Red)))
-                                .bg_color(Some(Color::Ansi(AnsiColor::Black))),
-                        )
-                    } else {
-                        // Otherwise (not a link, or not broken) what
-                        // the metadata dictates
-                        item.metadata.style()
-                    }
-                } else {
-                    None
-                };
-
-                if let Some(style) = style {
-                    row.add_cell_fmt(format_args!("{style}"));
-                    row.amend_cell_bytes(item.path.as_os_str().as_bytes());
-                } else {
-                    row.add_cell_bytes(item.path.as_os_str().as_bytes());
-                }
-                if let Some(style) = style {
-                    row.amend_cell_fmt(format_args!("{style:#}"));
-                }
-
-                if let Some((target_path, target_metadata)) = &item.link_target
-                {
-                    row.amend_cell_bytes(b" -> ");
-
-                    let target_style = if use_color {
-                        // If it's a broken link, re-use the same style as the main item
-                        if is_broken_link {
-                            style
-                        } else {
-                            target_metadata
-                                .as_ref()
-                                .map(|m| m.style())
-                                .flatten()
-                        }
-                    } else {
-                        None
-                    };
-
-                    if let Some(target_style) = target_style {
-                        row.amend_cell_fmt(format_args!("{target_style}"));
-                    }
-                    row.amend_cell_bytes(target_path.as_os_str().as_bytes());
-                    if let Some(target_style) = target_style {
-                        row.amend_cell_fmt(format_args!("{target_style:#}"));
-                    }
-                }
-            }
             let mut outp = BufWriter::new(stdout().lock());
-            table.write_out(
-                &[false, true, false, false, true, false, false],
-                output_record_separator,
-                &mut outp,
-            )?;
+            for table in subtables {
+                table.write_out(
+                    &[false, true, false, false, true, false, false],
+                    output_record_separator,
+                    &mut outp,
+                )?;
+            }
             outp.flush()?;
         }
         Ok(())

@@ -316,7 +316,7 @@ fn optimize_processing_commands(
 mod tests {
     use super::*;
     use rand::{thread_rng, Rng};
-    use rayon::iter::IntoParallelIterator;
+    use rayon::{iter::IntoParallelIterator, slice::ParallelSliceMut};
     use std::time::Duration;
 
     #[test]
@@ -367,12 +367,12 @@ mod tests {
                 }
             })
             .collect();
-        sort_items(
-            &mut items,
+        let sortfn = sort_function(
             rng.gen_bool(0.5),
             rng.gen_bool(0.5),
             rng.gen_bool(0.5),
         );
+        items.par_sort_by(sortfn);
         let items = items;
 
         // Search for invalid optimizations
@@ -496,47 +496,45 @@ fn ci_cmp(a: &Path, b: &Path) -> Ordering {
 /// If `time_reversed`, then time sorting is with newest items at the
 /// bottom by default; this also changes to forward alphanumeric
 /// fallback for that sorting.
-fn sort_items<'t: 'v, 'v>(
-    items: &'v mut Vec<Item<'t>>,
+fn sort_function<'t: 'v, 'v>(
     reverse: bool,
     time: bool,
     time_reversed: bool,
-) {
-    probe!("sort_items");
+) -> for<'a, 'b, 'i> fn(a: &'a Item<'i>, b: &'b Item<'i>) -> Ordering {
     if !time {
         if reverse {
-            items.par_sort_by(|b, a| ci_cmp(&a.path, &b.path));
+            |b, a| ci_cmp(&a.path, &b.path)
         } else {
-            items.par_sort_by(|a, b| ci_cmp(&a.path, &b.path));
+            |a, b| ci_cmp(&a.path, &b.path)
         }
     } else {
         if time_reversed {
             if !reverse {
-                items.par_sort_by(|a, b| {
+                |a, b| {
                     a.mtime()
                         .cmp(&b.mtime())
                         .then_with(|| ci_cmp(&a.path, &b.path))
-                });
+                }
             } else {
-                items.par_sort_by(|b, a| {
+                |b, a| {
                     a.mtime()
                         .cmp(&b.mtime())
                         .then_with(|| ci_cmp(&a.path, &b.path))
-                });
+                }
             }
         } else {
             if reverse {
-                items.par_sort_by(|a, b| {
+                |a, b| {
                     a.mtime()
                         .cmp(&b.mtime())
                         .then_with(|| ci_cmp(&b.path, &a.path))
-                });
+                }
             } else {
-                items.par_sort_by(|b, a| {
+                |b, a| {
                     a.mtime()
                         .cmp(&b.mtime())
                         .then_with(|| ci_cmp(&b.path, &a.path))
-                });
+                }
             }
         }
     }
@@ -1171,6 +1169,9 @@ fn main() -> Result<()> {
             .context("reading from stdin")?
     };
     chomp(&mut all_entries, input_record_separator);
+
+    let sortfn = sort_function(reverse, time, time_reversed);
+
     let mut items: Vec<Item> = {
         probe!("items");
         all_entries
@@ -1199,7 +1200,10 @@ fn main() -> Result<()> {
             )?
     };
 
-    sort_items(&mut items, reverse, time, time_reversed);
+    {
+        probe!("sort_items");
+        items.par_sort_by(sortfn);
+    }
 
     let selected_items = run_processing_commands(&mut items, &cmds, now);
 

@@ -1223,9 +1223,21 @@ fn main() -> Result<()> {
                 probe!("resolve pw+gr info");
                 let mut pw_info_cache = PwInfoCache::new();
                 let mut gr_info_cache = GrInfoCache::new();
-                for item in selected_items {
-                    pw_info_cache.lookup_by_uid(item.metadata.uid);
-                    gr_info_cache.lookup_by_gid(item.metadata.gid);
+                if let Some(item) = selected_items.first() {
+                    let (uid, gid) = (item.metadata.uid, item.metadata.gid);
+                    pw_info_cache.lookup_by_uid(uid);
+                    gr_info_cache.lookup_by_gid(gid);
+                    let (mut last_uid, mut last_gid) = (uid, gid);
+                    for item in selected_items {
+                        let (uid, gid) = (item.metadata.uid, item.metadata.gid);
+                        if uid != last_uid {
+                            pw_info_cache.lookup_by_uid(uid);
+                        }
+                        if gid != last_gid {
+                            gr_info_cache.lookup_by_gid(gid);
+                        }
+                        (last_uid, last_gid) = (uid, gid)
+                    }
                 }
                 TableFromItems {
                     use_color,

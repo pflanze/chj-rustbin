@@ -8,7 +8,6 @@ use std::{
     os::unix::prelude::{MetadataExt, OsStrExt},
     path::Path,
     str::{Chars, FromStr},
-    sync::Mutex,
     time::SystemTime,
 };
 
@@ -1017,8 +1016,8 @@ impl<'t> Item<'t> {
 
 struct TableFromItems {
     use_color: bool,
-    pw_info_cache: Mutex<PwInfoCache>,
-    gr_info_cache: Mutex<GrInfoCache>,
+    pw_info_cache: PwInfoCache,
+    gr_info_cache: GrInfoCache,
 }
 
 impl TableFromItems {
@@ -1040,16 +1039,14 @@ impl TableFromItems {
             row.add_cell_fmt(format_args!("{mode}"));
             row.add_cell_fmt(format_args!("{nlink}"));
             {
-                let mut lock = pw_info_cache.lock().expect("no panics");
-                let username = lock
+                let username = pw_info_cache
                     .get_by_uid(uid)
                     .and_then(|u| u.username())
                     .unwrap_or("<unknown>");
                 row.add_cell_fmt(format_args!("{username}"));
             }
             {
-                let mut lock = gr_info_cache.lock().expect("no panics");
-                let groupname = lock
+                let groupname = gr_info_cache
                     .get_by_gid(gid)
                     .and_then(|g| g.groupname())
                     .unwrap_or("<unknown>");
@@ -1221,10 +1218,20 @@ fn main() -> Result<()> {
                 ColorMode::Never => false,
                 ColorMode::Auto => is_a_terminal(1),
             };
-            let table_from_items = TableFromItems {
-                use_color,
-                pw_info_cache: Mutex::new(PwInfoCache::new()),
-                gr_info_cache: Mutex::new(GrInfoCache::new()),
+
+            let table_from_items = {
+                probe!("resolve pw+gr info");
+                let mut pw_info_cache = PwInfoCache::new();
+                let mut gr_info_cache = GrInfoCache::new();
+                for item in selected_items {
+                    pw_info_cache.lookup_by_uid(item.metadata.uid);
+                    gr_info_cache.lookup_by_gid(item.metadata.gid);
+                }
+                TableFromItems {
+                    use_color,
+                    pw_info_cache,
+                    gr_info_cache,
+                }
             };
             let subtables: Vec<YatTable<7>> = selected_items
                 .par_chunks(5000)

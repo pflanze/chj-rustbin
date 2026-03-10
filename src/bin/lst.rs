@@ -21,7 +21,7 @@ use chj_rustbin::{
         unix_pw::{PwInfoCache, Uid},
     },
     io_utils::{
-        read_buf::{ReadBufStream, ReadBufStreamError},
+        read_buf::{ParReadBufStream, ReadBufStream, ReadBufStreamError},
         read_dir_bufs::ReadDirBufStream,
     },
     is_a_terminal::is_a_terminal,
@@ -33,7 +33,7 @@ use chrono::{DateTime, Datelike, Local, Timelike};
 use clap::Parser;
 use rand::{rngs::ThreadRng, Rng};
 use rayon::{
-    iter::IntoParallelIterator,
+    iter::{IntoParallelIterator, ParallelBridge},
     prelude::ParallelIterator,
     slice::{ParallelSlice, ParallelSliceMut},
 };
@@ -1170,22 +1170,22 @@ impl<'t> Process<'t> {
     /// Leaks the backing memory for Item for now for simplicity
     fn run(
         &self,
-        input: impl Iterator<Item = Result<Vec<u8>, ReadBufStreamError>>,
+        input: impl ParallelIterator<Item = Result<Vec<u8>, ReadBufStreamError>>,
     ) -> Result<Vec<Item<'static>>> {
         probe!("items");
         // To avoid appending individual items multiple times (in
         // multiple reduce layers), collect the original vectors then
         // flatten them in one go at the end.
         let itemss: Vec<Vec<Item>> = input
-            .map(|chunk| -> Result<Vec<Item>> {
+            .map(|chunk| -> Result<Vec<Vec<Item>>> {
                 let mut chunk = chunk?;
                 chomp(&mut chunk, self.input_record_separator);
                 // XX hack for now, OK for single-shot program
                 let chunk = chunk.leak();
                 let paths = chunk.split(|c| *c == self.input_record_separator);
 
-                paths
-                    .map(|path: &[u8]| -> &Path {
+                Ok(vec![paths
+                    .map(|path| {
                         let path: &OsStr = OsStr::from_bytes(path);
                         let path: &Path = path.as_ref();
                         path
@@ -1206,9 +1206,17 @@ impl<'t> Process<'t> {
                         Item::from_path(path, self.long, self.use_color)
                     })
                     .filter_map(|r| r.transpose())
-                    .collect()
+                    .collect::<Result<Vec<_>>>()?])
             })
-            .collect::<Result<Vec<Vec<Item>>>>()?;
+            .reduce(
+                || Ok(Vec::new()),
+                |a, b| {
+                    let mut a = a?;
+                    let mut b = b?;
+                    a.append(&mut b);
+                    Ok(a)
+                },
+            )?;
         // `into_par_iter` would be a large slow down here!
         Ok(itemss.into_iter().flatten().collect())
     }
@@ -1268,18 +1276,21 @@ fn main() -> Result<()> {
     let mut items: Vec<Item> = if let Some(basepath) = ls_dir {
         set_current_dir(&basepath)
             .with_context(|| anyhow!("changing to directory {basepath:?}"))?;
-        process.run(&mut ReadDirBufStream::new(
+        process.run(ReadDirBufStream::new(
             std::fs::read_dir(".")
                 .with_context(|| anyhow!("reading directory {basepath:?}"))?,
             desired_number_of_paths_per_chunk * 100,
             input_record_separator,
         ))?
     } else {
-        process.run(&mut ReadBufStream::new(
-            stdin().lock(),
-            desired_number_of_paths_per_chunk * 100,
-            input_record_separator,
-        ))?
+        process.run(
+            ParReadBufStream::from(ReadBufStream::new(
+                stdin().lock(),
+                desired_number_of_paths_per_chunk * 100,
+                input_record_separator,
+            ))
+            .par_bridge(),
+        )?
     };
 
     let sortfn = sort_function(reverse, time, time_reversed);

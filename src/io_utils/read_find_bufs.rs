@@ -18,8 +18,10 @@ pub struct FindBufStream {
     recv: Receiver<Result<Vec<u8>, ReadBufStreamError>>,
     // Half-finished buffers
     spares: Arc<Mutex<Vec<Vec<u8>>>>,
-    // After recv is done, move `spares` here
-    spares_end: Option<Vec<Vec<u8>>>,
+    // After recv is done, move `spares` here: `spares_end:
+    // Option<Vec<Vec<u8>>>`--no, race condition between Receiver and
+    // Arc would require retrying, which will probably waste the
+    // benefits.
 }
 
 struct TaskContext {
@@ -143,18 +145,8 @@ impl Iterator for FindBufStream {
             // Should we set a flag on Err to yield None forever
             // afterwards?
             Err(_) => {
-                if let Some(spares) = &mut self.spares_end {
-                    spares.pop().map(|v| Ok(v))
-                } else {
-                    let mut arc = Arc::new(Mutex::new(Vec::new()));
-                    std::mem::swap(&mut arc, &mut self.spares);
-                    let m =
-                        Arc::try_unwrap(arc).expect("XXX OH race condition");
-                    let vec = m.into_inner().expect("no panics");
-                    self.spares_end = Some(vec);
-                    let spares = self.spares_end.as_mut().expect("just set");
-                    spares.pop().map(|v| Ok(v))
-                }
+                let mut lock = self.spares.lock().expect("no panics");
+                lock.pop().map(|v| Ok(v))
             }
         }
     }
@@ -167,10 +159,6 @@ impl FindBufStream {
         let (send, recv) = channel();
         let spares = Arc::new(Mutex::new(Vec::new()));
         TaskContext::new(buf_size, send, spares.clone(), dir).spawn(true);
-        Self {
-            recv,
-            spares,
-            spares_end: None,
-        }
+        Self { recv, spares }
     }
 }

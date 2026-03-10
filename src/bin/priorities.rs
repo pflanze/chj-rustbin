@@ -24,6 +24,7 @@ use mimalloc::MiMalloc;
 use once_cell::sync::OnceCell;
 use rayon::prelude::ParallelBridge;
 use rayon::{iter::ParallelIterator, slice::ParallelSliceMut};
+use regex::Regex;
 
 use chj_rustbin::{
     chunks::ChunksOp,
@@ -89,6 +90,11 @@ struct Opts {
     /// do not ignore dot and Emacs backup (ending in '~') files
     #[clap(short, long)]
     all: bool,
+
+    /// ignore files whose path is matching the given regex (can be
+    /// given multiple times)
+    #[clap(short, long)]
+    ignore: Vec<Regex>,
 
     /// show what the program is doing
     #[clap(short, long)]
@@ -2376,6 +2382,16 @@ fn show_current_timing(
     }
 }
 
+fn ignored_by(ignore: &[Regex], path: &Path) -> bool {
+    let s = path.to_string_lossy();
+    for re in ignore {
+        if re.is_match(&s) {
+            return true;
+        }
+    }
+    false
+}
+
 fn main() -> Result<()> {
     let Opts {
         show_timings,
@@ -2384,6 +2400,7 @@ fn main() -> Result<()> {
         files: _,
         other: _,
         all,
+        ignore,
         verbose,
         no_priority,
         time,
@@ -2466,16 +2483,25 @@ fn main() -> Result<()> {
                         match item {
                             Ok(item) => {
                                 if item.is_file() || item.is_dir() {
-                                    Some((
-                                        id,
-                                        parse_path(
+                                    if (!ignore.is_empty())
+                                        && ignored_by(
+                                            &ignore,
+                                            &item.to_path_buf(&region),
+                                        )
+                                    {
+                                        None
+                                    } else {
+                                        Some((
                                             id,
-                                            verbose,
-                                            &region,
-                                            &item,
-                                            show_backtrace,
-                                        ),
-                                    ))
+                                            parse_path(
+                                                id,
+                                                verbose,
+                                                &region,
+                                                &item,
+                                                show_backtrace,
+                                            ),
+                                        ))
+                                    }
                                 } else {
                                     // XX: if it's a symlink, check if it has different OPEN info?
                                     None

@@ -6,6 +6,10 @@ use rayon::iter::{plumbing::Folder, ParallelIterator};
 
 use crate::io_utils::read_buf::ReadBufStreamError;
 
+/// If a path is longer than this it could trigger a reallocation of a
+/// buffer (i.e. no big deal)
+const MAX_EXPECTED_PATH_LENGTH: usize = 1000;
+
 pub struct ReadDirBufStream {
     input: ReadDir,
     buf_size: usize,
@@ -22,7 +26,7 @@ impl ReadDirBufStream {
             input,
             buf_size,
             record_separator,
-            buf: Vec::new(),
+            buf: Vec::with_capacity(buf_size + MAX_EXPECTED_PATH_LENGTH),
         }
     }
 }
@@ -47,7 +51,7 @@ impl Iterator for &mut ReadDirBufStream {
             if self.buf.is_empty() {
                 Ok(None)
             } else {
-                let mut new_buf = Vec::with_capacity(self.buf_size + 200);
+                let mut new_buf = Vec::with_capacity(self.buf_size + MAX_EXPECTED_PATH_LENGTH);
                 std::mem::swap(&mut self.buf, &mut new_buf);
                 Ok(Some(new_buf))
             }

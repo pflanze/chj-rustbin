@@ -4,7 +4,7 @@ use std::{
     ffi::OsStr,
     fmt::Display,
     fs::Metadata,
-    io::{stdin, stdout, BufWriter, IoSlice, Read},
+    io::{stdin, stdout, BufWriter, IoSlice},
     marker::PhantomData,
     os::unix::prelude::{MetadataExt, OsStrExt},
     path::{Path, PathBuf},
@@ -15,11 +15,14 @@ use std::{
 use anstyle::{AnsiColor, Color, Style};
 use anyhow::{anyhow, bail, Context, Result};
 use chj_rustbin::{
-    chunks::ChunksOp,
     cpu_probe,
     io::{
         unix_gr::{Gid, GrInfoCache},
         unix_pw::{PwInfoCache, Uid},
+    },
+    io_utils::{
+        read_buf::{ReadBufStream, ReadBufStreamError},
+        read_dir_bufs::ReadDirBufStream,
     },
     is_a_terminal::is_a_terminal,
     path_file_kind::{FileKind, ToFileKind},
@@ -31,7 +34,7 @@ use clap::Parser;
 use rand::{rngs::ThreadRng, Rng};
 use rayon::{
     iter::IntoParallelIterator,
-    prelude::{ParallelBridge, ParallelIterator},
+    prelude::ParallelIterator,
     slice::{ParallelSlice, ParallelSliceMut},
 };
 use regex::Regex;
@@ -1156,6 +1159,61 @@ impl TableFromItems {
     }
 }
 
+struct Process<'t> {
+    input_record_separator: u8,
+    ignore: &'t [Regex],
+    long: bool,
+    use_color: bool,
+}
+
+impl<'t> Process<'t> {
+    /// Leaks the backing memory for Item for now for simplicity
+    fn run(
+        &self,
+        input: impl Iterator<Item = Result<Vec<u8>, ReadBufStreamError>>,
+    ) -> Result<Vec<Item<'static>>> {
+        probe!("items");
+        // To avoid appending individual items multiple times (in
+        // multiple reduce layers), collect the original vectors then
+        // flatten them in one go at the end.
+        let itemss: Vec<Vec<Item>> = input
+            .map(|chunk| -> Result<Vec<Item>> {
+                let mut chunk = chunk?;
+                chomp(&mut chunk, self.input_record_separator);
+                // XX hack for now, OK for single-shot program
+                let chunk = chunk.leak();
+                let paths = chunk.split(|c| *c == self.input_record_separator);
+
+                paths
+                    .map(|path: &[u8]| -> &Path {
+                        let path: &OsStr = OsStr::from_bytes(path);
+                        let path: &Path = path.as_ref();
+                        path
+                    })
+                    .filter(|path: &&Path| -> bool {
+                        for pat in self.ignore {
+                            // Would it be better security wise to
+                            // ignore non-UTF8 paths, or error out?
+                            if pat.is_match(&path.to_string_lossy()) {
+                                return false;
+                            }
+                        }
+                        true
+                    })
+                    .map(|path| -> Result<Option<Item>> {
+                        // Only stat linked files if used for
+                        // coloring, and only in long format anyway.
+                        Item::from_path(path, self.long, self.use_color)
+                    })
+                    .filter_map(|r| r.transpose())
+                    .collect()
+            })
+            .collect::<Result<Vec<Vec<Item>>>>()?;
+        // `into_par_iter` would be a large slow down here!
+        Ok(itemss.into_iter().flatten().collect())
+    }
+}
+
 fn main() -> Result<()> {
     cpu_probe::init()?;
 
@@ -1196,81 +1254,35 @@ fn main() -> Result<()> {
 
     let now = SystemTime::now();
 
-    let mut all_entries: Vec<u8> = Vec::new();
-    if let Some(basepath) = ls_dir {
-        // It would be cool to start par_bridge as soon as possible,
-        // and using Vec<u8> here is a bit of a hack. But it was
-        // convenient.
-        probe!("read dir");
+    let desired_number_of_paths_per_chunk = 1000;
+
+    let process = Process {
+        input_record_separator,
+        ignore: &ignore,
+        long,
+        use_color,
+    };
+
+    // Read the paths as blocks (as `Vec<u8>`) of some number of
+    // null-terminated paths each, in either mode
+    let mut items: Vec<Item> = if let Some(basepath) = ls_dir {
         set_current_dir(&basepath)
             .with_context(|| anyhow!("changing to directory {basepath:?}"))?;
-        for item in std::fs::read_dir(".")
-            .with_context(|| anyhow!("reading directory {basepath:?}"))?
-        {
-            let item = item?;
-            let filename = item.file_name();
-            all_entries.extend_from_slice(filename.as_bytes());
-            all_entries.push(input_record_separator);
-        }
+        process.run(&mut ReadDirBufStream::new(
+            std::fs::read_dir(".")
+                .with_context(|| anyhow!("reading directory {basepath:?}"))?,
+            desired_number_of_paths_per_chunk * 100,
+            input_record_separator,
+        ))?
     } else {
-        probe!("copy stdin");
-        stdin()
-            .lock()
-            .read_to_end(&mut all_entries)
-            .context("reading from stdin")?;
+        process.run(&mut ReadBufStream::new(
+            stdin().lock(),
+            desired_number_of_paths_per_chunk * 100,
+            input_record_separator,
+        ))?
     };
-    chomp(&mut all_entries, input_record_separator);
-    let all_entries = all_entries;
 
     let sortfn = sort_function(reverse, time, time_reversed);
-
-    let mut items: Vec<Item> = {
-        probe!("items");
-        // To avoid appending individual items multiple times (in
-        // multiple reduce layers), collect the original vectors then
-        // flatten them in one go at the end.
-        let itemss: Vec<Vec<Item>> = all_entries
-            .split(|c| *c == input_record_separator)
-            .map(|path| {
-                let path: &OsStr = OsStr::from_bytes(path);
-                let path: &Path = path.as_ref();
-                path
-            })
-            .chunks(1000)
-            .par_bridge()
-            .map(|paths| -> Result<Vec<Vec<Item>>> {
-                Ok(vec![paths
-                    .into_iter()
-                    .filter(|path: &&Path| -> bool {
-                        for pat in &ignore {
-                            // Would it be better security wise to
-                            // ignore non-UTF8 paths, or error out?
-                            if pat.is_match(&path.to_string_lossy()) {
-                                return false;
-                            }
-                        }
-                        true
-                    })
-                    .map(|path| -> Result<Option<Item>> {
-                        // Only stat linked files if used for
-                        // coloring, and only in long format anyway.
-                        Item::from_path(path, long, use_color)
-                    })
-                    .filter_map(|r| r.transpose())
-                    .collect::<Result<Vec<_>>>()?])
-            })
-            .reduce(
-                || Ok(Vec::new()),
-                |a, b| {
-                    let mut a = a?;
-                    let mut b = b?;
-                    a.append(&mut b);
-                    Ok(a)
-                },
-            )?;
-        // `into_par_iter` would be a large slow down here!
-        itemss.into_iter().flatten().collect()
-    };
 
     {
         probe!("sort_items");

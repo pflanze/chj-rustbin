@@ -33,7 +33,7 @@ impl ReadDirBufStream {
     }
 }
 
-impl Iterator for &mut ReadDirBufStream {
+impl Iterator for ReadDirBufStream {
     /// Use `ReadBufStreamError` to stay compatible with `ParReadBufStream`
     type Item = Result<Vec<u8>, ReadBufStreamError>;
 

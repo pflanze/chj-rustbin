@@ -67,7 +67,7 @@ impl<S: Read> ReadBufStream<S> {
     }
 }
 
-impl<S: Read> Iterator for &mut ReadBufStream<S> {
+impl<S: Read> Iterator for ReadBufStream<S> {
     type Item = Result<Vec<u8>, ReadBufStreamError>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -125,7 +125,7 @@ impl<S: Read> From<ReadBufStream<S>> for ParReadBufStream<S> {
 // XX why is this necessary, shouldn't Mutex shield S automatically?
 unsafe impl<S: Read> Send for ParReadBufStream<S> {}
 
-impl<S: Read> Iterator for &mut ParReadBufStream<S> {
+impl<S: Read> Iterator for ParReadBufStream<S> {
     type Item = Result<Vec<u8>, ReadBufStreamError>;
 
     fn next(&mut self) -> Option<Self::Item> {

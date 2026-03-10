@@ -4,6 +4,8 @@ use std::{io::Read, sync::Mutex};
 pub enum ReadBufStreamError {
     #[error("I/O error: {0}")]
     IoError(#[from] std::io::Error),
+    #[error("{0}")]
+    Anyhow(#[from] anyhow::Error),
     #[error("no record separator found within the buffer size of {0} bytes")]
     RecordTooLarge(usize),
 }

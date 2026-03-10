@@ -8,11 +8,11 @@ use crate::io_utils::read_buf::ReadBufStreamError;
 
 /// If a path is longer than this it could trigger a reallocation of a
 /// buffer (i.e. no big deal)
-const MAX_EXPECTED_PATH_LENGTH: usize = 1000;
+pub const MAX_EXPECTED_PATH_LENGTH: usize = 1000;
 
 // Always, since this guarantees separation as paths cannot contain
 // this byte.
-const RECORD_SEPARATOR: u8 = 0;
+pub const RECORD_SEPARATOR: u8 = 0;
 
 pub struct ReadDirBufStream {
     input: ReadDir,

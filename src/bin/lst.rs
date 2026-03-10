@@ -23,6 +23,7 @@ use chj_rustbin::{
     io_utils::{
         read_buf::{ParReadBufStream, ReadBufStream, ReadBufStreamError},
         read_dir_bufs::ReadDirBufStream,
+        read_find_bufs::FindBufStream,
     },
     is_a_terminal::is_a_terminal,
     path_file_kind::{FileKind, ToFileKind},
@@ -87,6 +88,11 @@ struct Opt {
     /// deep)
     #[clap(long)]
     ls_dir: Option<PathBuf>,
+
+    /// Get the path listing internally instead of reading it from
+    /// stdin: list the file tree in the given directory (all depths)
+    #[clap(long)]
+    find_dir: Option<PathBuf>,
 
     /// Ignore paths matching the given regex (not glob pattern!)
     #[clap(short, long)]
@@ -1228,6 +1234,7 @@ fn main() -> Result<()> {
     let Opt {
         verbose,
         ls_dir,
+        find_dir,
         ignore,
         color,
         long,
@@ -1239,6 +1246,10 @@ fn main() -> Result<()> {
         no_optimize,
         processing_commands,
     } = Opt::from_args();
+
+    if ls_dir.is_some() && find_dir.is_some() {
+        bail!("please only give one of the --ls-dir or --find-dir options")
+    }
 
     let orig_cmds = parse_processing_commands(&processing_commands)?;
     let cmds = if no_optimize {
@@ -1263,6 +1274,7 @@ fn main() -> Result<()> {
     let now = SystemTime::now();
 
     let desired_number_of_paths_per_chunk = 1000;
+    let buf_size = desired_number_of_paths_per_chunk * 100;
 
     let process = Process {
         ignore: &ignore,
@@ -1280,15 +1292,17 @@ fn main() -> Result<()> {
                 std::fs::read_dir(".").with_context(|| {
                     anyhow!("reading directory {basepath:?}")
                 })?,
-                desired_number_of_paths_per_chunk * 100,
+                buf_size,
             ),
             0,
         )?
+    } else if let Some(basepath) = find_dir {
+        process.run(FindBufStream::new(buf_size, basepath).par_bridge(), 0)?
     } else {
         process.run(
             ParReadBufStream::from(ReadBufStream::new(
                 stdin().lock(),
-                desired_number_of_paths_per_chunk * 100,
+                buf_size,
                 input_record_separator,
             ))
             .par_bridge(),

@@ -1160,7 +1160,6 @@ impl TableFromItems {
 }
 
 struct Process<'t> {
-    input_record_separator: u8,
     ignore: &'t [Regex],
     long: bool,
     use_color: bool,
@@ -1171,6 +1170,7 @@ impl<'t> Process<'t> {
     fn run(
         &self,
         input: impl ParallelIterator<Item = Result<Vec<u8>, ReadBufStreamError>>,
+        input_record_separator: u8,
     ) -> Result<Vec<Item<'static>>> {
         probe!("items");
         // To avoid appending individual items multiple times (in
@@ -1179,10 +1179,10 @@ impl<'t> Process<'t> {
         let itemss: Vec<Vec<Item>> = input
             .map(|chunk| -> Result<Vec<Vec<Item>>> {
                 let mut chunk = chunk?;
-                chomp(&mut chunk, self.input_record_separator);
+                chomp(&mut chunk, input_record_separator);
                 // XX hack for now, OK for single-shot program
                 let chunk = chunk.leak();
-                let paths = chunk.split(|c| *c == self.input_record_separator);
+                let paths = chunk.split(|c| *c == input_record_separator);
 
                 Ok(vec![paths
                     .map(|path| {
@@ -1265,7 +1265,6 @@ fn main() -> Result<()> {
     let desired_number_of_paths_per_chunk = 1000;
 
     let process = Process {
-        input_record_separator,
         ignore: &ignore,
         long,
         use_color,
@@ -1276,12 +1275,15 @@ fn main() -> Result<()> {
     let mut items: Vec<Item> = if let Some(basepath) = ls_dir {
         set_current_dir(&basepath)
             .with_context(|| anyhow!("changing to directory {basepath:?}"))?;
-        process.run(ReadDirBufStream::new(
-            std::fs::read_dir(".")
-                .with_context(|| anyhow!("reading directory {basepath:?}"))?,
-            desired_number_of_paths_per_chunk * 100,
-            input_record_separator,
-        ))?
+        process.run(
+            ReadDirBufStream::new(
+                std::fs::read_dir(".").with_context(|| {
+                    anyhow!("reading directory {basepath:?}")
+                })?,
+                desired_number_of_paths_per_chunk * 100,
+            ),
+            0,
+        )?
     } else {
         process.run(
             ParReadBufStream::from(ReadBufStream::new(
@@ -1290,6 +1292,7 @@ fn main() -> Result<()> {
                 input_record_separator,
             ))
             .par_bridge(),
+            input_record_separator,
         )?
     };
 

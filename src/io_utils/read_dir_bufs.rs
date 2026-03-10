@@ -10,10 +10,13 @@ use crate::io_utils::read_buf::ReadBufStreamError;
 /// buffer (i.e. no big deal)
 const MAX_EXPECTED_PATH_LENGTH: usize = 1000;
 
+// Always, since this guarantees separation as paths cannot contain
+// this byte.
+const RECORD_SEPARATOR: u8 = 0;
+
 pub struct ReadDirBufStream {
     input: ReadDir,
     buf_size: usize,
-    record_separator: u8,
     buf: Vec<u8>,
 }
 
@@ -21,11 +24,10 @@ impl ReadDirBufStream {
     /// Unlike for `ReadBufStream` where `buf_size` is the maximum
     /// buffer size, here it is the minimal: paths are added to a
     /// buffer until it is at least the given size.
-    pub fn new(input: ReadDir, buf_size: usize, record_separator: u8) -> Self {
+    pub fn new(input: ReadDir, buf_size: usize) -> Self {
         Self {
             input,
             buf_size,
-            record_separator,
             buf: Vec::with_capacity(buf_size + MAX_EXPECTED_PATH_LENGTH),
         }
     }
@@ -42,7 +44,7 @@ impl Iterator for &mut ReadDirBufStream {
                     // XX parameterize whether file_name or path
                     let filename = item.file_name();
                     self.buf.extend_from_slice(filename.as_bytes());
-                    self.buf.push(self.record_separator);
+                    self.buf.push(RECORD_SEPARATOR);
                 } else {
                     break;
                 }
@@ -51,7 +53,9 @@ impl Iterator for &mut ReadDirBufStream {
             if self.buf.is_empty() {
                 Ok(None)
             } else {
-                let mut new_buf = Vec::with_capacity(self.buf_size + MAX_EXPECTED_PATH_LENGTH);
+                let mut new_buf = Vec::with_capacity(
+                    self.buf_size + MAX_EXPECTED_PATH_LENGTH,
+                );
                 std::mem::swap(&mut self.buf, &mut new_buf);
                 Ok(Some(new_buf))
             }

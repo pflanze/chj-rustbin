@@ -242,6 +242,9 @@ impl GetDirDiskUsage {
                 let item =
                     item.with_context(|| anyhow!("reading items in {path:?}"))?;
                 let file_name = item.file_name();
+                // Note: this is `metadata` on DirEntry, not Path; on
+                // Unix this calls symlink_metadata internally (on
+                // Windows it has the info already).
                 match item.metadata() {
                     Ok(metadata) => {
                         /* Number of 512 B blocks allocated */

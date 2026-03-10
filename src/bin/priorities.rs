@@ -2377,9 +2377,23 @@ fn show_current_timing(
 }
 
 fn main() -> Result<()> {
-    let opts: Opts = Opts::from_args();
+    let Opts {
+        show_timings,
+        // dirs, files and other are used via `impl_item_options_from!`
+        dirs: _,
+        files: _,
+        other: _,
+        all,
+        verbose,
+        no_priority,
+        time,
+        age_min,
+        age_max,
+        no_show_archived,
+        directories,
+    } = Opts::from_args();
     let show_backtrace = true; // XX add option?
-    let now: NaiveDateTime = if let Some(time) = &opts.time {
+    let now: NaiveDateTime = if let Some(time) = &time {
         let now_ndtwowy =
             parse_date_time_argument(&ParseableStr::new(time), true).map_err(
                 |e| {
@@ -2401,14 +2415,14 @@ fn main() -> Result<()> {
     };
 
     let default_directories = [".".into()];
-    let directories = if opts.directories.is_empty() {
+    let directories = if directories.is_empty() {
         &default_directories
     } else {
-        &*opts.directories
+        &*directories
     };
 
     let excludes = {
-        let mut excludes = default_excludes(opts.all);
+        let mut excludes = default_excludes(all);
         // Need to see e.g. `test/priorities/reprocessing/.2024-10-03_173610_Thu- OPEN{prio: 2}`:
         excludes.exclude_dot_files = false;
         excludes
@@ -2420,7 +2434,7 @@ fn main() -> Result<()> {
         other: false,
     };
 
-    let current_timing = show_current_timing(opts.show_timings, None, "scan");
+    let current_timing = show_current_timing(show_timings, None, "scan");
 
     let mut taskinfos: Vec<Rc<TaskInfo<_>>> = Default::default();
     let mut taskinfo_by_key: BTreeMap<DependencyKey, Rc<TaskInfo<_>>> =
@@ -2456,7 +2470,7 @@ fn main() -> Result<()> {
                                         id,
                                         parse_path(
                                             id,
-                                            opts.verbose,
+                                            verbose,
                                             &region,
                                             &item,
                                             show_backtrace,
@@ -2514,7 +2528,7 @@ fn main() -> Result<()> {
     }
 
     let current_timing = show_current_timing(
-        opts.show_timings,
+        show_timings,
         current_timing,
         "Calculate \"stand-alone\" priorities",
     );
@@ -2537,7 +2551,7 @@ fn main() -> Result<()> {
     }
 
     let current_timing = show_current_timing(
-        opts.show_timings,
+        show_timings,
         current_timing,
         "Verify dependency links and exert priority inheritance",
     );
@@ -2579,12 +2593,12 @@ fn main() -> Result<()> {
         recur(ti, &List::Null)
     }
 
-    if opts.verbose {
+    if verbose {
         dbg!(&taskinfos);
     }
 
     let current_timing =
-        show_current_timing(opts.show_timings, current_timing, "Sort them");
+        show_current_timing(show_timings, current_timing, "Sort them");
 
     // Sort them
     taskinfos.sort_by(|a, b| {
@@ -2599,7 +2613,7 @@ fn main() -> Result<()> {
     });
 
     let current_timing =
-        show_current_timing(opts.show_timings, current_timing, "Print them");
+        show_current_timing(show_timings, current_timing, "Print them");
 
     // Print them
     (|| -> std::io::Result<()> {
@@ -2608,28 +2622,28 @@ fn main() -> Result<()> {
             if !ti.workflow_status.is_active() {
                 continue;
             }
-            if opts.no_show_archived && ti.is_archived {
+            if no_show_archived && ti.is_archived {
                 continue;
             }
 
-            if opts.age_max.is_some() || opts.age_min.is_some() {
+            if age_max.is_some() || age_min.is_some() {
                 let mtime: DateTime<Local> = ti.mtime.into();
                 // XX which Tz is that in now?? TZ env var?
                 let age = now.signed_duration_since(mtime.naive_local());
                 let age_days = age.num_hours() / 24;
-                if let Some(d) = opts.age_min {
+                if let Some(d) = age_min {
                     if age_days < d.into() {
                         continue;
                     }
                 }
-                if let Some(d) = opts.age_max {
+                if let Some(d) = age_max {
                     if age_days > d.into() {
                         continue;
                     }
                 }
             }
 
-            if !opts.no_priority {
+            if !no_priority {
                 let s = format!("{:.2}", ti.calculated_priority());
                 out.write_all(s.as_bytes())?;
                 out.write_all(b"\t")?;
@@ -2641,7 +2655,7 @@ fn main() -> Result<()> {
     })()
     .context("printing to stdout")?;
 
-    show_current_timing(opts.show_timings, current_timing, "END");
+    show_current_timing(show_timings, current_timing, "END");
 
     if errors > 0 {
         eprintln!("{errors} error(s) shown as warnings");

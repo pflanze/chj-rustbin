@@ -104,13 +104,13 @@ mod tests {
     fn t_() {
         let input = &[1, 2, 3, 0, 4, 5, 0, 6, 7, 0, 8, 0, 9, 11, 13, 0];
         let mut rbs = ReadBufStream::new(input.as_slice(), 7, 0);
-        let b0 = (&mut rbs).next().unwrap().unwrap();
+        let b0 = rbs.next().unwrap().unwrap();
         assert_eq!(b0, [1, 2, 3, 0, 4, 5, 0]);
-        let b1 = (&mut rbs).next().unwrap().unwrap();
+        let b1 = rbs.next().unwrap().unwrap();
         assert_eq!(b1, [6, 7, 0, 8, 0]);
-        let b2 = (&mut rbs).next().unwrap().unwrap();
+        let b2 = rbs.next().unwrap().unwrap();
         assert_eq!(b2, [9, 11, 13, 0]);
-        assert!((&mut rbs).next().is_none());
+        assert!(rbs.next().is_none());
     }
 }
 
@@ -130,7 +130,7 @@ impl<S: Read> Iterator for ParReadBufStream<S> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut lock = self.0.lock().expect("no panics");
-        (&mut *lock).next()
+        lock.next()
     }
 }
 

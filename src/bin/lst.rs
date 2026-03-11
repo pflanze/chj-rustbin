@@ -29,6 +29,7 @@ use chj_rustbin::{
     path_file_kind::{FileKind, ToFileKind},
     probe,
     text::yattable::{Widths, YatTable},
+    time::age_at::AgeAt,
 };
 use chrono::{DateTime, Datelike, Local, Timelike};
 use clap::Parser;
@@ -134,8 +135,15 @@ struct Opt {
     #[clap(long)]
     time_reversed: bool,
 
+    /// When using `filter-days`, whether to let through items that
+    /// are from the future; by default, only let them through if less
+    /// than half a day in the future and 0 days is included in the
+    /// filter range
+    #[clap(long)]
+    show_files_from_future: bool,
+
     /// Disable the optimizer for processing commands (in case there
-    /// are bugs in it!)
+    /// are bugs in it?)
     #[clap(long)]
     no_optimize: bool,
 
@@ -450,11 +458,19 @@ mod tests {
                     optimize_processing_commands(&cmds_original);
 
                 let mut items1 = items.clone();
-                let results_original =
-                    run_processing_commands(&mut items1, &cmds_original, now);
+                let results_original = run_processing_commands(
+                    &mut items1,
+                    &cmds_original,
+                    now,
+                    false,
+                );
                 let mut items2 = items.clone();
-                let results_optimized =
-                    run_processing_commands(&mut items2, &cmds_optimized, now);
+                let results_optimized = run_processing_commands(
+                    &mut items2,
+                    &cmds_optimized,
+                    now,
+                    false,
+                );
                 if results_original != results_optimized {
                     panic!(
                         "optimizer failure (thread/i={thread_i}/{i}):\n\
@@ -577,6 +593,7 @@ fn run_processing_commands<'t: 'v, 'v>(
     items: &'v mut Vec<Item<'t>>,
     cmds: &[ProcessingCommand],
     now: SystemTime,
+    show_files_from_future: bool,
 ) -> &'v [Item<'t>] {
     probe!("run_processing_commands");
     let mut selected_items = unsafe { hack_static(&mut **items) };
@@ -604,23 +621,26 @@ fn run_processing_commands<'t: 'v, 'v>(
                     .into_iter()
                     .map(|item| item.clone())
                     .filter(|item| {
-                        match item.age_days(now) {
-                            Ok(age_days) => match range {
-                                IntRange::At(n) => u64::from(*n) == age_days,
-                                IntRange::RangeFrom(n) => {
-                                    age_days >= u64::from(*n)
-                                }
-                                IntRange::RangeTo(n) => {
-                                    age_days <= u64::from(*n)
-                                }
-                                IntRange::RangeInclusive(from, to) => {
-                                    age_days >= u64::from(*from)
-                                        && age_days <= u64::from(*to)
-                                }
-                            },
+                        let f = |age_days| match range {
+                            IntRange::At(n) => u64::from(*n) == age_days,
+                            IntRange::RangeFrom(n) => age_days >= u64::from(*n),
+                            IntRange::RangeTo(n) => age_days <= u64::from(*n),
+                            IntRange::RangeInclusive(from, to) => {
+                                age_days >= u64::from(*from)
+                                    && age_days <= u64::from(*to)
+                            }
+                        };
+                        match item.age_days_at(now) {
+                            Ok(age_days) => f(age_days),
                             Err(_e) => {
-                                // Retain files from the future, OK?
-                                true
+                                if show_files_from_future {
+                                    true
+                                } else {
+                                    match now.age_days_at(item.mtime()) {
+                                        Ok(0) => f(0),
+                                        _ => false,
+                                    }
+                                }
                             }
                         }
                     })
@@ -1055,13 +1075,12 @@ impl<'t> Item<'t> {
         self.metadata.mtime
     }
 
-    fn age_secs(&self, now: SystemTime) -> Result<u64> {
-        let age = now.duration_since(self.mtime())?;
-        Ok(age.as_secs())
-    }
+    // fn age_secs_at(&self, now: SystemTime) -> Result<u64> {
+    //     self.mtime().age_secs_at(now)
+    // }
 
-    fn age_days(&self, now: SystemTime) -> Result<u64> {
-        Ok((self.age_secs(now)? + 12 * 3600) / (24 * 3600))
+    fn age_days_at(&self, now: SystemTime) -> Result<u64> {
+        self.mtime().age_days_at(now)
     }
 }
 
@@ -1264,6 +1283,7 @@ fn main() -> Result<()> {
         zo,
         time,
         time_reversed,
+        show_files_from_future,
         reverse,
         no_optimize,
         processing_commands,
@@ -1344,7 +1364,8 @@ fn main() -> Result<()> {
         items.par_sort_by(sortfn);
     }
 
-    let selected_items = run_processing_commands(&mut items, &cmds, now);
+    let selected_items =
+        run_processing_commands(&mut items, &cmds, now, show_files_from_future);
 
     probe!("writing to stdout");
     (|| -> Result<()> {

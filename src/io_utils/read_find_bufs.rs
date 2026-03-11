@@ -80,7 +80,7 @@ impl TaskContext {
                                 spares.clone(),
                                 path,
                             )
-                            .spawn(include_cwd);
+                            .run(include_cwd);
                         } else {
                             buf.extend_from_slice(path.as_os_str().as_bytes());
                             buf.push(RECORD_SEPARATOR);

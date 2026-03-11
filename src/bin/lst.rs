@@ -604,14 +604,23 @@ fn run_processing_commands<'t: 'v, 'v>(
                     .into_iter()
                     .map(|item| item.clone())
                     .filter(|item| {
-                        let age_days = item.age_days(now).expect("age is ok");
-                        match range {
-                            IntRange::At(n) => u64::from(*n) == age_days,
-                            IntRange::RangeFrom(n) => age_days >= u64::from(*n),
-                            IntRange::RangeTo(n) => age_days <= u64::from(*n),
-                            IntRange::RangeInclusive(from, to) => {
-                                age_days >= u64::from(*from)
-                                    && age_days <= u64::from(*to)
+                        match item.age_days(now) {
+                            Ok(age_days) => match range {
+                                IntRange::At(n) => u64::from(*n) == age_days,
+                                IntRange::RangeFrom(n) => {
+                                    age_days >= u64::from(*n)
+                                }
+                                IntRange::RangeTo(n) => {
+                                    age_days <= u64::from(*n)
+                                }
+                                IntRange::RangeInclusive(from, to) => {
+                                    age_days >= u64::from(*from)
+                                        && age_days <= u64::from(*to)
+                                }
+                            },
+                            Err(_e) => {
+                                // Retain files from the future, OK?
+                                true
                             }
                         }
                     })

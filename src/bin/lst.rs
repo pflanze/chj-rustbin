@@ -879,9 +879,7 @@ impl EssentialMetadata {
     pub fn from_symlink_metadata(
         s: &Metadata,
         file_kind: Option<FileKind>,
-        path: &Path,
     ) -> Result<Self> {
-        let path_s = path.to_str();
         let mode: Mode = s.mode().into();
         let device = if mode.filetype().has_device_info() {
             Some(s.rdev().into())
@@ -1004,7 +1002,6 @@ impl<'t> Item<'t> {
                 let metadata = EssentialMetadata::from_symlink_metadata(
                     &s,
                     path.to_file_kind(),
-                    path,
                 )?;
                 let link_target =
                     if read_link && metadata.mode.filetype().is_link() {
@@ -1017,8 +1014,7 @@ impl<'t> Item<'t> {
                                 .map(|m| {
                                     EssentialMetadata::from_symlink_metadata(
                                         &m,
-                                        t.to_file_kind(),
-                                        path
+                                        t.to_file_kind()
                                     )
                                     .ok()
                                 })

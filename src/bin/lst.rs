@@ -367,7 +367,7 @@ mod tests {
 
         // Make items from it
         let now = SystemTime::now();
-        let mut items: Vec<Item> = backing
+        let items: Vec<Item> = backing
             .split(|c| *c == 0)
             .map(|path| {
                 let path: &OsStr = OsStr::from_bytes(path);
@@ -401,8 +401,12 @@ mod tests {
             rng.gen_bool(0.5),
             rng.gen_bool(0.5),
         );
-        items.par_sort_by(sortfn);
         let items = items;
+        let mut itemrefs: Vec<_> = items.iter().collect();
+        itemrefs.par_sort_by(|a, b| sortfn(a, b));
+        let itemrefs = itemrefs;
+        #[allow(unused)]
+        let items = ();
 
         // Search for invalid optimizations
         let num_runs = match std::env::var_os("LST_NUM_TEST_RUNS") {
@@ -457,14 +461,14 @@ mod tests {
                 let cmds_optimized =
                     optimize_processing_commands(&cmds_original);
 
-                let mut items1 = items.iter().collect();
+                let mut items1 = itemrefs.clone();
                 let results_original = run_processing_commands(
                     &mut items1,
                     &cmds_original,
                     now,
                     false,
                 );
-                let mut items2 = items.iter().collect();
+                let mut items2 = itemrefs.clone();
                 let results_optimized = run_processing_commands(
                     &mut items2,
                     &cmds_optimized,
@@ -1326,7 +1330,7 @@ fn main() -> Result<()> {
 
     // Read the paths as blocks (as `Vec<u8>`) of some number of
     // null-terminated paths each, in either mode
-    let (mut items, errors): (Vec<Item>, Vec<anyhow::Error>) =
+    let (items, errors): (Vec<Item>, Vec<anyhow::Error>) =
         if let Some(basepath) = ls_dir {
             set_current_dir(&basepath).with_context(|| {
                 anyhow!("changing to directory {basepath:?}")
@@ -1357,13 +1361,15 @@ fn main() -> Result<()> {
             )
         };
 
-    let sortfn = sort_function(reverse, time, time_reversed);
+    let mut itemrefs: Vec<_> = items.iter().collect();
+    #[allow(unused)]
+    let items = ();
 
+    let sortfn = sort_function(reverse, time, time_reversed);
     {
         probe!("sort_items");
-        items.par_sort_by(sortfn);
+        itemrefs.par_sort_by(|a, b| sortfn(a, b));
     }
-    let mut itemrefs = items.iter().collect();
 
     let selected_items = run_processing_commands(
         &mut itemrefs,

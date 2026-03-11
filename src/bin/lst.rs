@@ -457,14 +457,14 @@ mod tests {
                 let cmds_optimized =
                     optimize_processing_commands(&cmds_original);
 
-                let mut items1 = items.clone();
+                let mut items1 = items.iter().collect();
                 let results_original = run_processing_commands(
                     &mut items1,
                     &cmds_original,
                     now,
                     false,
                 );
-                let mut items2 = items.clone();
+                let mut items2 = items.iter().collect();
                 let results_optimized = run_processing_commands(
                     &mut items2,
                     &cmds_optimized,
@@ -589,12 +589,12 @@ unsafe fn hack_static<'a, 'v, T: ?Sized>(rf: &'a mut T) -> &'v mut T {
     &mut *ptr
 }
 
-fn run_processing_commands<'t: 'v, 'v>(
-    items: &'v mut Vec<Item<'t>>,
+fn run_processing_commands<'t: 'u, 'u: 'v, 'v>(
+    items: &'v mut Vec<&'u Item<'t>>,
     cmds: &[ProcessingCommand],
     now: SystemTime,
     show_files_from_future: bool,
-) -> &'v [Item<'t>] {
+) -> &'v [&'u Item<'t>] {
     probe!("run_processing_commands");
     let mut selected_items = unsafe { hack_static(&mut **items) };
     for cmd in cmds {
@@ -617,9 +617,9 @@ fn run_processing_commands<'t: 'v, 'v>(
             }
             ProcessingCommand::Reverse => selected_items.reverse(),
             ProcessingCommand::FilterDays(range) => {
-                let new_items: Vec<_> = selected_items
+                let new_items: Vec<&'u Item<'t>> = (&*selected_items)
                     .into_iter()
-                    .map(|item| item.clone())
+                    .copied()
                     .filter(|item| {
                         let f = |age_days| match range {
                             IntRange::At(n) => u64::from(*n) == age_days,
@@ -1009,7 +1009,7 @@ impl EssentialMetadata {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 struct Item<'t> {
     path: &'t Path,
     metadata: EssentialMetadata,
@@ -1091,7 +1091,7 @@ struct TableFromItems {
 }
 
 impl TableFromItems {
-    fn run<'t>(&self, items: &[Item<'t>]) -> YatTable<7> {
+    fn run<'u: 't, 't>(&self, items: &[&'u Item<'t>]) -> YatTable<7> {
         let Self {
             use_color,
             pw_info_cache,
@@ -1363,9 +1363,14 @@ fn main() -> Result<()> {
         probe!("sort_items");
         items.par_sort_by(sortfn);
     }
+    let mut itemrefs = items.iter().collect();
 
-    let selected_items =
-        run_processing_commands(&mut items, &cmds, now, show_files_from_future);
+    let selected_items = run_processing_commands(
+        &mut itemrefs,
+        &cmds,
+        now,
+        show_files_from_future,
+    );
 
     probe!("writing to stdout");
     (|| -> Result<()> {

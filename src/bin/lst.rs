@@ -641,6 +641,9 @@ pub enum UnixFileType {
     CharDevice = 2,
     BlockDevice = 6,
     Pipe = 1,
+    // Linux uses this value when getting `metadata` for
+    // /proc/$pid/task/$tid/fd/$n symlink
+    None = 0,
 }
 
 impl UnixFileType {
@@ -663,6 +666,7 @@ impl UnixFileType {
             UnixFileType::CharDevice => 'c',
             UnixFileType::BlockDevice => 'b',
             UnixFileType::Pipe => 'p',
+            UnixFileType::None => 'N',
         }
     }
     pub fn has_device_info(self) -> bool {
@@ -671,7 +675,8 @@ impl UnixFileType {
             | UnixFileType::Dir
             | UnixFileType::Link
             | UnixFileType::Socket
-            | UnixFileType::Pipe => false,
+            | UnixFileType::Pipe
+            | UnixFileType::None => false,
             UnixFileType::CharDevice | UnixFileType::BlockDevice => true,
         }
     }
@@ -688,6 +693,7 @@ impl TryFrom<u8> for UnixFileType {
             2 => Ok(UnixFileType::CharDevice),
             6 => Ok(UnixFileType::BlockDevice),
             1 => Ok(UnixFileType::Pipe),
+            0 => Ok(UnixFileType::None),
             _ => bail!("invalid file type number {m}"),
         }
     }
@@ -897,6 +903,7 @@ impl EssentialMetadata {
     pub fn style(&self) -> Option<Style> {
         let mode = self.mode;
         match mode.filetype() {
+            UnixFileType::None => None,
             UnixFileType::File => {
                 if mode.u().s_or_t() {
                     Some(

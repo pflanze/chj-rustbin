@@ -1312,7 +1312,10 @@ fn main() -> Result<()> {
                 0,
             )
         } else if let Some(basepath) = find_dir {
-            process.run(FindBufStream::new(buf_size, basepath).par_bridge(), 0)
+            process.run(
+                FindBufStream::new(buf_size, basepath, true)?.par_bridge(),
+                0,
+            )
         } else {
             process.run(
                 ParReadBufStream::from(ReadBufStream::new(

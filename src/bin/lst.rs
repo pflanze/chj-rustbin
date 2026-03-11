@@ -1177,54 +1177,60 @@ impl<'t> Process<'t> {
         &self,
         input: impl ParallelIterator<Item = Result<Vec<u8>, ReadBufStreamError>>,
         input_record_separator: u8,
-    ) -> Result<Vec<Item<'static>>> {
+    ) -> (Vec<Item<'static>>, Vec<anyhow::Error>) {
         probe!("items");
         // To avoid appending individual items multiple times (in
         // multiple reduce layers), collect the original vectors then
-        // flatten them in one go at the end.
-        let itemss: Vec<Vec<Item>> = input
-            .map(|chunk| -> Result<Vec<Vec<Item>>> {
-                let mut chunk = chunk?;
-                chomp(&mut chunk, input_record_separator);
-                // XX hack for now, OK for single-shot program
-                let chunk = chunk.leak();
-                let paths = chunk.split(|c| *c == input_record_separator);
+        // flatten them in one go at the end. Also, collect errors
+        // from all chunks together, too, don't stop early except per
+        // chunk.
+        let (itemss, errors): (Vec<Vec<Item>>, Vec<anyhow::Error>) = input
+            .map(|chunk| -> (Vec<Vec<Item>>, Vec<anyhow::Error>) {
+                match (|| -> Result<Vec<Item>> {
+                    let mut chunk = chunk?;
+                    chomp(&mut chunk, input_record_separator);
+                    // XX hack for now, OK for single-shot program
+                    let chunk = chunk.leak();
+                    let paths = chunk.split(|c| *c == input_record_separator);
 
-                Ok(vec![paths
-                    .map(|path| {
-                        let path: &OsStr = OsStr::from_bytes(path);
-                        let path: &Path = path.as_ref();
-                        path
-                    })
-                    .filter(|path: &&Path| -> bool {
-                        for pat in self.ignore {
-                            // Would it be better security wise to
-                            // ignore non-UTF8 paths, or error out?
-                            if pat.is_match(&path.to_string_lossy()) {
-                                return false;
+                    Ok(paths
+                        .map(|path| {
+                            let path: &OsStr = OsStr::from_bytes(path);
+                            let path: &Path = path.as_ref();
+                            path
+                        })
+                        .filter(|path: &&Path| -> bool {
+                            for pat in self.ignore {
+                                // Would it be better security wise to
+                                // ignore non-UTF8 paths, or error out?
+                                if pat.is_match(&path.to_string_lossy()) {
+                                    return false;
+                                }
                             }
-                        }
-                        true
-                    })
-                    .map(|path| -> Result<Option<Item>> {
-                        // Only stat linked files if used for
-                        // coloring, and only in long format anyway.
-                        Item::from_path(path, self.long, self.use_color)
-                    })
-                    .filter_map(|r| r.transpose())
-                    .collect::<Result<Vec<_>>>()?])
+                            true
+                        })
+                        .map(|path| -> Result<Option<Item>> {
+                            // Only stat linked files if used for
+                            // coloring, and only in long format anyway.
+                            Item::from_path(path, self.long, self.use_color)
+                        })
+                        .filter_map(|r| r.transpose())
+                        .collect::<Result<Vec<_>>>()?)
+                })() {
+                    Ok(v) => (vec![v], vec![]),
+                    Err(e) => (vec![], vec![e]),
+                }
             })
             .reduce(
-                || Ok(Vec::new()),
-                |a, b| {
-                    let mut a = a?;
-                    let mut b = b?;
-                    a.append(&mut b);
-                    Ok(a)
+                || (Vec::new(), Vec::new()),
+                |(mut itemss_a, mut errors_a), (mut itemss_b, mut errors_b)| {
+                    itemss_a.append(&mut itemss_b);
+                    errors_a.append(&mut errors_b);
+                    (itemss_a, errors_a)
                 },
-            )?;
+            );
         // `into_par_iter` would be a large slow down here!
-        Ok(itemss.into_iter().flatten().collect())
+        (itemss.into_iter().flatten().collect(), errors)
     }
 }
 
@@ -1284,31 +1290,33 @@ fn main() -> Result<()> {
 
     // Read the paths as blocks (as `Vec<u8>`) of some number of
     // null-terminated paths each, in either mode
-    let mut items: Vec<Item> = if let Some(basepath) = ls_dir {
-        set_current_dir(&basepath)
-            .with_context(|| anyhow!("changing to directory {basepath:?}"))?;
-        process.run(
-            ReadDirBufStream::new(
-                std::fs::read_dir(".").with_context(|| {
-                    anyhow!("reading directory {basepath:?}")
-                })?,
-                buf_size,
-            ),
-            0,
-        )?
-    } else if let Some(basepath) = find_dir {
-        process.run(FindBufStream::new(buf_size, basepath).par_bridge(), 0)?
-    } else {
-        process.run(
-            ParReadBufStream::from(ReadBufStream::new(
-                stdin().lock(),
-                buf_size,
+    let (mut items, errors): (Vec<Item>, Vec<anyhow::Error>) =
+        if let Some(basepath) = ls_dir {
+            set_current_dir(&basepath).with_context(|| {
+                anyhow!("changing to directory {basepath:?}")
+            })?;
+            process.run(
+                ReadDirBufStream::new(
+                    std::fs::read_dir(".").with_context(|| {
+                        anyhow!("reading directory {basepath:?}")
+                    })?,
+                    buf_size,
+                ),
+                0,
+            )
+        } else if let Some(basepath) = find_dir {
+            process.run(FindBufStream::new(buf_size, basepath).par_bridge(), 0)
+        } else {
+            process.run(
+                ParReadBufStream::from(ReadBufStream::new(
+                    stdin().lock(),
+                    buf_size,
+                    input_record_separator,
+                ))
+                .par_bridge(),
                 input_record_separator,
-            ))
-            .par_bridge(),
-            input_record_separator,
-        )?
-    };
+            )
+        };
 
     let sortfn = sort_function(reverse, time, time_reversed);
 
@@ -1407,6 +1415,16 @@ fn main() -> Result<()> {
         Ok(())
     })()
     .context("writing to stdout")?;
+
+    if !errors.is_empty() {
+        let mut msgs: Vec<u8> = Vec::new();
+        for error in errors {
+            use std::io::Write;
+            _ = write!(&mut msgs, "{error}\n");
+        }
+        let msgs: &str = std::str::from_utf8(&msgs).expect("already utf8");
+        bail!("while generating the above list:\n{msgs}");
+    }
 
     Ok(())
 }

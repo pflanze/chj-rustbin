@@ -50,103 +50,98 @@ impl TaskContext {
         }
     }
 
-    fn spawn(self, include_cwd: bool) {
-        rayon::spawn({
-            move || {
-                let TaskContext {
-                    buf_size,
-                    send,
-                    spares_and_errors: spares,
-                    path,
-                    mut buf,
-                } = self;
-                if include_cwd {
-                    buf.extend_from_slice(path.as_os_str().as_bytes());
-                    buf.push(RECORD_SEPARATOR);
-                }
-                match (|| -> Result<()> {
-                    match std::fs::read_dir(&path) {
-                        Ok(input) => {
-                            for item in input {
-                                let item = item?;
-                                let path = item.path();
-                                let ft = item.file_type()?;
-                                // Include `path` in the child task;
-                                // this way we can include the
-                                // top-level directory
-                                // (conditionally), too.
-                                if ft.is_dir() {
-                                    TaskContext::new(
-                                        buf_size,
-                                        send.clone(),
-                                        spares.clone(),
-                                        path,
-                                    )
-                                    .spawn(include_cwd);
-                                } else {
-                                    buf.extend_from_slice(
-                                        path.as_os_str().as_bytes(),
-                                    );
-                                    buf.push(RECORD_SEPARATOR);
-                                }
-                                if buf.len() >= buf_size {
-                                    let mut new_buf = {
-                                        let mut lock =
-                                            spares.lock().expect("no panics");
-                                        if let Some(vec) = lock.0.pop() {
-                                            vec
-                                        } else {
-                                            drop(lock);
-                                            Vec::with_capacity(
-                                                buf_size
-                                                    + MAX_EXPECTED_PATH_LENGTH,
-                                            )
-                                        }
-                                    };
-                                    std::mem::swap(&mut buf, &mut new_buf);
-                                    send.send(new_buf)?;
-                                }
-                            }
-                            // Not caring about proper buffer capacity
-                            // here (it will be dropped right after),
-                            // just getting it out without move to
-                            // allow for the `.push(buf)` outside to
-                            // work.
-                            let mut new_buf = Vec::new();
-                            swap(&mut new_buf, &mut buf);
-                            let usage_percentage = (buf.len() * 100) / buf_size;
-                            if usage_percentage < 66 {
+    fn run(self, include_cwd: bool) {
+        let TaskContext {
+            buf_size,
+            send,
+            spares_and_errors: spares,
+            path,
+            mut buf,
+        } = self;
+        if include_cwd {
+            buf.extend_from_slice(path.as_os_str().as_bytes());
+            buf.push(RECORD_SEPARATOR);
+        }
+        match (|| -> Result<()> {
+            match std::fs::read_dir(&path) {
+                Ok(input) => {
+                    for item in input {
+                        let item = item?;
+                        let path = item.path();
+                        let ft = item.file_type()?;
+                        // Include `path` in the child task;
+                        // this way we can include the
+                        // top-level directory
+                        // (conditionally), too.
+                        if ft.is_dir() {
+                            TaskContext::new(
+                                buf_size,
+                                send.clone(),
+                                spares.clone(),
+                                path,
+                            )
+                            .spawn(include_cwd);
+                        } else {
+                            buf.extend_from_slice(path.as_os_str().as_bytes());
+                            buf.push(RECORD_SEPARATOR);
+                        }
+                        if buf.len() >= buf_size {
+                            let mut new_buf = {
                                 let mut lock =
                                     spares.lock().expect("no panics");
-                                lock.0.push(new_buf);
-                            } else {
-                                send.send(new_buf)?;
-                            }
+                                if let Some(vec) = lock.0.pop() {
+                                    vec
+                                } else {
+                                    drop(lock);
+                                    Vec::with_capacity(
+                                        buf_size + MAX_EXPECTED_PATH_LENGTH,
+                                    )
+                                }
+                            };
+                            std::mem::swap(&mut buf, &mut new_buf);
+                            send.send(new_buf)?;
                         }
-                        Err(e) => match e.kind() {
-                            std::io::ErrorKind::NotFound => (),
-                            _ => {
-                                Err(e).with_context(|| {
-                                    anyhow!("directory {path:?}")
-                                })?;
-                            }
-                        },
                     }
-                    Ok(())
-                })() {
-                    Ok(()) => (),
-                    Err(e) => {
+                    // Not caring about proper buffer capacity
+                    // here (it will be dropped right after),
+                    // just getting it out without move to
+                    // allow for the `.push(buf)` outside to
+                    // work.
+                    let mut new_buf = Vec::new();
+                    swap(&mut new_buf, &mut buf);
+                    let usage_percentage = (buf.len() * 100) / buf_size;
+                    if usage_percentage < 66 {
                         let mut lock = spares.lock().expect("no panics");
-                        // buf: check percentage stuff as above? Sigh,
-                        // just rely on recycling, OK? It will
-                        // normally just be the directory entry
-                        // itself, and hence definitely warrant reuse.
-                        lock.0.push(buf);
-                        lock.1.push(e.into());
+                        lock.0.push(new_buf);
+                    } else {
+                        send.send(new_buf)?;
                     }
                 }
+                Err(e) => match e.kind() {
+                    std::io::ErrorKind::NotFound => (),
+                    _ => {
+                        Err(e)
+                            .with_context(|| anyhow!("directory {path:?}"))?;
+                    }
+                },
             }
-        });
+            Ok(())
+        })() {
+            Ok(()) => (),
+            Err(e) => {
+                let mut lock = spares.lock().expect("no panics");
+                // buf: check percentage stuff as above? Sigh,
+                // just rely on recycling, OK? It will
+                // normally just be the directory entry
+                // itself, and hence definitely warrant reuse.
+                lock.0.push(buf);
+                lock.1.push(e.into());
+            }
+        }
+    }
+
+    fn spawn(self, include_cwd: bool) {
+        rayon::spawn(move || self.run(include_cwd));
     }
 }
 

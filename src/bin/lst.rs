@@ -9,6 +9,7 @@ use std::{
     os::unix::prelude::{MetadataExt, OsStrExt},
     path::{Path, PathBuf},
     str::{Chars, FromStr},
+    sync::Mutex,
     time::SystemTime,
 };
 
@@ -40,6 +41,11 @@ use rayon::{
     slice::{ParallelSlice, ParallelSliceMut},
 };
 use regex::Regex;
+
+fn flatten1<T>(v: Vec<Vec<T>>) -> Vec<T> {
+    // XXX make parallel
+    v.into_iter().flatten().collect()
+}
 
 #[derive(clap::ValueEnum, Clone, Debug)]
 enum ColorMode {
@@ -1204,20 +1210,31 @@ impl TableFromItems {
     }
 }
 
-struct Process<'t> {
+struct GetItems<'t> {
     ignore: &'t [Regex],
     long: bool,
     use_color: bool,
 }
 
-impl<'t> Process<'t> {
+impl<'t> GetItems<'t> {
+    fn ignore_path(&self, path: &Path) -> bool {
+        // Would it be better security wise to
+        // ignore non-UTF8 paths, or error out?
+        let path_str = path.to_string_lossy();
+        for pat in self.ignore {
+            if pat.is_match(&path_str) {
+                return true;
+            }
+        }
+        false
+    }
+
     /// Leaks the backing memory for Item for now for simplicity
-    fn run(
+    fn from_read_buf_stream(
         &self,
         input: impl ParallelIterator<Item = Result<Vec<u8>, ReadBufStreamError>>,
         input_record_separator: u8,
     ) -> (Vec<Item<'static>>, Vec<anyhow::Error>) {
-        probe!("items");
         // To avoid appending individual items multiple times (in
         // multiple reduce layers), collect the original vectors then
         // flatten them in one go at the end. Also, collect errors
@@ -1239,14 +1256,7 @@ impl<'t> Process<'t> {
                             path
                         })
                         .filter(|path: &&Path| -> bool {
-                            for pat in self.ignore {
-                                // Would it be better security wise to
-                                // ignore non-UTF8 paths, or error out?
-                                if pat.is_match(&path.to_string_lossy()) {
-                                    return false;
-                                }
-                            }
-                            true
+                            !self.ignore_path(path)
                         })
                         .map(|path| -> Result<Option<Item>> {
                             // Only stat linked files if used for
@@ -1270,6 +1280,84 @@ impl<'t> Process<'t> {
             );
         // `into_par_iter` would be a large slow down here!
         (itemss.into_iter().flatten().collect(), errors)
+    }
+
+    /// `(Vec<Item<'static>>, Vec<anyhow::Error>)` is what one dir
+    /// level yields. Vec of that since subdirs, too.
+    fn _find(
+        &self,
+        dir: PathBuf,
+    ) -> Vec<(Vec<Item<'static>>, Vec<anyhow::Error>)> {
+        let Self {
+            ignore: _,
+            long,
+            use_color,
+        } = self;
+        match (|| -> Result<Vec<_>> {
+            let input = std::fs::read_dir(&dir)
+                .with_context(|| anyhow!("directory {dir:?}"))?;
+            let subdir_items: Mutex<
+                Vec<Vec<(Vec<Item<'static>>, Vec<anyhow::Error>)>>,
+            > = Mutex::new(Vec::new());
+            let subdir_items_rf = &subdir_items;
+            let mut items = Vec::new();
+            rayon::scope(|scope| -> Result<()> {
+                for entry in input {
+                    let entry = entry?;
+                    let metadata = entry.metadata()?;
+                    let path = entry.path();
+                    if self.ignore_path(&path) {
+                        continue;
+                    }
+                    if metadata.is_dir() {
+                        scope.spawn(move |_| {
+                            let subitem = self._find(path);
+                            let mut lock =
+                                subdir_items_rf.lock().expect("no panics");
+                            lock.push(subitem);
+                        });
+                    } else {
+                        // XX hmm wish i could unleak if below gives None?
+                        let path = path.leak();
+                        if let Some(item) =
+                            Item::from_path(path, *long, *use_color)?
+                        {
+                            items.push(item);
+                        }
+                    }
+                }
+                Ok(())
+            })
+            .with_context(|| anyhow!("reading entries in {dir:?}"))?;
+            let mut subdir_items =
+                subdir_items.into_inner().expect("no panics");
+            subdir_items.push(vec![(items, vec![])]);
+            Ok(subdir_items)
+        })() {
+            Ok(items) => flatten1(items),
+            Err(e) => vec![(vec![], vec![e])],
+        }
+    }
+
+    /// Integrated "find", with `read_dir`, path filtering and
+    /// `Item::from_path` intertwined for efficiency. Leaks the
+    /// backing memory for Item for now for simplicity
+    fn find(
+        &self,
+        dir: PathBuf,
+        include_top: bool,
+    ) -> Result<(Vec<Item<'static>>, Vec<anyhow::Error>)> {
+        let _input = std::fs::read_dir(&dir)
+            .with_context(|| anyhow!("directory {dir:?}"))?;
+        // XXX ^ what to do with ?
+        let res = self._find(dir);
+        let mut items = Vec::new();
+        let mut errors = Vec::new();
+        for (mut subitems, mut suberrors) in res {
+            items.append(&mut subitems);
+            errors.append(&mut suberrors);
+        }
+        Ok((items, errors))
     }
 }
 
@@ -1322,7 +1410,7 @@ fn main() -> Result<()> {
     let desired_number_of_paths_per_chunk = 1000;
     let buf_size = desired_number_of_paths_per_chunk * 100;
 
-    let process = Process {
+    let get_items = GetItems {
         ignore: &ignore,
         long,
         use_color,
@@ -1330,12 +1418,13 @@ fn main() -> Result<()> {
 
     // Read the paths as blocks (as `Vec<u8>`) of some number of
     // null-terminated paths each, in either mode
-    let (items, errors): (Vec<Item>, Vec<anyhow::Error>) =
+    let (items, errors): (Vec<Item>, Vec<anyhow::Error>) = {
+        probe!("get items");
         if let Some(basepath) = ls_dir {
             set_current_dir(&basepath).with_context(|| {
                 anyhow!("changing to directory {basepath:?}")
             })?;
-            process.run(
+            get_items.from_read_buf_stream(
                 ReadDirBufStream::new(
                     std::fs::read_dir(".").with_context(|| {
                         anyhow!("reading directory {basepath:?}")
@@ -1345,12 +1434,16 @@ fn main() -> Result<()> {
                 0,
             )
         } else if let Some(basepath) = find_dir {
-            process.run(
-                FindBufStream::new(buf_size, basepath, true)?.par_bridge(),
-                0,
-            )
+            if false {
+                get_items.from_read_buf_stream(
+                    FindBufStream::new(buf_size, basepath, true)?.par_bridge(),
+                    0,
+                )
+            } else {
+                get_items.find(basepath, true)?
+            }
         } else {
-            process.run(
+            get_items.from_read_buf_stream(
                 ParReadBufStream::from(ReadBufStream::new(
                     stdin().lock(),
                     buf_size,
@@ -1359,7 +1452,8 @@ fn main() -> Result<()> {
                 .par_bridge(),
                 input_record_separator,
             )
-        };
+        }
+    };
 
     let mut itemrefs: Vec<_> = items.iter().collect();
     #[allow(unused)]

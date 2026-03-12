@@ -75,14 +75,43 @@ pub fn to_human_readable(
         4 => "T",
         5 => "P",
         6 => "E",
-        7 => "Z",
-        8 => "Y",
-        9 => "R",
-        10 => "Q",
-        // doesn't fit into 64-bit anyway
-        _ => unreachable!("number too large, don't have a prefix"),
+        // 7 => "Z",
+        // 8 => "Y",
+        // 9 => "R",
+        // 10 => "Q",
+        _ => unreachable!("doesn't fit into 64-bit"),
     };
     (val, unit)
+}
+
+#[test]
+fn t_to_human_readable(){
+    assert_eq!(to_human_readable(1000, true, 1000), (1000, ""));
+    assert_eq!(to_human_readable(1000, true, 9000), (9000, ""));
+    assert_eq!(to_human_readable(1000, true, 10499), (10499, ""));
+    assert_eq!(to_human_readable(1000, true, 10500), (11, "k"));
+    assert_eq!(to_human_readable(1000, true, 1000000), (1000, "k"));
+    assert_eq!(to_human_readable(1000, true, 1900000), (1900, "k"));
+    assert_eq!(to_human_readable(1000, true, 10000000), (10000, "k"));
+    assert_eq!(to_human_readable(1000, true, 11000000), (11, "M"));
+
+    assert_eq!(to_human_readable(1024, false, 1000), (1000, ""));
+    assert_eq!(to_human_readable(1024, false, 9000), (9000, ""));
+    assert_eq!(to_human_readable(1024, false, 10751), (10751, ""));
+    assert_eq!(to_human_readable(1024, false, 10752), (11, "K"));
+    assert_eq!(to_human_readable(1024, false, 11264), (11, "K"));
+    assert_eq!(to_human_readable(1024, false, 1000000), (977, "K"));
+    assert_eq!(to_human_readable(1024, false, 10000000), (9766, "K"));
+    assert_eq!(to_human_readable(1024, false, 11000000), (10742, "K"));
+    // odd?
+    assert_eq!(to_human_readable(1024, false, 11009535), (10751, "K"));
+    assert_eq!(to_human_readable(1024, false, 11009536), (11, "M"));
+    assert_eq!(to_human_readable(1024, false, 11010047), (11, "M"));
+    // /odd
+    assert_eq!(to_human_readable(1024, false, 11010048), (11, "M"));
+    
+    assert_eq!(to_human_readable(1000, true, u64::MAX / 2), (9223, "P"));
+    // assert_eq!(to_human_readable(1000, true, u64::MAX), (9223, "P"));
 }
 
 // `man 3type stat`: st_blocks: Number of 512 B blocks allocated

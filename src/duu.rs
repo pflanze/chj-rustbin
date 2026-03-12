@@ -53,7 +53,8 @@ pub fn to_human_readable(
     // format below some value, like "7.6G"
     const MULTIPLIER: u64 = 10;
     loop {
-        let val2 = (val + powers / 2) / powers;
+        let val2 = u64::try_from((u128::from(val) + powers / 2) / powers)
+            .expect("fits since < original val");
         if val2 > MULTIPLIER {
             val = val2;
             n += 1;
@@ -111,7 +112,7 @@ fn t_to_human_readable() {
     assert_eq!(to_human_readable(false, 11010048), (11, "M"));
 
     assert_eq!(to_human_readable(true, u64::MAX / 2), (9223, "P"));
-    // assert_eq!(to_human_readable(true, u64::MAX), (9223, "P"));
+    assert_eq!(to_human_readable(true, u64::MAX), (18, "E"));
 }
 
 // `man 3type stat`: st_blocks: Number of 512 B blocks allocated

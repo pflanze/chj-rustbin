@@ -42,7 +42,7 @@ pub fn init() -> Result<()> {
 
 thread_local! {
     // Safety: do not touch! Only access from the code in this module!
-    pub static THREAD_LOCAL_CONTEXT: UnsafeCell<*const CpuProbeInner<'static>> = UnsafeCell::new(null());
+    pub static THREAD_LOCAL_CONTEXT: UnsafeCell<*const CpuProbeInner> = UnsafeCell::new(null());
 }
 
 #[macro_export]
@@ -57,9 +57,14 @@ macro_rules! probe {
                 // Safe because it is initialized to null via the `thread_local!` macro
                 *p.get()
             });
+            let name = unsafe {
+                // Safe because we're only keeping the wrapper as long
+                // as this variable is in scope.
+                std::mem::transmute::<&str, &'static str>(__cpu_probe_name.as_ref())
+            };
             __cpu_probe = $crate::cpu_probe::CpuProbe::Active($crate::cpu_probe::CpuProbeInner {
                 parent,
-                name: &__cpu_probe_name,
+                name,
                 file: file!(),
                 line: line!(),
                 col: column!(),
@@ -78,23 +83,24 @@ macro_rules! probe {
     }
 }
 
-pub struct CpuProbeInner<'t> {
-    pub name: &'t str,
+pub struct CpuProbeInner {
+    // name is not really static, but we use unsafe
+    pub name: &'static str,
     pub file: &'static str,
     pub line: u32,
     pub col: u32,
     pub start: SystemTime,
-    pub parent: *const CpuProbeInner<'static>,
+    pub parent: *const CpuProbeInner,
 }
 
-pub enum CpuProbe<'t> {
-    Active(CpuProbeInner<'t>),
+pub enum CpuProbe {
+    Active(CpuProbeInner),
     Inactive,
 }
 
-fn print_parents(out: &mut StderrLock, parent: *const CpuProbeInner<'static>) {
+fn print_parents(out: &mut StderrLock, parent: *const CpuProbeInner) {
     if !parent.is_null() {
-        let p: &CpuProbeInner<'_> = unsafe {
+        let p: &CpuProbeInner = unsafe {
             // Safe because the probe objects in the parent stack
             // frames are not moved--XX correct for closures, can't be
             // moved while executed? BUT, relying on not moving the
@@ -106,7 +112,7 @@ fn print_parents(out: &mut StderrLock, parent: *const CpuProbeInner<'static>) {
     }
 }
 
-impl<'t> Drop for CpuProbeInner<'t> {
+impl Drop for CpuProbeInner {
     fn drop(&mut self) {
         let Self {
             name,

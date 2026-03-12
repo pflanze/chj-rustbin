@@ -71,14 +71,6 @@ fn main() -> Result<()> {
         si,
     } = Opts::from_args();
 
-    let powers = if si {
-        Some(1000)
-    } else if human_readable {
-        Some(1024)
-    } else {
-        None
-    };
-
     let top_metadata = std::fs::symlink_metadata(&dir_path)
         .with_context(|| anyhow!("getting metadata of {dir_path:?}"))?;
     if !top_metadata.is_dir() {
@@ -102,8 +94,8 @@ fn main() -> Result<()> {
 
     // possibly human-readable
     let ph = |val| {
-        if let Some(powers) = &powers {
-            let (val, unit) = to_human_readable(*powers, si, val);
+        if si || human_readable {
+            let (val, unit) = to_human_readable(si, val);
             format!("{val}{unit}")
         } else {
             format!("{}", bytes_to_kb(val))

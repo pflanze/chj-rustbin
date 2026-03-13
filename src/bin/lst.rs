@@ -43,8 +43,12 @@ use rayon::{
 use regex::Regex;
 
 fn flatten1<T>(v: Vec<Vec<T>>) -> Vec<T> {
+    let before_len = v.len();
+    // probe!("flatten1");
     // XXX make parallel
-    v.into_iter().flatten().collect()
+    let after: Vec<T> = v.into_iter().flatten().collect();
+    eprintln!("before={before_len}, after={}", after.len());
+    after
 }
 
 #[derive(clap::ValueEnum, Clone, Debug)]
@@ -1351,6 +1355,7 @@ impl<'t> GetItems<'t> {
             .with_context(|| anyhow!("directory {dir:?}"))?;
         // XXX ^ what to do with ?
         let res = self._find(dir);
+        probe!("flattening");
         let mut items = Vec::new();
         let mut errors = Vec::new();
         for (mut subitems, mut suberrors) in res {

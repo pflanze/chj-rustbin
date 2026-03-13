@@ -1306,7 +1306,7 @@ impl<'t> GetItems<'t> {
         } = self;
         match (|| -> Result<_> {
             let mut items: Vec<Item<'static>> = Vec::new();
-            let dir: &Path = dir.leak();
+            let dir: &Path = Box::leak(dir.into_boxed_path());
             if include_dir {
                 if let Some(item) = Item::from_path_and_metadata(
                     dir, *long, *use_color, metadata,
@@ -1341,7 +1341,7 @@ impl<'t> GetItems<'t> {
                         });
                     } else {
                         // XX hmm wish i could unleak if below gives None?
-                        let path = path.leak();
+                        let path = Box::leak(path.into_boxed_path());
                         if let Some(item) = Item::from_path_and_metadata(
                             path, *long, *use_color, metadata,
                         )? {

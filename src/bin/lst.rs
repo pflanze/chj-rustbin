@@ -16,6 +16,7 @@ use std::{
 use anstyle::{AnsiColor, Color, Style};
 use anyhow::{anyhow, bail, Context, Result};
 use chj_rustbin::{
+    bag::Bag,
     cpu_probe,
     io::{
         unix_gr::{Gid, GrInfoCache},
@@ -41,15 +42,6 @@ use rayon::{
     slice::{ParallelSlice, ParallelSliceMut},
 };
 use regex::Regex;
-
-fn flatten1<T>(v: Vec<Vec<T>>) -> Vec<T> {
-    let before_len = v.len();
-    // probe!("flatten1");
-    // XXX make parallel
-    let after: Vec<T> = v.into_iter().flatten().collect();
-    eprintln!("before={before_len}, after={}", after.len());
-    after
-}
 
 #[derive(clap::ValueEnum, Clone, Debug)]
 enum ColorMode {
@@ -1291,20 +1283,29 @@ impl<'t> GetItems<'t> {
     fn _find(
         &self,
         dir: PathBuf,
-    ) -> Vec<(Vec<Item<'static>>, Vec<anyhow::Error>)> {
+        include_dir: bool,
+    ) -> (Bag<Item<'static>>, Bag<anyhow::Error>) {
         let Self {
             ignore: _,
             long,
             use_color,
         } = self;
-        match (|| -> Result<Vec<_>> {
-            let input = std::fs::read_dir(&dir)
+        match (|| -> Result<_> {
+            let mut items: Vec<Item<'static>> = Vec::new();
+            let dir: &Path = dir.leak();
+            if include_dir {
+                if let Some(item) = Item::from_path(dir, *long, *use_color)? {
+                    items.push(item);
+                }
+                // else will run into open error anyway--XX hmm
+                // actually should accept not found then, there?
+            }
+
+            let input = std::fs::read_dir(dir)
                 .with_context(|| anyhow!("directory {dir:?}"))?;
-            let subdir_items: Mutex<
-                Vec<Vec<(Vec<Item<'static>>, Vec<anyhow::Error>)>>,
-            > = Mutex::new(Vec::new());
+            let subdir_items: Mutex<(Bag<Item<'static>>, Bag<anyhow::Error>)> =
+                Mutex::new((Bag::new(), Bag::new()));
             let subdir_items_rf = &subdir_items;
-            let mut items = Vec::new();
             rayon::scope(|scope| -> Result<()> {
                 for entry in input {
                     let entry = entry?;
@@ -1315,10 +1316,11 @@ impl<'t> GetItems<'t> {
                     }
                     if metadata.is_dir() {
                         scope.spawn(move |_| {
-                            let subitem = self._find(path);
+                            let (items, errors) = self._find(path, true);
                             let mut lock =
                                 subdir_items_rf.lock().expect("no panics");
-                            lock.push(subitem);
+                            lock.0.push_bag(items);
+                            lock.1.push_bag(errors);
                         });
                     } else {
                         // XX hmm wish i could unleak if below gives None?
@@ -1335,11 +1337,11 @@ impl<'t> GetItems<'t> {
             .with_context(|| anyhow!("reading entries in {dir:?}"))?;
             let mut subdir_items =
                 subdir_items.into_inner().expect("no panics");
-            subdir_items.push(vec![(items, vec![])]);
+            subdir_items.0.push_bag(items.into());
             Ok(subdir_items)
         })() {
-            Ok(items) => flatten1(items),
-            Err(e) => vec![(vec![], vec![e])],
+            Ok(items) => items,
+            Err(e) => (Bag::Empty, Bag::Leaf(e)),
         }
     }
 
@@ -1354,14 +1356,10 @@ impl<'t> GetItems<'t> {
         let _input = std::fs::read_dir(&dir)
             .with_context(|| anyhow!("directory {dir:?}"))?;
         // XXX ^ what to do with ?
-        let res = self._find(dir);
+        let (items, errors) = self._find(dir, include_top);
         probe!("flattening");
-        let mut items = Vec::new();
-        let mut errors = Vec::new();
-        for (mut subitems, mut suberrors) in res {
-            items.append(&mut subitems);
-            errors.append(&mut suberrors);
-        }
+        let items = items.flatten();
+        let errors = errors.flatten();
         Ok((items, errors))
     }
 }

@@ -1224,6 +1224,9 @@ struct GetItems<'t> {
 
 impl<'t> GetItems<'t> {
     fn ignore_path(&self, path: &Path) -> bool {
+        if self.ignore.is_empty() {
+            return false;
+        }
         // Would it be better security wise to
         // ignore non-UTF8 paths, or error out?
         let path_str = path.to_string_lossy();

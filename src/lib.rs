@@ -12,6 +12,7 @@ pub mod duu;
 pub mod efficient_regex;
 pub mod fp;
 pub mod get_terminal_width;
+pub mod hack_static;
 pub mod index_map;
 pub mod io;
 pub mod io_utils;

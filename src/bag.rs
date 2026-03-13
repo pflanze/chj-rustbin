@@ -6,14 +6,19 @@
 
 // Also see: `StringTree` (xmlhub-indexer)
 
-use std::mem::swap;
+use std::{
+    mem::{swap, MaybeUninit},
+    num::NonZeroUsize,
+};
+
+use crate::{hack_static::hack_static, probe};
 
 #[derive(Debug)]
 pub enum Bag<T> {
     Empty,
     Leaf(T),
     LeafVec(Vec<T>),
-    Branching(Vec<Bag<T>>),
+    Branching(NonZeroUsize, Vec<Bag<T>>),
 }
 
 #[test]
@@ -41,7 +46,15 @@ impl<T> From<Vec<T>> for Bag<T> {
 
 impl<T> From<Vec<Bag<T>>> for Bag<T> {
     fn from(value: Vec<Bag<T>>) -> Self {
-        Bag::Branching(value)
+        let len: usize = value.iter().map(|b| b.len()).sum();
+        if len == 0 {
+            Bag::Empty
+        } else {
+            Bag::Branching(
+                NonZeroUsize::new(len).expect("checked not 0"),
+                value,
+            )
+        }
     }
 }
 
@@ -55,53 +68,94 @@ impl<T> Bag<T> {
             Bag::Empty => true,
             Bag::Leaf(_) => false,
             Bag::LeafVec(items) => items.is_empty(),
-            // XX just assume that a bag is never built with a
-            // Branching but no non-empty bags
-            Bag::Branching(bags) => bags.is_empty(),
+            Bag::Branching(_, _) => false,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            Bag::Empty => 0,
+            Bag::Leaf(_) => 1,
+            Bag::LeafVec(items) => items.len(),
+            Bag::Branching(len, _) => (*len).into(),
         }
     }
 
     pub fn add_bag(self, val: Bag<T>) -> Bag<T> {
-        match val {
-            Bag::Empty => self,
-            Bag::Leaf(item) => match self {
-                Bag::Empty => Bag::Leaf(item),
-                Bag::Leaf(item0) => Bag::LeafVec(vec![item0, item]),
+        if val.is_empty() {
+            self
+        } else if self.is_empty() {
+            val
+        } else {
+            match val {
+                Bag::Empty => unreachable!(),
+                Bag::Leaf(item) => match self {
+                    Bag::Empty => Bag::Leaf(item),
+                    Bag::Leaf(item0) => Bag::LeafVec(vec![item0, item]),
+                    Bag::LeafVec(mut items) => {
+                        items.push(item);
+                        Bag::LeafVec(items)
+                    }
+                    Bag::Branching(len, mut bags) => {
+                        bags.push(Bag::Leaf(item));
+                        let len = usize::from(len) + 1;
+                        Bag::Branching(
+                            NonZeroUsize::new(len).expect("+1 above"),
+                            bags,
+                        )
+                    }
+                },
                 Bag::LeafVec(mut items) => {
-                    items.push(item);
-                    Bag::LeafVec(items)
-                }
-                Bag::Branching(mut bags) => {
-                    bags.push(Bag::Leaf(item));
-                    Bag::Branching(bags)
-                }
-            },
-            Bag::LeafVec(mut items) => {
-                match self {
-                    Bag::Empty => Bag::LeafVec(items),
-                    Bag::Leaf(item) => {
-                        // hmm, if ordering does not need
-                        // maintainance, could push `item` to the end. But?
-                        Bag::Branching(vec![
-                            Bag::Leaf(item),
-                            Bag::LeafVec(items),
-                        ])
+                    match self {
+                        Bag::Empty => Bag::LeafVec(items),
+                        Bag::Leaf(item) => {
+                            // hmm, if ordering does not need
+                            // maintainance, could push `item` to the end. But?
+                            let len = items.len() + 1;
+                            Bag::Branching(
+                                NonZeroUsize::new(len).expect("+1 above"),
+                                vec![Bag::Leaf(item), Bag::LeafVec(items)],
+                            )
+                        }
+                        Bag::LeafVec(mut items0) => {
+                            if items.len() < 1500 {
+                                items0.append(&mut items);
+                                Bag::LeafVec(items0)
+                            } else {
+                                // Delay large move until the end.
+                                let len = items.len() + items0.len();
+                                Bag::Branching(
+                                    NonZeroUsize::new(len)
+                                        .expect("both checked to be non-empty"),
+                                    vec![
+                                        Bag::LeafVec(items0),
+                                        Bag::LeafVec(items),
+                                    ],
+                                )
+                            }
+                        }
+                        Bag::Branching(len, mut bags) => {
+                            let len = usize::from(len) + items.len();
+                            bags.push(Bag::LeafVec(items));
+                            Bag::Branching(
+                                NonZeroUsize::new(len)
+                                    .expect("was already branching len"),
+                                bags,
+                            )
+                        }
                     }
-                    Bag::LeafVec(mut items0) => {
-                        items0.append(&mut items);
-                        Bag::LeafVec(items0)
-                    }
-                    Bag::Branching(mut bags) => {
-                        bags.push(Bag::LeafVec(items));
-                        Bag::Branching(bags)
-                    }
                 }
-            }
-            Bag::Branching(bags) => {
-                if self.is_empty() {
-                    Bag::Branching(bags)
-                } else {
-                    Bag::Branching(vec![self, Bag::Branching(bags)])
+                Bag::Branching(len, bags) => {
+                    if self.is_empty() {
+                        Bag::Branching(len, bags)
+                    } else {
+                        let tot_len = self.len() + usize::from(len);
+                        Bag::Branching(
+                            NonZeroUsize::new(tot_len)
+                                .expect("was already branching len"),
+                            vec![self, Bag::Branching(len, bags)],
+                        )
+                    }
                 }
             }
         }
@@ -113,12 +167,12 @@ impl<T> Bag<T> {
         *self = this.add_bag(val);
     }
 
-    pub fn _flatten(self, out: &mut Vec<T>) {
+    fn _flatten(self, out: &mut Vec<T>) {
         match self {
             Bag::Empty => (),
             Bag::Leaf(item) => out.push(item),
             Bag::LeafVec(mut items) => out.append(&mut items),
-            Bag::Branching(bags) => {
+            Bag::Branching(_, bags) => {
                 for bag in bags {
                     bag._flatten(out);
                 }
@@ -127,10 +181,113 @@ impl<T> Bag<T> {
     }
 
     pub fn flatten(self) -> Vec<T> {
-        let mut out = Vec::new();
+        let len = self.len();
+        let mut out = Vec::with_capacity(len);
         self._flatten(&mut out);
         out
     }
+
+    pub fn par_flatten(self) -> Vec<T>
+    where
+        T: Send,
+    {
+        let len = self.len();
+        if len < 500000 {
+            self.flatten()
+        } else {
+            match self {
+                Bag::Empty => Vec::new(),
+                Bag::Leaf(item) => {
+                    probe!("par_flatten Leaf");
+                    vec![item]
+                }
+                Bag::LeafVec(items) => {
+                    probe!("par_flatten LeafVec");
+                    items
+                }
+                Bag::Branching(_, mut bags) => {
+                    probe!("par_flatten Branching");
+                    let mut out: Vec<MaybeUninit<T>> = Vec::with_capacity(len);
+                    unsafe {
+                        // Safe because it is MaybeUninit, and we set
+                        // the source to Bag::Empty before converting
+                        // to initialized (we might leak, but won't
+                        // double free)
+                        out.set_len(len)
+                    };
+                    let out_rf = &mut out;
+                    rayon::scope(move |scope| {
+                        let bags_len = bags.len();
+                        let mut n = 0;
+                        let mut last_n_spawned = 0;
+                        let mut last_i_spawned = 0;
+                        for i in 0..bags_len {
+                            n += bags[i].len();
+                            let out_len = n - last_n_spawned;
+                            if out_len > 500000 {
+                                let i1 = i + 1;
+                                probe!(format!(
+                                    "will spawn _par_flatten bags[{last_i_spawned}..{i1}], \
+                                     out[{last_n_spawned}..{n}]"));
+                                let bagsrf = unsafe {
+                                    hack_static(&mut bags[last_i_spawned..i1])
+                                };
+                                let outrf = unsafe {
+                                    hack_static(&mut out_rf[last_n_spawned..n])
+                                };
+                                scope.spawn(|_| {
+                                    _par_flatten(bagsrf, outrf);
+                                });
+                                last_i_spawned = i1;
+                                last_n_spawned = n;
+                            }
+                        }
+                        if last_i_spawned < bags.len() {
+                            _par_flatten(
+                                &mut bags[last_i_spawned..bags_len],
+                                &mut out_rf[last_n_spawned..len],
+                            );
+                        }
+                    });
+                    unsafe {
+                        // MaybeUninit::assume_init(out)
+                        out.into_iter()
+                            .map(|v| MaybeUninit::assume_init(v))
+                            .collect()
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn _par_flatten<T: Send>(
+    from: &mut [Bag<T>],
+    to: &mut [MaybeUninit<T>],
+) -> usize {
+    // probe!(format!("_par_flatten from.len = {}, to.len= {}", from.len(), to.len()));
+    let mut to_i = 0;
+    for frombag in from {
+        let mut bag = Bag::Empty;
+        swap(&mut bag, frombag);
+        match bag {
+            Bag::Empty => (),
+            Bag::Leaf(item) => {
+                to[to_i] = MaybeUninit::new(item);
+                to_i += 1;
+            }
+            Bag::LeafVec(items) => {
+                for item in items {
+                    to[to_i] = MaybeUninit::new(item);
+                    to_i += 1;
+                }
+            }
+            Bag::Branching(_, mut bags) => {
+                to_i += _par_flatten(&mut bags, &mut to[to_i..]);
+            }
+        }
+    }
+    to_i
 }
 
 // XXX tests

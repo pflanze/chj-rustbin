@@ -1024,6 +1024,47 @@ struct Item<'t> {
 }
 
 impl<'t> Item<'t> {
+    pub fn from_path_and_metadata(
+        path: &'t Path,
+        read_link: bool,
+        stat_link_target: bool,
+        metadata: Metadata,
+    ) -> Result<Option<Self>> {
+        let metadata = EssentialMetadata::from_symlink_metadata(
+            &metadata,
+            path.to_file_kind(),
+        )?;
+        let link_target = if read_link && metadata.mode.filetype().is_link() {
+            match path.read_link() {
+                Ok(t) => {
+                    let metadata2 = if stat_link_target {
+                        path.metadata()
+                            .ok()
+                            .map(|m| {
+                                EssentialMetadata::from_symlink_metadata(
+                                    &m,
+                                    t.to_file_kind(),
+                                )
+                                .ok()
+                            })
+                            .flatten()
+                    } else {
+                        None
+                    };
+                    Some((t.into(), metadata2))
+                }
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
+        Ok(Some(Item {
+            path,
+            metadata,
+            link_target,
+        }))
+    }
+
     /// Returns None if the path is not found. `read_link` is true,
     /// retrieve the link target path; if `stat_link_target` is
     /// additionally true, try to get the metadata for the target, too
@@ -1033,43 +1074,12 @@ impl<'t> Item<'t> {
         stat_link_target: bool,
     ) -> Result<Option<Self>> {
         match path.symlink_metadata() {
-            Ok(s) => {
-                let metadata = EssentialMetadata::from_symlink_metadata(
-                    &s,
-                    path.to_file_kind(),
-                )?;
-                let link_target =
-                    if read_link && metadata.mode.filetype().is_link() {
-                        match path.read_link() {
-                            Ok(t) => {
-                                let metadata2 = if stat_link_target {
-                                    path
-                                .metadata()
-                                .ok()
-                                .map(|m| {
-                                    EssentialMetadata::from_symlink_metadata(
-                                        &m,
-                                        t.to_file_kind()
-                                    )
-                                    .ok()
-                                })
-                                            .flatten()
-                                } else {
-                                    None
-                                };
-                                Some((t.into(), metadata2))
-                            }
-                            Err(_) => None,
-                        }
-                    } else {
-                        None
-                    };
-                Ok(Some(Item {
-                    path,
-                    metadata,
-                    link_target,
-                }))
-            }
+            Ok(metadata) => Self::from_path_and_metadata(
+                path,
+                read_link,
+                stat_link_target,
+                metadata,
+            ),
             Err(e) => match e.kind() {
                 std::io::ErrorKind::NotFound => Ok(None),
                 _ => bail!("getting metadata for {path:?}: {e:#}"),
@@ -1284,6 +1294,7 @@ impl<'t> GetItems<'t> {
         &self,
         dir: PathBuf,
         include_dir: bool,
+        metadata: Metadata,
     ) -> (Bag<Item<'static>>, Bag<anyhow::Error>) {
         let Self {
             ignore: _,
@@ -1294,7 +1305,9 @@ impl<'t> GetItems<'t> {
             let mut items: Vec<Item<'static>> = Vec::new();
             let dir: &Path = dir.leak();
             if include_dir {
-                if let Some(item) = Item::from_path(dir, *long, *use_color)? {
+                if let Some(item) = Item::from_path_and_metadata(
+                    dir, *long, *use_color, metadata,
+                )? {
                     items.push(item);
                 }
                 // else will run into open error anyway--XX hmm
@@ -1316,7 +1329,8 @@ impl<'t> GetItems<'t> {
                     }
                     if metadata.is_dir() {
                         scope.spawn(move |_| {
-                            let (items, errors) = self._find(path, true);
+                            let (items, errors) =
+                                self._find(path, true, metadata);
                             let mut lock =
                                 subdir_items_rf.lock().expect("no panics");
                             lock.0.push_bag(items);
@@ -1325,9 +1339,9 @@ impl<'t> GetItems<'t> {
                     } else {
                         // XX hmm wish i could unleak if below gives None?
                         let path = path.leak();
-                        if let Some(item) =
-                            Item::from_path(path, *long, *use_color)?
-                        {
+                        if let Some(item) = Item::from_path_and_metadata(
+                            path, *long, *use_color, metadata,
+                        )? {
                             items.push(item);
                         }
                     }
@@ -1353,10 +1367,11 @@ impl<'t> GetItems<'t> {
         dir: PathBuf,
         include_top: bool,
     ) -> Result<(Vec<Item<'static>>, Vec<anyhow::Error>)> {
-        let _input = std::fs::read_dir(&dir)
+        // XX .metadata() ?
+        let metadata = dir
+            .symlink_metadata()
             .with_context(|| anyhow!("directory {dir:?}"))?;
-        // XXX ^ what to do with ?
-        let (items, errors) = self._find(dir, include_top);
+        let (items, errors) = self._find(dir, include_top, metadata);
         probe!("flattening");
         let items = items.flatten();
         let errors = errors.flatten();

@@ -9,6 +9,7 @@ pub mod chunks;
 pub mod conslist;
 pub mod cpu_probe;
 pub mod duu;
+pub mod efficient_regex;
 pub mod fp;
 pub mod get_terminal_width;
 pub mod index_map;

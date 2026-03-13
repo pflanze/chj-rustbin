@@ -18,6 +18,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use chj_rustbin::{
     bag::Bag,
     cpu_probe,
+    efficient_regex::EfficientRegex,
     io::{
         unix_gr::{Gid, GrInfoCache},
         unix_pw::{PwInfoCache, Uid},
@@ -1216,26 +1217,19 @@ impl TableFromItems {
     }
 }
 
-struct GetItems<'t> {
-    ignore: &'t [Regex],
+struct GetItems {
+    ignore: Option<EfficientRegex>,
     long: bool,
     use_color: bool,
 }
 
-impl<'t> GetItems<'t> {
+impl GetItems {
     fn ignore_path(&self, path: &Path) -> bool {
-        if self.ignore.is_empty() {
+        if let Some(ignore) = &self.ignore {
+            ignore.is_match_path(path)
+        } else {
             return false;
         }
-        // Would it be better security wise to
-        // ignore non-UTF8 paths, or error out?
-        let path_str = path.to_string_lossy();
-        for pat in self.ignore {
-            if pat.is_match(&path_str) {
-                return true;
-            }
-        }
-        false
     }
 
     /// Leaks the backing memory for Item for now for simplicity
@@ -1431,8 +1425,14 @@ fn main() -> Result<()> {
     let desired_number_of_paths_per_chunk = 1000;
     let buf_size = desired_number_of_paths_per_chunk * 100;
 
+    let ignore = if ignore.is_empty() {
+        None
+    } else {
+        Some(EfficientRegex::new_either_from(&ignore))
+    };
+
     let get_items = GetItems {
-        ignore: &ignore,
+        ignore,
         long,
         use_color,
     };

@@ -16,6 +16,11 @@ pub enum Bag<T> {
     Branching(Vec<Bag<T>>),
 }
 
+#[test]
+fn t_bag_size() {
+    assert_eq!(size_of::<Bag<bool>>(), 8 * 4);
+}
+
 impl<T> Default for Bag<T> {
     fn default() -> Self {
         Bag::Empty

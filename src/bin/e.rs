@@ -1009,26 +1009,31 @@ fn main() -> Result<()> {
     // characters (copy pastes from gitk). `have_hr` indicates whether
     // there where any hr (`---` that don't exist as files).
     let (files_or_args, have_hr) = if args_is_all_files {
-        let mut e_exists = {
+        let make_exists_cache = |file_name: &'static str| {
             // I had a Lazy something somewhere; not the one from
             // once_cell.
-            let mut cache = None;
+            let mut cache: Option<bool> = None;
             move || -> bool {
                 if let Some(val) = cache {
                     val
                 } else {
-                    let val = PathBuf::from("e").exists();
+                    let val = AsRef::<Path>::as_ref(file_name).exists();
                     cache = Some(val);
                     val
                 }
             }
         };
+
+        let mut e_exists = make_exists_cache("e");
+        let mut g_exists = make_exists_cache("g");
         let mut have_hr = false;
         let files_or_args = files_or_args
             .into_iter()
             .filter(|a| {
                 if a.as_bytes() == b"e" {
                     e_exists()
+                } else if a.as_bytes() == b"g" {
+                    g_exists()
                 } else if is_hr(a.as_bytes()) {
                     let is_file = path_is_normal_file(a);
                     if !is_file {

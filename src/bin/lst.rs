@@ -19,6 +19,7 @@ use chj_rustbin::{
     bag::Bag,
     cpu_probe,
     efficient_regex::EfficientRegex,
+    hack_static::hack_static,
     io::{
         unix_gr::{Gid, GrInfoCache},
         unix_pw::{PwInfoCache, Uid},
@@ -587,13 +588,6 @@ fn sort_function<'t: 'v, 'v>(
             }
         }
     }
-}
-
-// XX see if newer compilers can compile the code below without this!
-// This is needed for rustc 1.63.0.
-unsafe fn hack_static<'a, 'v, T: ?Sized>(rf: &'a mut T) -> &'v mut T {
-    let ptr: *mut T = rf;
-    &mut *ptr
 }
 
 fn run_processing_commands<'t: 'u, 'u: 'v, 'v>(

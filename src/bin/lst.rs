@@ -30,6 +30,7 @@ use chj_rustbin::{
         read_find_bufs::FindBufStream,
     },
     is_a_terminal::is_a_terminal,
+    leaked_region::LeakedRegion,
     path_file_kind::{FileKind, ToFileKind},
     probe,
     text::yattable::{Widths, YatTable},
@@ -1283,18 +1284,18 @@ impl GetItems {
     /// level yields. Vec of that since subdirs, too.
     fn _find(
         &self,
-        dir: PathBuf,
+        dir: &'static Path,
         include_dir: bool,
         metadata: Metadata,
     ) -> (Bag<Item<'static>>, Bag<anyhow::Error>) {
-        let Self {
-            ignore: _,
-            long,
-            use_color,
-        } = self;
         match (|| -> Result<_> {
+            let Self {
+                ignore: _,
+                long,
+                use_color,
+            } = self;
+
             let mut items: Vec<Item<'static>> = Vec::new();
-            let dir: &Path = Box::leak(dir.into_boxed_path());
             if include_dir {
                 if let Some(item) = Item::from_path_and_metadata(
                     dir, *long, *use_color, metadata,
@@ -1311,6 +1312,7 @@ impl GetItems {
                 Mutex::new((Bag::new(), Bag::new()));
             let subdir_items_rf = &subdir_items;
             rayon::scope(|scope| -> Result<()> {
+                let mut allocator = LeakedRegion::new();
                 for entry in input {
                     let entry = entry?;
                     let metadata = entry.metadata()?;
@@ -1318,6 +1320,7 @@ impl GetItems {
                     if self.ignore_path(&path) {
                         continue;
                     }
+                    let path = allocator.allocate_path(&path);
                     if metadata.is_dir() {
                         scope.spawn(move |_| {
                             let (items, errors) =
@@ -1328,8 +1331,6 @@ impl GetItems {
                             lock.1.push_bag(errors);
                         });
                     } else {
-                        // XX hmm wish i could unleak if below gives None?
-                        let path = Box::leak(path.into_boxed_path());
                         if let Some(item) = Item::from_path_and_metadata(
                             path, *long, *use_color, metadata,
                         )? {
@@ -1355,13 +1356,17 @@ impl GetItems {
     /// backing memory for Item for now for simplicity
     fn find(
         &self,
-        dir: PathBuf,
+        dir: &Path,
         include_top: bool,
     ) -> Result<(Vec<Item<'static>>, Vec<anyhow::Error>)> {
         // XX .metadata() ?
         let metadata = dir
             .symlink_metadata()
             .with_context(|| anyhow!("directory {dir:?}"))?;
+        let dir = {
+            let mut allocator = LeakedRegion::new();
+            allocator.allocate_path(dir)
+        };
         let (items, errors) = self._find(dir, include_top, metadata);
         probe!("flattening");
         let items = items.par_flatten();
@@ -1455,7 +1460,7 @@ fn main() -> Result<()> {
                     0,
                 )
             } else {
-                get_items.find(basepath, true)?
+                get_items.find(&basepath, true)?
             }
         } else {
             get_items.from_read_buf_stream(

@@ -16,7 +16,6 @@ use std::{
 use anstyle::{AnsiColor, Color, Style};
 use anyhow::{anyhow, bail, Context, Result};
 use chj_rustbin::{
-    bag::Bag,
     cpu_probe,
     efficient_regex::EfficientRegex,
     hack_static::hack_static,
@@ -31,6 +30,7 @@ use chj_rustbin::{
     },
     is_a_terminal::is_a_terminal,
     leaked_region::LeakedRegion,
+    merge::merge,
     path_file_kind::{FileKind, ToFileKind},
     probe,
     text::yattable::{Widths, YatTable},
@@ -1280,14 +1280,17 @@ impl GetItems {
         (itemss.into_iter().flatten().collect(), errors)
     }
 
-    /// `(Vec<Item<'static>>, Vec<anyhow::Error>)` is what one dir
-    /// level yields. Vec of that since subdirs, too.
+    // Returns Item references sorted by `sortfn`
     fn _find(
         &self,
         dir: &'static Path,
         include_dir: bool,
         metadata: Metadata,
-    ) -> (Bag<Item<'static>>, Bag<anyhow::Error>) {
+        sortfn: for<'a, 'b, 'i> fn(
+            a: &'a Item<'i>,
+            b: &'b Item<'i>,
+        ) -> Ordering,
+    ) -> (Vec<&'static Item<'static>>, Vec<anyhow::Error>) {
         match (|| -> Result<_> {
             let Self {
                 ignore: _,
@@ -1308,8 +1311,13 @@ impl GetItems {
 
             let input = std::fs::read_dir(dir)
                 .with_context(|| anyhow!("directory {dir:?}"))?;
-            let subdir_items: Mutex<(Bag<Item<'static>>, Bag<anyhow::Error>)> =
-                Mutex::new((Bag::new(), Bag::new()));
+            // Merged items from all subdirectories (merged by each
+            // subtask as needed) and errors collected in the order as
+            // they happened in time
+            let subdir_items: Mutex<(
+                Option<Vec<&'static Item<'static>>>,
+                Vec<anyhow::Error>,
+            )> = Mutex::new((Default::default(), Default::default()));
             let subdir_items_rf = &subdir_items;
             rayon::scope(|scope| -> Result<()> {
                 let mut allocator = LeakedRegion::new();
@@ -1323,12 +1331,27 @@ impl GetItems {
                     let path = allocator.allocate_path(&path);
                     if metadata.is_dir() {
                         scope.spawn(move |_| {
-                            let (items, errors) =
-                                self._find(path, true, metadata);
+                            let (mut items, mut errors) =
+                                self._find(path, true, metadata, sortfn);
                             let mut lock =
                                 subdir_items_rf.lock().expect("no panics");
-                            lock.0.push_bag(items);
-                            lock.1.push_bag(errors);
+                            lock.1.append(&mut errors);
+                            loop {
+                                if let Some(existing_items) = lock.0.take() {
+                                    drop(lock);
+                                    items =
+                                        merge(existing_items, items, |a, b| {
+                                            sortfn(a, b)
+                                        });
+                                    lock = subdir_items_rf
+                                        .lock()
+                                        .expect("no panics");
+                                } else {
+                                    _ = lock.0.insert(items);
+                                    drop(lock);
+                                    break;
+                                }
+                            }
                         });
                     } else {
                         if let Some(item) = Item::from_path_and_metadata(
@@ -1341,13 +1364,25 @@ impl GetItems {
                 Ok(())
             })
             .with_context(|| anyhow!("reading entries in {dir:?}"))?;
-            let mut subdir_items =
-                subdir_items.into_inner().expect("no panics");
-            subdir_items.0.push_bag(items.into());
-            Ok(subdir_items)
+            let subdir_items = subdir_items.into_inner().expect("no panics");
+            let items_leaked = Vec::leak(items);
+            let mut items_refs: Vec<_> = items_leaked.iter().collect();
+            // XX best cutoff?
+            if items_refs.len() > 50000 {
+                items_refs.par_sort_by(|a, b| sortfn(a, b));
+            } else {
+                items_refs.sort_by(|a, b| sortfn(a, b));
+            }
+            let (subdir_items, errors) = subdir_items;
+            let all_items = if let Some(subdir_items) = subdir_items {
+                merge(subdir_items, items_refs, |a, b| sortfn(a, b))
+            } else {
+                items_refs
+            };
+            Ok((all_items, errors))
         })() {
             Ok(items) => items,
-            Err(e) => (Bag::Empty, Bag::Leaf(e)),
+            Err(e) => (Default::default(), vec![e]),
         }
     }
 
@@ -1358,7 +1393,11 @@ impl GetItems {
         &self,
         dir: &Path,
         include_top: bool,
-    ) -> Result<(Vec<Item<'static>>, Vec<anyhow::Error>)> {
+        sortfn: for<'a, 'b, 'i> fn(
+            a: &'a Item<'i>,
+            b: &'b Item<'i>,
+        ) -> Ordering,
+    ) -> Result<(Vec<&'static Item<'static>>, Vec<anyhow::Error>)> {
         // XX .metadata() ?
         let metadata = dir
             .symlink_metadata()
@@ -1367,11 +1406,7 @@ impl GetItems {
             let mut allocator = LeakedRegion::new();
             allocator.allocate_path(dir)
         };
-        let (items, errors) = self._find(dir, include_top, metadata);
-        probe!("flattening");
-        let items = items.par_flatten();
-        let errors = errors.par_flatten();
-        Ok((items, errors))
+        Ok(self._find(dir, include_top, metadata, sortfn))
     }
 }
 
@@ -1436,15 +1471,32 @@ fn main() -> Result<()> {
         use_color,
     };
 
+    let sortfn = sort_function(reverse, time, time_reversed);
+
+    // Leak the first argument and return as Vec of refs to it, also
+    // add a `true` value for needing sorting since we need to leak
+    // and take refs exactly when not already sorted
+    fn leak_and_refs(
+        (items, errors): (Vec<Item<'static>>, Vec<anyhow::Error>),
+    ) -> (Vec<&'static Item<'static>>, Vec<anyhow::Error>, bool) {
+        let leaked = Vec::leak(items);
+        let refs = leaked.iter().collect();
+        (refs, errors, true)
+    }
+
     // Read the paths as blocks (as `Vec<u8>`) of some number of
     // null-terminated paths each, in either mode
-    let (items, errors): (Vec<Item>, Vec<anyhow::Error>) = {
+    let (mut itemrefs, errors, needs_sorting): (
+        Vec<&Item>,
+        Vec<anyhow::Error>,
+        bool,
+    ) = {
         probe!("get items");
         if let Some(basepath) = ls_dir {
             set_current_dir(&basepath).with_context(|| {
                 anyhow!("changing to directory {basepath:?}")
             })?;
-            get_items.from_read_buf_stream(
+            leak_and_refs(get_items.from_read_buf_stream(
                 ReadDirBufStream::new(
                     std::fs::read_dir(".").with_context(|| {
                         anyhow!("reading directory {basepath:?}")
@@ -1452,35 +1504,34 @@ fn main() -> Result<()> {
                     buf_size,
                 ),
                 0,
-            )
+            ))
         } else if let Some(basepath) = find_dir {
             if false {
-                get_items.from_read_buf_stream(
+                leak_and_refs(get_items.from_read_buf_stream(
                     FindBufStream::new(buf_size, basepath, true)?.par_bridge(),
                     0,
-                )
+                ))
             } else {
-                get_items.find(&basepath, true)?
+                let (itemrefs, errors) =
+                    get_items.find(&basepath, true, sortfn)?;
+                (itemrefs, errors, false)
             }
         } else {
-            get_items.from_read_buf_stream(
-                ParReadBufStream::from(ReadBufStream::new(
-                    stdin().lock(),
-                    buf_size,
+            leak_and_refs(
+                get_items.from_read_buf_stream(
+                    ParReadBufStream::from(ReadBufStream::new(
+                        stdin().lock(),
+                        buf_size,
+                        input_record_separator,
+                    ))
+                    .par_bridge(),
                     input_record_separator,
-                ))
-                .par_bridge(),
-                input_record_separator,
+                ),
             )
         }
     };
 
-    let mut itemrefs: Vec<_> = items.iter().collect();
-    #[allow(unused)]
-    let items = ();
-
-    let sortfn = sort_function(reverse, time, time_reversed);
-    {
+    if needs_sorting {
         probe!("sort_items");
         itemrefs.par_sort_by(|a, b| sortfn(a, b));
     }

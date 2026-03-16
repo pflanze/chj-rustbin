@@ -38,6 +38,7 @@ use chj_rustbin::{
 };
 use chrono::{DateTime, Datelike, Local, Timelike};
 use clap::Parser;
+use mimalloc::MiMalloc;
 use rand::{rngs::ThreadRng, Rng};
 use rayon::{
     iter::{IntoParallelIterator, ParallelBridge},
@@ -1374,6 +1375,9 @@ impl GetItems {
         Ok((items, errors))
     }
 }
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() -> Result<()> {
     cpu_probe::init()?;

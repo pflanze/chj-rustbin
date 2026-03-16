@@ -6,10 +6,10 @@
 
 use std::{
     cell::UnsafeCell, ffi::OsStr, marker::PhantomData, os::unix::ffi::OsStrExt,
-    path::Path,
+    path::Path, slice::from_raw_parts_mut,
 };
 
-use crate::{hack_static::hack_static, unsync_unsend::UnSyncUnSend};
+use crate::unsync_unsend::UnSyncUnSend;
 
 // Store the regions here so that the last one can be retrieved again
 // via LeakedRegion::new (which must remove the entry here to avoid
@@ -19,21 +19,53 @@ use crate::{hack_static::hack_static, unsync_unsend::UnSyncUnSend};
 // memory!--XX ah, now stores back the mostly-used-up-slice, not the
 // whole region, back here, so won't be useful for reading!
 thread_local! {
-    static REGIONS: UnsafeCell<Vec<&'static mut [u8]>> = UnsafeCell::new(Vec::new());
+    static REGIONS: UnsafeCell<Vec<RawSliceMut>> = UnsafeCell::new(Vec::new());
+}
+
+#[derive(Clone, Copy)]
+struct RawSliceMut {
+    data: *mut u8,
+    len: usize,
+}
+
+impl From<&mut [u8]> for RawSliceMut {
+    fn from(sl: &mut [u8]) -> Self {
+        let data = sl.as_mut_ptr();
+        let len = sl.len();
+        Self { data, len }
+    }
+}
+
+impl RawSliceMut {
+    unsafe fn to_slice_mut(self) -> &'static mut [u8] {
+        let Self { data, len } = self;
+        from_raw_parts_mut(data, len)
+    }
+
+    fn split_at_mut(self, pos: usize) -> (RawSliceMut, RawSliceMut) {
+        let Self { data, len } = self;
+        assert!(pos <= len);
+        let head = RawSliceMut { data, len: pos };
+        let rest = RawSliceMut {
+            data: unsafe { data.add(pos) },
+            len: len - pos,
+        };
+        (head, rest)
+    }
 }
 
 /// A fast allocator for 'static byte slices for the current thread
 /// (!Sync, !Send).
 pub struct LeakedRegion {
     _only_on_same_thread: PhantomData<UnSyncUnSend>,
-    current_region: &'static mut [u8],
+    current_region: RawSliceMut,
 }
 
 impl Drop for LeakedRegion {
     fn drop(&mut self) {
         REGIONS.with(|regions| {
             let regions: &mut _ = unsafe { &mut *regions.get() };
-            regions.push(unsafe { hack_static(self.current_region) });
+            regions.push(self.current_region);
         });
     }
 }
@@ -49,7 +81,7 @@ impl LeakedRegion {
                 region
             } else {
                 let leaked = Self::make_region(0);
-                assert!(leaked.len() > 0); // XX
+                assert!(leaked.len > 0); // XX
                 leaked
             }
         });
@@ -59,22 +91,22 @@ impl LeakedRegion {
         }
     }
 
-    fn make_region(num_bytes: usize) -> &'static mut [u8] {
+    fn make_region(num_bytes: usize) -> RawSliceMut {
         let region_size = Self::MIN_REGION_SIZE.max(num_bytes);
         let new_region: Vec<u8> = vec![0; region_size];
-        Box::leak(new_region.into_boxed_slice())
+        Box::leak(new_region.into_boxed_slice()).into()
     }
 
     pub fn allocate(&mut self, num_bytes: usize) -> &'static mut [u8] {
-        if num_bytes <= self.current_region.len() {
+        if num_bytes <= self.current_region.len {
             let (res, rest) = self.current_region.split_at_mut(num_bytes);
-            self.current_region = unsafe { hack_static(rest) };
-            unsafe { hack_static(res) }
+            self.current_region = rest;
+            unsafe { res.to_slice_mut() }
         } else {
             // Done with the current region.
             REGIONS.with(|regions| {
                 let regions: &mut _ = unsafe { &mut *regions.get() };
-                regions.push(unsafe { hack_static(self.current_region) });
+                regions.push(self.current_region);
             });
             self.current_region = Self::make_region(num_bytes);
             self.allocate(num_bytes)

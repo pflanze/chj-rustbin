@@ -1,4 +1,8 @@
 //! Allocate and leak byte slices in thread-local allocators with static lifetime
+//!
+//! Todo: this needs proper testing. Also should move to a global
+//! container from which the thread-local regions are derived, for
+//! non-static lifetimes and ability to free.
 
 use std::{
     cell::UnsafeCell, ffi::OsStr, marker::PhantomData, os::unix::ffi::OsStrExt,

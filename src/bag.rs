@@ -23,6 +23,7 @@ pub enum Bag<T> {
 
 #[test]
 fn t_bag_size() {
+    use std::mem::size_of;
     assert_eq!(size_of::<Bag<bool>>(), 8 * 4);
 }
 

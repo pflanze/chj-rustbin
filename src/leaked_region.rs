@@ -5,7 +5,7 @@
 //! non-static lifetimes and ability to free.
 
 use std::{
-    cell::UnsafeCell, ffi::OsStr, marker::PhantomData, os::unix::ffi::OsStrExt,
+    cell::RefCell, ffi::OsStr, marker::PhantomData, os::unix::ffi::OsStrExt,
     path::Path, slice::from_raw_parts_mut,
 };
 
@@ -19,7 +19,7 @@ use crate::unsync_unsend::UnSyncUnSend;
 // memory!--XX ah, now stores back the mostly-used-up-slice, not the
 // whole region, back here, so won't be useful for reading!
 thread_local! {
-    static REGIONS: UnsafeCell<Vec<RawSliceMut>> = UnsafeCell::new(Vec::new());
+    static REGIONS: RefCell<Vec<RawSliceMut>> = RefCell::new(Vec::new());
 }
 
 #[derive(Clone, Copy)]
@@ -64,7 +64,7 @@ pub struct LeakedRegion {
 impl Drop for LeakedRegion {
     fn drop(&mut self) {
         REGIONS.with(|regions| {
-            let regions: &mut _ = unsafe { &mut *regions.get() };
+            let mut regions = regions.borrow_mut();
             regions.push(self.current_region);
         });
     }
@@ -76,7 +76,7 @@ impl LeakedRegion {
 
     pub fn new() -> Self {
         let current_region = REGIONS.with(|regions| {
-            let regions: &mut _ = unsafe { &mut *regions.get() };
+            let mut regions = regions.borrow_mut();
             if let Some(region) = regions.pop() {
                 region
             } else {
@@ -105,7 +105,7 @@ impl LeakedRegion {
         } else {
             // Done with the current region.
             REGIONS.with(|regions| {
-                let regions: &mut _ = unsafe { &mut *regions.get() };
+                let mut regions = regions.borrow_mut();
                 regions.push(self.current_region);
             });
             self.current_region = Self::make_region(num_bytes);

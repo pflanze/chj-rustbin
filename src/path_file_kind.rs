@@ -4,7 +4,7 @@ pub trait ToFileKind {
     fn to_file_kind(&self) -> Option<FileKind>;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FileKind {
     /// File name ending in `~`
     EmacsBackupFile,

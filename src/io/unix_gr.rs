@@ -4,7 +4,7 @@ use std::{collections::HashMap, ffi::CStr, pin::Pin, ptr::null_mut};
 
 use libc::{getgrgid_r, gid_t, group};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Gid(gid_t);
 
 impl From<gid_t> for Gid {

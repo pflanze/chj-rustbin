@@ -167,6 +167,13 @@ impl<T> Bag<T> {
         *self = this.add_bag(val);
     }
 
+    pub fn push(&mut self, val: T) {
+        // XX should we optimize by having our own specialized
+        // dispatch here? But, just make sure push_bag/add_bag is
+        // inlined?
+        self.push_bag(Bag::Leaf(val));
+    }
+
     fn _flatten(self, out: &mut Vec<T>) {
         match self {
             Bag::Empty => (),

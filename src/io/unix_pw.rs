@@ -4,7 +4,7 @@ use std::{collections::HashMap, ffi::CStr, pin::Pin, ptr::null_mut};
 
 use libc::{getpwuid_r, passwd, uid_t};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Uid(uid_t);
 
 impl From<uid_t> for Uid {

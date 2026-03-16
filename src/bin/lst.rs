@@ -1,5 +1,6 @@
 use std::{
     cmp::Ordering,
+    collections::BTreeSet,
     env::set_current_dir,
     ffi::OsStr,
     fmt::Display,
@@ -16,6 +17,7 @@ use std::{
 use anstyle::{AnsiColor, Color, Style};
 use anyhow::{anyhow, bail, Context, Result};
 use chj_rustbin::{
+    bag::Bag,
     cpu_probe,
     efficient_regex::EfficientRegex,
     hack_static::hack_static,
@@ -35,6 +37,7 @@ use chj_rustbin::{
     probe,
     text::yattable::{Widths, YatTable},
     time::age_at::AgeAt,
+    util::vec_by_len::VecByLen,
 };
 use chrono::{DateTime, Datelike, Local, Timelike};
 use clap::Parser;
@@ -816,7 +819,7 @@ impl<P: RwxPosition> Display for Rwx<P> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Mode(u32);
 
 impl Mode {
@@ -874,7 +877,7 @@ impl Display for Mode {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RDev(u64);
 
 impl From<u64> for RDev {
@@ -894,7 +897,7 @@ impl RDev {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct EssentialMetadata {
     mtime: SystemTime,
     size: u64,
@@ -1011,7 +1014,7 @@ impl EssentialMetadata {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Item<'t> {
     path: &'t Path,
     metadata: EssentialMetadata,
@@ -1315,7 +1318,7 @@ impl GetItems {
             // subtask as needed) and errors collected in the order as
             // they happened in time
             let subdir_items: Mutex<(
-                Option<Vec<&'static Item<'static>>>,
+                Bag<Vec<&'static Item<'static>>>,
                 Vec<anyhow::Error>,
             )> = Mutex::new((Default::default(), Default::default()));
             let subdir_items_rf = &subdir_items;
@@ -1331,27 +1334,12 @@ impl GetItems {
                     let path = allocator.allocate_path(&path);
                     if metadata.is_dir() {
                         scope.spawn(move |_| {
-                            let (mut items, mut errors) =
+                            let (items, mut errors) =
                                 self._find(path, true, metadata, sortfn);
                             let mut lock =
                                 subdir_items_rf.lock().expect("no panics");
+                            lock.0.push(items);
                             lock.1.append(&mut errors);
-                            loop {
-                                if let Some(existing_items) = lock.0.take() {
-                                    drop(lock);
-                                    items =
-                                        merge(existing_items, items, |a, b| {
-                                            sortfn(a, b)
-                                        });
-                                    lock = subdir_items_rf
-                                        .lock()
-                                        .expect("no panics");
-                                } else {
-                                    _ = lock.0.insert(items);
-                                    drop(lock);
-                                    break;
-                                }
-                            }
                         });
                     } else {
                         if let Some(item) = Item::from_path_and_metadata(
@@ -1364,7 +1352,7 @@ impl GetItems {
                 Ok(())
             })
             .with_context(|| anyhow!("reading entries in {dir:?}"))?;
-            let subdir_items = subdir_items.into_inner().expect("no panics");
+
             let items_leaked = Vec::leak(items);
             let mut items_refs: Vec<_> = items_leaked.iter().collect();
             // XX best cutoff?
@@ -1373,11 +1361,37 @@ impl GetItems {
             } else {
                 items_refs.sort_by(|a, b| sortfn(a, b));
             }
-            let (subdir_items, errors) = subdir_items;
-            let all_items = if let Some(subdir_items) = subdir_items {
-                merge(subdir_items, items_refs, |a, b| sortfn(a, b))
-            } else {
-                items_refs
+
+            let (subdir_items, errors) =
+                subdir_items.into_inner().expect("no panics");
+            let all_items = match subdir_items {
+                Bag::Empty => items_refs,
+                Bag::Leaf(other_items_refs) => {
+                    merge(other_items_refs, items_refs, |a, b| sortfn(a, b))
+                }
+                Bag::LeafVec(mut items) => {
+                    items.push(items_refs);
+                    // Iteratively merge smallest items first
+                    let mut set: BTreeSet<_> =
+                        items.into_iter().map(VecByLen).collect();
+                    loop {
+                        if let Some(a) = set.pop_first() {
+                            if let Some(b) = set.pop_first() {
+                                let c = merge(a.0, b.0, |a, b| sortfn(a, b));
+                                set.insert(c.into());
+                            } else {
+                                break a.0;
+                            }
+                        } else {
+                            unreachable!(
+                                "started with at least 2, and stopping with 1"
+                            )
+                        }
+                    }
+                }
+                Bag::Branching(_non_zero, _bags) => {
+                    unreachable!("only `push` is used above")
+                }
             };
             Ok((all_items, errors))
         })() {

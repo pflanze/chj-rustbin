@@ -1,6 +1,5 @@
 use std::{
     cmp::Ordering,
-    collections::BTreeSet,
     env::set_current_dir,
     ffi::OsStr,
     fmt::Display,
@@ -32,12 +31,10 @@ use chj_rustbin::{
     },
     is_a_terminal::is_a_terminal,
     leaked_region::LeakedRegion,
-    merge::merge,
     path_file_kind::{FileKind, ToFileKind},
     probe,
     text::yattable::{Widths, YatTable},
     time::age_at::AgeAt,
-    util::vec_by_len::VecByLen,
 };
 use chrono::{DateTime, Datelike, Local, Timelike};
 use clap::Parser;
@@ -1283,17 +1280,14 @@ impl GetItems {
         (itemss.into_iter().flatten().collect(), errors)
     }
 
-    // Returns Item references sorted by `sortfn`
+    /// `(Vec<Item<'static>>, Vec<anyhow::Error>)` is what one dir
+    /// level yields. Vec of that since subdirs, too.
     fn _find(
         &self,
         dir: &'static Path,
         include_dir: bool,
         metadata: Metadata,
-        sortfn: for<'a, 'b, 'i> fn(
-            a: &'a Item<'i>,
-            b: &'b Item<'i>,
-        ) -> Ordering,
-    ) -> (Vec<&'static Item<'static>>, Vec<anyhow::Error>) {
+    ) -> (Bag<Item<'static>>, Bag<anyhow::Error>) {
         match (|| -> Result<_> {
             let Self {
                 ignore: _,
@@ -1314,13 +1308,8 @@ impl GetItems {
 
             let input = std::fs::read_dir(dir)
                 .with_context(|| anyhow!("directory {dir:?}"))?;
-            // Merged items from all subdirectories (merged by each
-            // subtask as needed) and errors collected in the order as
-            // they happened in time
-            let subdir_items: Mutex<(
-                Bag<Vec<&'static Item<'static>>>,
-                Vec<anyhow::Error>,
-            )> = Mutex::new((Default::default(), Default::default()));
+            let subdir_items: Mutex<(Bag<Item<'static>>, Bag<anyhow::Error>)> =
+                Mutex::new((Bag::new(), Bag::new()));
             let subdir_items_rf = &subdir_items;
             rayon::scope(|scope| -> Result<()> {
                 let mut allocator = LeakedRegion::new();
@@ -1334,12 +1323,12 @@ impl GetItems {
                     let path = allocator.allocate_path(&path);
                     if metadata.is_dir() {
                         scope.spawn(move |_| {
-                            let (items, mut errors) =
-                                self._find(path, true, metadata, sortfn);
+                            let (items, errors) =
+                                self._find(path, true, metadata);
                             let mut lock =
                                 subdir_items_rf.lock().expect("no panics");
-                            lock.0.push(items);
-                            lock.1.append(&mut errors);
+                            lock.0.push_bag(items);
+                            lock.1.push_bag(errors);
                         });
                     } else {
                         if let Some(item) = Item::from_path_and_metadata(
@@ -1352,51 +1341,13 @@ impl GetItems {
                 Ok(())
             })
             .with_context(|| anyhow!("reading entries in {dir:?}"))?;
-
-            let items_leaked = Vec::leak(items);
-            let mut items_refs: Vec<_> = items_leaked.iter().collect();
-            // XX best cutoff?
-            if items_refs.len() > 50000 {
-                items_refs.par_sort_by(|a, b| sortfn(a, b));
-            } else {
-                items_refs.sort_by(|a, b| sortfn(a, b));
-            }
-
-            let (subdir_items, errors) =
+            let mut subdir_items =
                 subdir_items.into_inner().expect("no panics");
-            let all_items = match subdir_items {
-                Bag::Empty => items_refs,
-                Bag::Leaf(other_items_refs) => {
-                    merge(other_items_refs, items_refs, |a, b| sortfn(a, b))
-                }
-                Bag::LeafVec(mut items) => {
-                    items.push(items_refs);
-                    // Iteratively merge smallest items first
-                    let mut set: BTreeSet<_> =
-                        items.into_iter().map(VecByLen).collect();
-                    loop {
-                        if let Some(a) = set.pop_first() {
-                            if let Some(b) = set.pop_first() {
-                                let c = merge(a.0, b.0, |a, b| sortfn(a, b));
-                                set.insert(c.into());
-                            } else {
-                                break a.0;
-                            }
-                        } else {
-                            unreachable!(
-                                "started with at least 2, and stopping with 1"
-                            )
-                        }
-                    }
-                }
-                Bag::Branching(_non_zero, _bags) => {
-                    unreachable!("only `push` is used above")
-                }
-            };
-            Ok((all_items, errors))
+            subdir_items.0.push_bag(items.into());
+            Ok(subdir_items)
         })() {
             Ok(items) => items,
-            Err(e) => (Default::default(), vec![e]),
+            Err(e) => (Bag::Empty, Bag::Leaf(e)),
         }
     }
 
@@ -1407,11 +1358,7 @@ impl GetItems {
         &self,
         dir: &Path,
         include_top: bool,
-        sortfn: for<'a, 'b, 'i> fn(
-            a: &'a Item<'i>,
-            b: &'b Item<'i>,
-        ) -> Ordering,
-    ) -> Result<(Vec<&'static Item<'static>>, Vec<anyhow::Error>)> {
+    ) -> Result<(Vec<Item<'static>>, Vec<anyhow::Error>)> {
         // XX .metadata() ?
         let metadata = dir
             .symlink_metadata()
@@ -1420,7 +1367,11 @@ impl GetItems {
             let mut allocator = LeakedRegion::new();
             allocator.allocate_path(dir)
         };
-        Ok(self._find(dir, include_top, metadata, sortfn))
+        let (items, errors) = self._find(dir, include_top, metadata);
+        probe!("flattening");
+        let items = items.par_flatten();
+        let errors = errors.par_flatten();
+        Ok((items, errors))
     }
 }
 
@@ -1485,32 +1436,15 @@ fn main() -> Result<()> {
         use_color,
     };
 
-    let sortfn = sort_function(reverse, time, time_reversed);
-
-    // Leak the first argument and return as Vec of refs to it, also
-    // add a `true` value for needing sorting since we need to leak
-    // and take refs exactly when not already sorted
-    fn leak_and_refs(
-        (items, errors): (Vec<Item<'static>>, Vec<anyhow::Error>),
-    ) -> (Vec<&'static Item<'static>>, Vec<anyhow::Error>, bool) {
-        let leaked = Vec::leak(items);
-        let refs = leaked.iter().collect();
-        (refs, errors, true)
-    }
-
     // Read the paths as blocks (as `Vec<u8>`) of some number of
     // null-terminated paths each, in either mode
-    let (mut itemrefs, errors, needs_sorting): (
-        Vec<&Item>,
-        Vec<anyhow::Error>,
-        bool,
-    ) = {
+    let (items, errors): (Vec<Item>, Vec<anyhow::Error>) = {
         probe!("get items");
         if let Some(basepath) = ls_dir {
             set_current_dir(&basepath).with_context(|| {
                 anyhow!("changing to directory {basepath:?}")
             })?;
-            leak_and_refs(get_items.from_read_buf_stream(
+            get_items.from_read_buf_stream(
                 ReadDirBufStream::new(
                     std::fs::read_dir(".").with_context(|| {
                         anyhow!("reading directory {basepath:?}")
@@ -1518,34 +1452,35 @@ fn main() -> Result<()> {
                     buf_size,
                 ),
                 0,
-            ))
+            )
         } else if let Some(basepath) = find_dir {
             if false {
-                leak_and_refs(get_items.from_read_buf_stream(
+                get_items.from_read_buf_stream(
                     FindBufStream::new(buf_size, basepath, true)?.par_bridge(),
                     0,
-                ))
+                )
             } else {
-                let (itemrefs, errors) =
-                    get_items.find(&basepath, true, sortfn)?;
-                (itemrefs, errors, false)
+                get_items.find(&basepath, true)?
             }
         } else {
-            leak_and_refs(
-                get_items.from_read_buf_stream(
-                    ParReadBufStream::from(ReadBufStream::new(
-                        stdin().lock(),
-                        buf_size,
-                        input_record_separator,
-                    ))
-                    .par_bridge(),
+            get_items.from_read_buf_stream(
+                ParReadBufStream::from(ReadBufStream::new(
+                    stdin().lock(),
+                    buf_size,
                     input_record_separator,
-                ),
+                ))
+                .par_bridge(),
+                input_record_separator,
             )
         }
     };
 
-    if needs_sorting {
+    let mut itemrefs: Vec<_> = items.iter().collect();
+    #[allow(unused)]
+    let items = ();
+
+    let sortfn = sort_function(reverse, time, time_reversed);
+    {
         probe!("sort_items");
         itemrefs.par_sort_by(|a, b| sortfn(a, b));
     }

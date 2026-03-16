@@ -61,10 +61,7 @@ impl LeakedRegion {
 
     fn make_region(num_bytes: usize) -> &'static mut [u8] {
         let region_size = Self::MIN_REGION_SIZE.max(num_bytes);
-        let mut new_region = Vec::<u8>::with_capacity(region_size);
-        unsafe {
-            new_region.set_len(region_size);
-        }
+        let new_region: Vec<u8> = vec![0; region_size];
         Box::leak(new_region.into_boxed_slice())
     }
 

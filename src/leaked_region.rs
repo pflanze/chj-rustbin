@@ -22,7 +22,7 @@ thread_local! {
     static REGIONS: RefCell<Vec<RawSliceMut>> = RefCell::new(Vec::new());
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 struct RawSliceMut {
     data: *mut u8,
     len: usize,
@@ -100,6 +100,7 @@ impl LeakedRegion {
     pub fn allocate(&mut self, num_bytes: usize) -> &'static mut [u8] {
         if num_bytes <= self.current_region.len {
             let (res, rest) = self.current_region.split_at_mut(num_bytes);
+            // dbg!(res);
             self.current_region = rest;
             unsafe { res.to_slice_mut() }
         } else {

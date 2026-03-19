@@ -1376,8 +1376,8 @@ impl GetItems {
     }
 }
 
-#[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
+// #[global_allocator]
+// static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() -> Result<()> {
     cpu_probe::init()?;

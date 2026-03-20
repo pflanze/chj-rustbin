@@ -30,7 +30,7 @@ use chj_rustbin::{
         read_find_bufs::FindBufStream,
     },
     is_a_terminal::is_a_terminal,
-    leaked_region::LeakedRegion,
+    leaked_region::GlobalLeakedRegions,
     path_file_kind::{FileKind, ToFileKind},
     probe,
     text::yattable::{Widths, YatTable},
@@ -1288,6 +1288,7 @@ impl GetItems {
         dir: &'static Path,
         include_dir: bool,
         metadata: Metadata,
+        global_leaked_regions: &GlobalLeakedRegions,
     ) -> (Bag<Item<'static>>, Bag<anyhow::Error>) {
         match (|| -> Result<_> {
             let Self {
@@ -1313,7 +1314,7 @@ impl GetItems {
                 Mutex::new((Bag::new(), Bag::new()));
             let subdir_items_rf = &subdir_items;
             rayon::scope(|scope| -> Result<()> {
-                let mut allocator = LeakedRegion::new();
+                let mut allocator = global_leaked_regions.get_region();
                 for entry in input {
                     let entry = entry?;
                     let metadata = entry.metadata()?;
@@ -1324,8 +1325,12 @@ impl GetItems {
                     let path = allocator.allocate_path(&path);
                     if metadata.is_dir() {
                         scope.spawn(move |_| {
-                            let (items, errors) =
-                                self._find(path, true, metadata);
+                            let (items, errors) = self._find(
+                                path,
+                                true,
+                                metadata,
+                                global_leaked_regions,
+                            );
                             let mut lock =
                                 subdir_items_rf.lock().expect("no panics");
                             lock.0.push_bag(items);
@@ -1360,15 +1365,17 @@ impl GetItems {
         dir: &Path,
         include_top: bool,
     ) -> Result<(Vec<Item<'static>>, Vec<anyhow::Error>)> {
+        let global_leaked_regions = GlobalLeakedRegions::new();
         // XX .metadata() ?
         let metadata = dir
             .symlink_metadata()
             .with_context(|| anyhow!("directory {dir:?}"))?;
         let dir = {
-            let mut allocator = LeakedRegion::new();
+            let mut allocator = global_leaked_regions.get_region();
             allocator.allocate_path(dir)
         };
-        let (items, errors) = self._find(dir, include_top, metadata);
+        let (items, errors) =
+            self._find(dir, include_top, metadata, &global_leaked_regions);
         probe!("flattening");
         let items = items.par_flatten();
         let errors = errors.par_flatten();

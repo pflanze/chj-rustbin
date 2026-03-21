@@ -45,7 +45,7 @@ where
     ExternalInterfaces: Summarize<T>,
 {
     let mut last_ifaces: Option<T> = None;
-    let mut i = 0;
+    let mut i: u64 = 0;
     loop {
         let new_ifaces = Some(external()?.summarize());
         if last_ifaces != new_ifaces {

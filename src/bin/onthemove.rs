@@ -33,6 +33,14 @@ impl Summarize<Vec<NetworkInterface>> for ExternalInterfaces {
     }
 }
 
+impl Summarize<Vec<String>> for ExternalInterfaces {
+    fn summarize(self) -> Vec<String> {
+        let mut vec: Vec<_> = self.0.map(|iface| iface.name).collect();
+        vec.sort();
+        vec
+    }
+}
+
 impl Summarize<bool> for ExternalInterfaces {
     fn summarize(mut self) -> bool {
         self.0.next().is_some()
@@ -119,7 +127,7 @@ fn main() -> Result<()> {
     };
 
     if details {
-        act_as::<Vec<NetworkInterface>>(|vals| act(vals.is_empty()))?;
+        act_as::<Vec<String>>(|vals| act(vals.is_empty()))?;
     } else {
         act_as::<bool>(|have_ifaces| act(!*have_ifaces))?;
     }

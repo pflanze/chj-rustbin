@@ -43,5 +43,6 @@ install: /usr/local/bin/intersection
 install: /usr/local/bin/priorities
 install: /usr/local/bin/duu
 install: /usr/local/bin/lst
+install: /usr/local/bin/onthemove
 
 .PHONY: test test_intersection

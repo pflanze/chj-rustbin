@@ -18,7 +18,7 @@ struct ExternalInterfaces(
 fn external() -> Result<ExternalInterfaces> {
     let ifaces = NetworkInterface::show()?;
     fn f(iface: &NetworkInterface) -> bool {
-        !iface.internal
+        (!iface.internal) && !iface.name.starts_with("tap")
     }
     Ok(ExternalInterfaces(ifaces.into_iter().filter(f)))
 }

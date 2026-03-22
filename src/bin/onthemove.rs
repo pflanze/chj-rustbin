@@ -49,7 +49,7 @@ impl Summarize<bool> for ExternalInterfaces {
     }
 }
 
-fn act_as<T>(act: impl Fn(&T) -> Result<()>) -> Result<()>
+fn act_as<T>(act: impl Fn(&T) -> Result<()>, sleep_time: f64) -> Result<()>
 where
     T: PartialEq + Debug,
     ExternalInterfaces: Summarize<T>,
@@ -67,7 +67,7 @@ where
             debug!("{i}");
         }
         i += 1;
-        thread::sleep(Duration::from_millis(200));
+        thread::sleep(Duration::from_secs_f64(sleep_time));
     }
 }
 
@@ -90,6 +90,11 @@ struct Opt {
     #[clap(short, long)]
     details: bool,
 
+    /// Sleep duration between interface checks in seconds (floating
+    /// point)
+    #[clap(short, long, default_value = "1")]
+    sleep_time: f64,
+
     /// Program to run
     cmd: PathBuf,
 
@@ -102,6 +107,7 @@ fn main() -> Result<()> {
         verbose,
         debug,
         details,
+        sleep_time,
         cmd,
         args,
     } = Opt::from_args();
@@ -129,9 +135,9 @@ fn main() -> Result<()> {
     };
 
     if details {
-        act_as::<Vec<String>>(|vals| act(vals.is_empty()))?;
+        act_as::<Vec<String>>(|vals| act(vals.is_empty()), sleep_time)?;
     } else {
-        act_as::<bool>(|have_ifaces| act(!*have_ifaces))?;
+        act_as::<bool>(|have_ifaces| act(!*have_ifaces), sleep_time)?;
     }
 
     Ok(())

@@ -181,7 +181,8 @@ impl<'g> LeakedRegion<'g> {
         }
     }
 
-    pub fn allocate_path(&mut self, path: &Path) -> &'static Path {
+    pub fn allocate_path<P: AsRef<Path>>(&mut self, path: P) -> &'static Path {
+        let path = path.as_ref();
         // XX as_bytes is Unix-only, right? Not sure
         let bytes = path.as_os_str().as_bytes();
         let len = bytes.len();

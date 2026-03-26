@@ -593,11 +593,11 @@ fn sort_function<'t: 'v, 'v>(
 }
 
 fn run_processing_commands<'t: 'u, 'u: 'v, 'v>(
-    items: &'v mut Vec<&'u Item<'t>>,
+    items: &'v mut Vec<Item<'t>>,
     cmds: &[ProcessingCommand],
     now: SystemTime,
     show_files_from_future: bool,
-) -> &'v [&'u Item<'t>] {
+) -> &'v [Item<'t>] {
     probe!("run_processing_commands");
     let mut selected_items = unsafe { hack_static(&mut **items) };
     for cmd in cmds {
@@ -620,9 +620,8 @@ fn run_processing_commands<'t: 'u, 'u: 'v, 'v>(
             }
             ProcessingCommand::Reverse => selected_items.reverse(),
             ProcessingCommand::FilterDays(range) => {
-                let new_items: Vec<&'u Item<'t>> = (&*selected_items)
+                let new_items: Vec<Item<'t>> = selected_items
                     .into_iter()
-                    .copied()
                     .filter(|item| {
                         let f = |age_days| match range {
                             IntRange::At(n) => u64::from(*n) == age_days,
@@ -647,6 +646,7 @@ fn run_processing_commands<'t: 'u, 'u: 'v, 'v>(
                             }
                         }
                     })
+                    .map(|item| (*item).clone())
                     .collect();
                 *items = new_items;
                 selected_items = unsafe { hack_static(&mut **items) };
@@ -1012,7 +1012,7 @@ impl EssentialMetadata {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct Item<'t> {
     path: &'t Path,
     metadata: EssentialMetadata,
@@ -1104,7 +1104,7 @@ struct TableFromItems {
 }
 
 impl TableFromItems {
-    fn run<'u: 't, 't>(&self, items: &[&'u Item<'t>]) -> YatTable<7> {
+    fn run<'t>(&self, items: &[Item<'t>]) -> YatTable<7> {
         let Self {
             use_color,
             pw_info_cache,
@@ -1451,7 +1451,7 @@ fn main() -> Result<()> {
 
     // Read the paths as blocks (as `Vec<u8>`) of some number of
     // null-terminated paths each, in either mode
-    let (items, errors): (Vec<Item>, Vec<anyhow::Error>) = {
+    let (mut items, errors): (Vec<Item>, Vec<anyhow::Error>) = {
         probe!("get items");
         if let Some(basepath) = ls_dir {
             set_current_dir(&basepath).with_context(|| {
@@ -1488,22 +1488,14 @@ fn main() -> Result<()> {
         }
     };
 
-    let mut itemrefs: Vec<_> = items.iter().collect();
-    #[allow(unused)]
-    let items = ();
-
     let sortfn = sort_function(reverse, time, time_reversed);
     {
         probe!("sort_items");
-        itemrefs.par_sort_by(|a, b| sortfn(a, b));
+        items.par_sort_by(|a, b| sortfn(a, b));
     }
 
-    let selected_items = run_processing_commands(
-        &mut itemrefs,
-        &cmds,
-        now,
-        show_files_from_future,
-    );
+    let selected_items =
+        run_processing_commands(&mut items, &cmds, now, show_files_from_future);
 
     probe!("writing to stdout");
     (|| -> Result<()> {

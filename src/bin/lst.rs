@@ -1283,13 +1283,13 @@ impl GetItems {
 
     /// `(Vec<Item<'static>>, Vec<anyhow::Error>)` is what one dir
     /// level yields. Vec of that since subdirs, too.
-    fn _find(
+    fn _find<'p>(
         &self,
-        dir: &'static Path,
+        dir: &'p Path,
         include_dir: bool,
         metadata: Metadata,
-        global_leaked_regions: &GlobalLeakedRegions,
-    ) -> (Bag<Item<'static>>, Bag<anyhow::Error>) {
+        global_leaked_regions: &'p GlobalLeakedRegions,
+    ) -> (Bag<Item<'p>>, Bag<anyhow::Error>) {
         match (|| -> Result<_> {
             let Self {
                 ignore: _,
@@ -1297,7 +1297,7 @@ impl GetItems {
                 use_color,
             } = self;
 
-            let mut items: Vec<Item<'static>> = Vec::new();
+            let mut items: Vec<Item<'p>> = Vec::new();
             if include_dir {
                 if let Some(item) = Item::from_path_and_metadata(
                     dir, *long, *use_color, metadata,
@@ -1310,7 +1310,7 @@ impl GetItems {
 
             let input = std::fs::read_dir(dir)
                 .with_context(|| anyhow!("directory {dir:?}"))?;
-            let subdir_items: Mutex<(Bag<Item<'static>>, Bag<anyhow::Error>)> =
+            let subdir_items: Mutex<(Bag<Item<'p>>, Bag<anyhow::Error>)> =
                 Mutex::new((Bag::new(), Bag::new()));
             let subdir_items_rf = &subdir_items;
             rayon::scope(|scope| -> Result<()> {
@@ -1360,12 +1360,12 @@ impl GetItems {
     /// Integrated "find", with `read_dir`, path filtering and
     /// `Item::from_path` intertwined for efficiency. Leaks the
     /// backing memory for Item for now for simplicity
-    fn find(
+    fn find<'p>(
         &self,
         dir: &Path,
         include_top: bool,
-    ) -> Result<(Vec<Item<'static>>, Vec<anyhow::Error>)> {
-        let global_leaked_regions = GlobalLeakedRegions::new();
+        global_leaked_regions: &'p GlobalLeakedRegions,
+    ) -> Result<(Vec<Item<'p>>, Vec<anyhow::Error>)> {
         // XX .metadata() ?
         let metadata = dir
             .symlink_metadata()
@@ -1375,7 +1375,7 @@ impl GetItems {
             allocator.allocate_path(dir)
         };
         let (items, errors) =
-            self._find(dir, include_top, metadata, &global_leaked_regions);
+            self._find(dir, include_top, metadata, global_leaked_regions);
         probe!("flattening");
         let items = items.par_flatten();
         let errors = errors.par_flatten();
@@ -1447,6 +1447,8 @@ fn main() -> Result<()> {
         use_color,
     };
 
+    let global_leaked_regions = GlobalLeakedRegions::new(1048576);
+
     // Read the paths as blocks (as `Vec<u8>`) of some number of
     // null-terminated paths each, in either mode
     let (items, errors): (Vec<Item>, Vec<anyhow::Error>) = {
@@ -1471,7 +1473,7 @@ fn main() -> Result<()> {
                     0,
                 )
             } else {
-                get_items.find(&basepath, true)?
+                get_items.find(&basepath, true, &global_leaked_regions)?
             }
         } else {
             get_items.from_read_buf_stream(

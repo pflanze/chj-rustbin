@@ -38,6 +38,7 @@ use chj_rustbin::{
 };
 use chrono::{DateTime, Datelike, Local, Timelike};
 use clap::Parser;
+use log::info;
 use mimalloc::MiMalloc;
 use rand::{rngs::ThreadRng, Rng};
 use rayon::{
@@ -89,6 +90,10 @@ struct Opt {
     /// Say what is done
     #[clap(short, long)]
     verbose: bool,
+
+    /// Say what is done
+    #[clap(short, long)]
+    debug: bool,
 
     /// Get the path listing internally instead of reading it from
     /// stdin: list the file names in the given directory (1 level
@@ -1387,6 +1392,7 @@ fn main() -> Result<()> {
 
     let Opt {
         verbose,
+        debug,
         ls_dir,
         find_dir,
         ignore,
@@ -1406,14 +1412,20 @@ fn main() -> Result<()> {
         bail!("please only give one of the --ls-dir or --find-dir options")
     }
 
+    if verbose {
+        std::env::set_var("RUST_LOG", "info");
+    }
+    if debug {
+        std::env::set_var("RUST_LOG", "trace");
+    }
+    env_logger::init();
+
     let orig_cmds = parse_processing_commands(&processing_commands)?;
     let cmds = if no_optimize {
         orig_cmds
     } else {
         let cmds = optimize_processing_commands(&orig_cmds);
-        if verbose {
-            eprintln!("original:\n{orig_cmds:?}\noptimized:\n{cmds:?}");
-        }
+        info!("original:\n{orig_cmds:?}\noptimized:\n{cmds:?}");
         cmds
     };
 

@@ -373,7 +373,7 @@ mod tests {
 
         // Make items from it
         let now = SystemTime::now();
-        let items: Vec<Item> = backing
+        let mut items: Vec<Item> = backing
             .split(|c| *c == 0)
             .map(|path| {
                 let path: &OsStr = OsStr::from_bytes(path);
@@ -407,12 +407,8 @@ mod tests {
             rng.gen_bool(0.5),
             rng.gen_bool(0.5),
         );
+        items.par_sort_by(|a, b| sortfn(a, b));
         let items = items;
-        let mut itemrefs: Vec<_> = items.iter().collect();
-        itemrefs.par_sort_by(|a, b| sortfn(a, b));
-        let itemrefs = itemrefs;
-        #[allow(unused)]
-        let items = ();
 
         // Search for invalid optimizations
         let num_runs = match std::env::var_os("LST_NUM_TEST_RUNS") {
@@ -467,14 +463,14 @@ mod tests {
                 let cmds_optimized =
                     optimize_processing_commands(&cmds_original);
 
-                let mut items1 = itemrefs.clone();
+                let mut items1 = items.clone();
                 let results_original = run_processing_commands(
                     &mut items1,
                     &cmds_original,
                     now,
                     false,
                 );
-                let mut items2 = itemrefs.clone();
+                let mut items2 = items.clone();
                 let results_optimized = run_processing_commands(
                     &mut items2,
                     &cmds_optimized,

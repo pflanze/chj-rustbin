@@ -93,7 +93,7 @@ impl EfficientRegex {
             match fast.len() {
                 1 => {
                     return Some(EfficientRegex::FastMatch(
-                        *fast.first().expect("checked above"),
+                        *fast.iter().next().expect("checked above"),
                     ))
                 }
                 2 => {

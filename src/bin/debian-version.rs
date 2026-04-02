@@ -95,17 +95,42 @@ impl ReleaseInfo {
         let_format_or!(num_packages_source, "?");
         let_format_or!(num_developers, "?");
         let_format_or!(securitysupport_termination_date, "?");
-        write!(
-            out,
-            "{prefix}name               : {name}\n\
-             {prefix}number             : {number}\n\
-             {prefix}release_date       : {release_date}\n\
-             {prefix}securitysupport    : {securitysupport_termination_date}\n\
-             {prefix}num_packages_binary: {num_packages_binary}\n\
-             {prefix}num_packages_source: {num_packages_source}\n\
-             {prefix}num_developers     : {num_developers}\n\
+
+        {
+            let unformatted = format!(
+                "name: {name}\n\
+                 number: {number}\n\
+                 release_date: {release_date}\n\
+                 securitysupport: {securitysupport_termination_date}\n\
+                 num_packages_binary: {num_packages_binary}\n\
+                 num_packages_source: {num_packages_source}\n\
+                 num_developers: {num_developers}\
              "
-        )?;
+            );
+
+            let lines = unformatted.split('\n');
+            let max_key_len = lines
+                .clone()
+                .filter_map(|line| {
+                    let (ci, _c) = line
+                        .chars()
+                        .enumerate()
+                        .filter(|(_ci, c)| *c == ':')
+                        .next()?;
+                    Some(ci)
+                })
+                .max()
+                .expect("at least 1 line has ':'");
+            // XX just because `out` is not a String
+            let mut outstr = String::new();
+            for line in lines {
+                outstr.push_str(prefix);
+                pad_string_dotadjust(line, max_key_len, None, ':', &mut outstr);
+                outstr.push('\n');
+            }
+            out.write_all(outstr.as_bytes())?;
+        }
+
         if show_point_releases {
             writeln!(out, "{prefix}point_releases:")?;
             for pr in point_releases {
@@ -120,18 +145,20 @@ impl ReleaseInfo {
                 };
                 let mut line = format!("{prefix} ");
                 let number = number.to_string();
-                pad_string_dotadjust(&number, 3, 3, &mut line);
+                pad_string_dotadjust(&number, 3, Some(3), '.', &mut line);
                 line.push_str(release_date);
                 line.push('\n');
                 out.write_all(line.as_bytes())?;
             }
         }
+
         if show_comments {
             writeln!(out, "{prefix}comments:")?;
             for line in comments.split('\n') {
                 writeln!(out, "{prefix}{line}")?;
             }
         }
+
         Ok(())
     }
 }
@@ -648,7 +675,7 @@ impl ReleaseInfos {
                 pad_string_leftadjust(r.name, name_max_len, &mut line);
                 line.push(' ');
                 let numstr = r.number.to_string();
-                pad_string_dotadjust(&numstr, 3, 3, &mut line);
+                pad_string_dotadjust(&numstr, 3, Some(3), '.', &mut line);
                 line.push_str(r.release_date);
                 line
             };
@@ -683,12 +710,13 @@ fn pad_string_rightadjust(string: &str, len: usize, out: &mut String) {
     out.push_str(string);
 }
 
-/// Adjust on the first '.' in `string`; if there is no dot, adjust
-/// the right end on the dot position
+/// Adjust on the first `dot` character in `string`; if there is no
+/// dot, adjust the right end on the dot position.
 fn pad_string_dotadjust(
     string: &str,
     left_of_dot: usize,
-    right_of_dot: usize,
+    right_of_dot: Option<usize>,
+    dot: char,
     out: &mut String,
 ) {
     let mut dotpositions =
@@ -697,7 +725,7 @@ fn pad_string_dotadjust(
             .enumerate()
             .filter_map(
                 |(chari, (bytei, c))| {
-                    if c == '.' {
+                    if c == dot {
                         Some((chari, bytei))
                     } else {
                         None
@@ -707,13 +735,19 @@ fn pad_string_dotadjust(
     if let Some((_chari, bytei)) = dotpositions.next() {
         let left = &string[0..bytei];
         pad_string_rightadjust(left, left_of_dot, out);
-        out.push('.');
+        out.push(dot);
         let right = &string[bytei + 1..];
-        pad_string_leftadjust(right, right_of_dot, out);
+        if let Some(right_of_dot) = right_of_dot {
+            pad_string_leftadjust(right, right_of_dot, out);
+        } else {
+            out.push_str(right);
+        }
     } else {
         pad_string_rightadjust(string, left_of_dot, out);
-        for _ in 0..(1 + right_of_dot) {
-            out.push(' ');
+        if let Some(right_of_dot) = right_of_dot {
+            for _ in 0..(1 + right_of_dot) {
+                out.push(' ');
+            }
         }
     }
 }

@@ -100,10 +100,10 @@ impl ReleaseInfo {
             "{prefix}name               : {name}\n\
              {prefix}number             : {number}\n\
              {prefix}release_date       : {release_date}\n\
+             {prefix}securitysupport    : {securitysupport_termination_date}\n\
              {prefix}num_packages_binary: {num_packages_binary}\n\
              {prefix}num_packages_source: {num_packages_source}\n\
              {prefix}num_developers     : {num_developers}\n\
-             {prefix}securitysupport    : {securitysupport_termination_date}\n\
              "
         )?;
         if show_point_releases {

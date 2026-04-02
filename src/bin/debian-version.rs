@@ -581,8 +581,8 @@ impl ReleaseInfos {
     }
 
     fn get_release_by_name(&self, name: &ReleaseName) -> Result<&ReleaseInfo> {
-        let items: Vec<_> = self
-            .releases
+        let all_releases = self.all_releases();
+        let items: Vec<_> = all_releases
             .iter()
             .filter(|r| r.name == name.as_ref())
             .collect();
@@ -600,8 +600,8 @@ impl ReleaseInfos {
         &self,
         number: ReleaseNumber,
     ) -> Result<&ReleaseInfo> {
-        let items: Vec<_> = self
-            .releases
+        let all_releases = self.all_releases();
+        let items: Vec<_> = all_releases
             .iter()
             .filter(|r| r.number.eq_release(number))
             .collect();

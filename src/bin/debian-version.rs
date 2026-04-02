@@ -587,9 +587,12 @@ impl ReleaseInfos {
             .filter(|r| r.name == name.as_ref())
             .collect();
         match items.len() {
-            0 => bail!("unknown release name {name:?}"),
+            0 => bail!("unknown release name {:?}", name.as_ref()),
             1 => Ok(items[0]),
-            _ => bail!("buggy data: more than one release with name {name:?}"),
+            _ => bail!(
+                "buggy data: more than one release with name {:?}",
+                name.as_ref()
+            ),
         }
     }
 

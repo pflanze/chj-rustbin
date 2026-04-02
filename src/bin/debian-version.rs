@@ -514,7 +514,7 @@ fn releases() -> (Vec<ReleaseInfo>, ReleaseInfo) {
             // Do not call this "sid", but the actual planned release name, if possible!
             name: "forky",
             number: rn!(14.0),
-            release_date: "",
+            release_date: "- (this is sid)",
             num_packages_binary: "",
             num_packages_source: None,
             num_developers: None,

@@ -44,5 +44,6 @@ install: /usr/local/bin/priorities
 install: /usr/local/bin/duu
 install: /usr/local/bin/lst
 install: /usr/local/bin/onthemove
+install: /usr/local/bin/debian-version
 
 .PHONY: test test_intersection

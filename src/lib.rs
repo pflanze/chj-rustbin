@@ -8,6 +8,7 @@ pub mod checked_mutex;
 pub mod chunks;
 pub mod conslist;
 pub mod cpu_probe;
+pub mod debian_version;
 pub mod duu;
 pub mod efficient_regex;
 pub mod fp;

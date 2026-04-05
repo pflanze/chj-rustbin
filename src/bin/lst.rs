@@ -1455,7 +1455,7 @@ fn main() -> Result<()> {
         use_color,
     };
 
-    let global_leaked_regions = GlobalLeakedRegions::new(1048576);
+    let global_leaked_regions = GlobalLeakedRegions::new(8 * 1048576);
 
     // Read the paths as blocks (as `Vec<u8>`) of some number of
     // null-terminated paths each, in either mode

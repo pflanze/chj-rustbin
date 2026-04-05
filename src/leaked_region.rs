@@ -31,9 +31,18 @@ impl RawSliceMut {
     fn split_at_mut(self, pos: usize) -> (RawSliceMut, RawSliceMut) {
         let Self { data, len } = self;
         assert!(pos <= len);
+        // unnecessary check?, as data+len must be within usize and
+        // thus data+pos, too.
+        assert!(pos <= isize::MAX as usize);
         let head = RawSliceMut { data, len: pos };
         let rest = RawSliceMut {
-            data: unsafe { data.add(pos) },
+            data: unsafe {
+                // Assuming that `self` is valid, this is safe because
+                // pos is within len as checked above, and it is
+                // within isize as checked above or as implied by
+                // `self` being valid.
+                data.add(pos)
+            },
             len: len - pos,
         };
         (head, rest)
@@ -178,7 +187,9 @@ impl<'g> LeakedRegion<'g> {
             inner_leaked_region.current = rest;
             unsafe {
                 // Safe because ownership of the storage is in
-                // GlobalLeakedRegions, and 'g is tied to the latter
+                // GlobalLeakedRegions, and 'g is tied to that. And we
+                // only hand out this slice to the same memory area a
+                // single time.
                 res.to_slice_mut()
             }
         } else {

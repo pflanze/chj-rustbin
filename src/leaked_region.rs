@@ -2,9 +2,11 @@
 
 use std::{
     collections::HashMap, ffi::OsStr, marker::PhantomData, mem::swap,
-    os::unix::ffi::OsStrExt, path::Path, pin::Pin, slice::from_raw_parts_mut,
+    os::unix::ffi::OsStrExt, path::Path, slice::from_raw_parts_mut,
     sync::Mutex, thread::ThreadId,
 };
+
+use memmap2::{MmapMut, MmapOptions};
 
 use crate::unsync_unsend::UnSyncUnSend;
 
@@ -63,8 +65,7 @@ pub struct GlobalLeakedRegions {
     // threads exiting must not deallocate the memory!--XX ah, now
     // stores back the mostly-used-up-slice, not the whole region,
     // back here, so won't be useful for reading!
-    regions:
-        Mutex<HashMap<ThreadId, (Vec<Pin<Box<[u8]>>>, Vec<InnerLeakedRegion>)>>,
+    regions: Mutex<HashMap<ThreadId, (Vec<MmapMut>, Vec<InnerLeakedRegion>)>>,
 }
 
 // SAFETY: It's OK to send it or its reference around as `regions` is
@@ -92,11 +93,11 @@ struct InnerLeakedRegion {
 }
 
 impl InnerLeakedRegion {
-    fn new(num_bytes: usize, min_region_size: usize) -> (Pin<Box<[u8]>>, Self) {
+    fn new(num_bytes: usize, min_region_size: usize) -> (MmapMut, Self) {
         let region_size = min_region_size.max(num_bytes);
-        let new_region: Vec<u8> = vec![0; region_size];
-        let mut _storage: Pin<Box<[u8]>> =
-            Pin::new(new_region.into_boxed_slice());
+        let mut _storage =
+            // XX OK to panic for out of memory?
+            MmapOptions::new().len(region_size).map_anon().expect("succeeds unless out of memory");
         let current = (&mut *_storage).into();
         (_storage, Self { current })
     }

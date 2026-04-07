@@ -11,9 +11,11 @@ use std::{
     num::NonZeroUsize,
 };
 
+use arbitrary::Arbitrary;
+
 use crate::{hack_static::hack_static, probe};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Bag<T> {
     Empty,
     Leaf(T),
@@ -298,4 +300,92 @@ fn _par_flatten<T: Send>(
     to_i
 }
 
-// XXX tests
+// Somehow derive(Arbitrary) always yielded Empty. As does
+// Vec::arbitrary. So implement it explicitly and avoid normal
+// arbitrary impls, huh. Also, we need to taper off to get some decent
+// tree sizes, thus use our own API and then wrap that with Arbitrary.
+
+fn my_arbitrary_vec<'a, T: Arbitrary<'a>>(
+    u: &mut arbitrary::Unstructured<'a>,
+    depth: usize,
+) -> arbitrary::Result<(usize, Vec<Bag<T>>)> {
+    let len = u.int_in_range(1..=50)?;
+    let mut vec = Vec::new();
+    for _ in 0..len {
+        vec.push(my_arbitrary_bag(u, depth + 1)?);
+    }
+    let size = vec.iter().map(|b| b.len()).sum();
+    Ok((size, vec))
+}
+
+fn my_arbitrary_bag<'a, T: Arbitrary<'a>>(
+    u: &mut arbitrary::Unstructured<'a>,
+    depth: usize,
+) -> arbitrary::Result<Bag<T>> {
+    match (|| -> arbitrary::Result<_> {
+        let n = u.int_in_range(0..=depth)?;
+        if n == 0 {
+            let (size, vec) = my_arbitrary_vec(u, depth + 1)?;
+            if size == 0 {
+                Ok(Bag::Empty)
+            } else {
+                Ok(Bag::Branching(size.try_into().expect("checked"), vec))
+            }
+        } else {
+            match u.int_in_range(0..=10)? {
+                0..=5 => Ok(Bag::LeafVec(Vec::arbitrary(u)?)),
+                6..=8 => Ok(Bag::Empty),
+                9..=10 => Ok(Bag::Leaf(T::arbitrary(u)?)),
+                _ => unreachable!(),
+            }
+        }
+    })() {
+        Ok(v) => Ok(v),
+        Err(_) => {
+            eprintln!("fallback");
+            Ok(Bag::Empty)
+        }
+    }
+}
+
+impl<'a, T: Arbitrary<'a>> Arbitrary<'a> for Bag<T> {
+    fn arbitrary(
+        u: &mut arbitrary::Unstructured<'a>,
+    ) -> arbitrary::Result<Self> {
+        my_arbitrary_bag(u, 0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::Result;
+    use arbitrary::{Arbitrary, Unstructured};
+    use getrandom::getrandom;
+
+    use super::*;
+
+    #[test]
+    fn t_() -> Result<()> {
+        let cap = 10000000;
+        let mut random_data = Vec::with_capacity(cap);
+        random_data.resize(cap, 0);
+        getrandom(&mut random_data)?;
+        let mut data = Unstructured::new(&random_data);
+        let bag = Bag::<i32>::arbitrary(&mut data)?;
+
+        let show_it = false;
+        if show_it {
+            eprintln!("{bag:?}");
+        }
+
+        let l1 = bag.clone().flatten();
+        let l2 = bag.par_flatten();
+        assert_eq!(l1, l2);
+
+        if show_it {
+            panic!();
+        }
+
+        Ok(())
+    }
+}

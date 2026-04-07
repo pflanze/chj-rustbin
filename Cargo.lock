@@ -111,6 +111,7 @@ dependencies = [
  "extension-traits",
  "filetime",
  "genawaiter",
+ "getrandom",
  "kstring",
  "libc",
  "log",

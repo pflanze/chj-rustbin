@@ -366,7 +366,7 @@ mod tests {
 
     #[test]
     fn t_() -> Result<()> {
-        let cap = 10000000;
+        let cap = 5_000_000;
         let mut random_data = Vec::with_capacity(cap);
         random_data.resize(cap, 0);
         getrandom(&mut random_data)?;

@@ -366,9 +366,7 @@ mod tests {
 
     #[test]
     fn t_() -> Result<()> {
-        let cap = 5_000_000;
-        let mut random_data = Vec::with_capacity(cap);
-        random_data.resize(cap, 0);
+        let mut random_data = vec![0; 5_000_000];
         getrandom(&mut random_data)?;
         let mut data = Unstructured::new(&random_data);
         let bag = Bag::<i32>::arbitrary(&mut data)?;

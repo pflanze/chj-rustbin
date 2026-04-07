@@ -13,7 +13,7 @@ use std::{
 
 use arbitrary::Arbitrary;
 
-use crate::{hack_static::hack_static, probe};
+use crate::probe;
 
 #[derive(Debug, Clone)]
 pub enum Bag<T> {
@@ -201,8 +201,10 @@ impl<T> Bag<T> {
     where
         T: Send,
     {
+        const MIN_OUT_SLICE_LEN: usize = 500000;
+
         let len = self.len();
-        if len < 500000 {
+        if len < MIN_OUT_SLICE_LEN {
             self.flatten()
         } else {
             match self {
@@ -225,38 +227,39 @@ impl<T> Bag<T> {
                         // double free)
                         out.set_len(len)
                     };
-                    let out_rf = &mut out;
+                    let mut bags_rest = &mut *bags;
+                    let mut out_rest = &mut *out;
                     rayon::scope(move |scope| {
-                        let bags_len = bags.len();
+                        // Go through all bags, increase the output
+                        // slice length until it is at least
+                        // MIN_OUT_SLICE_LEN long, then spawn a task
+                        // for copying it.
+                        let mut bags_rest_i = 0;
+                        // The number of entries collected to be
+                        // copied into `out` at any time
                         let mut n = 0;
-                        let mut last_n_spawned = 0;
-                        let mut last_i_spawned = 0;
-                        for i in 0..bags_len {
-                            n += bags[i].len();
-                            let out_len = n - last_n_spawned;
-                            if out_len > 500000 {
-                                let i1 = i + 1;
-                                probe!(format!(
-                                    "will spawn _par_flatten bags[{last_i_spawned}..{i1}], \
-                                     out[{last_n_spawned}..{n}]"));
-                                let bagsrf = unsafe {
-                                    hack_static(&mut bags[last_i_spawned..i1])
-                                };
-                                let outrf = unsafe {
-                                    hack_static(&mut out_rf[last_n_spawned..n])
-                                };
+                        while bags_rest_i < bags_rest.len() {
+                            n += bags_rest[bags_rest_i].len();
+                            let bags_rest_i1 = bags_rest_i + 1;
+                            if n >= MIN_OUT_SLICE_LEN {
+                                let bagsrf;
+                                (bagsrf, bags_rest) =
+                                    bags_rest.split_at_mut(bags_rest_i1);
+                                let outrf;
+                                (outrf, out_rest) = out_rest.split_at_mut(n);
                                 scope.spawn(|_| {
                                     _par_flatten(bagsrf, outrf);
                                 });
-                                last_i_spawned = i1;
-                                last_n_spawned = n;
+                                (bags_rest_i, n) = (0, 0);
+                            } else {
+                                bags_rest_i = bags_rest_i1;
                             }
                         }
-                        if last_i_spawned < bags.len() {
-                            _par_flatten(
-                                &mut bags[last_i_spawned..bags_len],
-                                &mut out_rf[last_n_spawned..len],
-                            );
+                        // The last chunk smaller than the checked
+                        // MIN_OUT_SLICE_LEN above is processed
+                        // without spawning a new task
+                        if n > 0 {
+                            _par_flatten(bags_rest, out_rest);
                         }
                     });
                     unsafe {

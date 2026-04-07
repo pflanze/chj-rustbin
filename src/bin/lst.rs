@@ -1378,8 +1378,8 @@ impl GetItems {
         let (items, errors) =
             self._find(dir, include_top, metadata, global_leaked_regions);
         probe!("flattening");
-        let items = items.flatten();
-        let errors = errors.flatten();
+        let items = items.par_flatten();
+        let errors = errors.par_flatten();
         Ok((items, errors))
     }
 }

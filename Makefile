@@ -10,6 +10,19 @@ test_priorities: target/release/priorities
 test: test_intersection test_priorities
 	cargo test --release
 
+miri: miri-leaked_region
+
+miri-leaked_region:
+	RUST_LOG=trace MIRIFLAGS='-Zmiri-tree-borrows -Zmiri-disable-isolation' \
+	   cargo +nightly miri run --bin test-leaked_region
+
+# -Zmiri-ignore-leaks only because of threads that are not joined
+# (perhaps the rayon thread pools?). Requires a dir ~/.mozilla with
+# some stuff in it (something like ~2600 entries).
+miri-lst:
+	RUST_LOG=trace MIRIFLAGS='-Zmiri-ignore-leaks -Zmiri-tree-borrows -Zmiri-disable-isolation' \
+           cargo +nightly miri run --bin lst -- -rt --find-dir ~/.mozilla  tail 10
+
 target/release/%: src/bin/%.rs src/*.rs src/io/*.rs src/parse/*.rs src/text/*.rs src/time/*.rs src/util/*.rs
 	cargo build --release
 	touch $@

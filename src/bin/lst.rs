@@ -1384,6 +1384,7 @@ impl GetItems {
     }
 }
 
+#[cfg(not(miri))]
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 

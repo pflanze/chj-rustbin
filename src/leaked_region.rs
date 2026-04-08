@@ -6,6 +6,7 @@ use std::{
     sync::Mutex, thread::ThreadId,
 };
 
+use log::trace;
 use memmap2::{MmapMut, MmapOptions};
 
 use crate::unsync_unsend::UnSyncUnSend;
@@ -99,6 +100,10 @@ impl InnerLeakedRegion {
             // XX OK to panic for out of memory?
             MmapOptions::new().len(region_size).map_anon().expect("succeeds unless out of memory");
         let current = (&mut *_storage).into();
+        trace!(
+            "InnerLeakedRegion::new({num_bytes}, {min_region_size}), \
+             current={current:?}"
+        );
         (_storage, Self { current })
     }
 }
@@ -115,7 +120,13 @@ impl<'g> Drop for LeakedRegion<'g> {
     fn drop(&mut self) {
         if let Some(inner_leaked_region) = self.inner_leaked_region.take() {
             let cutoff = 1.max(self.global_leaked_regions.min_region_size / 2);
-            if inner_leaked_region.current.len > cutoff {
+            let InnerLeakedRegion { current } = inner_leaked_region;
+            let do_put_back = current.len > cutoff;
+            trace!(
+                "LeakedRegion::drop(current = {current:?}): cutoff={cutoff}, \
+                 do_put_back={do_put_back}"
+            );
+            if do_put_back {
                 let thread_id = std::thread::current().id();
                 let mut regions = self
                     .global_leaked_regions

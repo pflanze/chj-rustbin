@@ -4,6 +4,10 @@ use anyhow::Result;
 use chj_rustbin::leaked_region::GlobalLeakedRegions;
 
 fn main() -> Result<()> {
+    // Apparently miri removes this env var! Hack it back in.
+    std::env::set_var("RUST_LOG", "trace");
+    env_logger::init();
+
     let regions = &GlobalLeakedRegions::new(1000);
     let pss = Mutex::new(Vec::new());
     {

@@ -255,11 +255,10 @@ impl<T> Bag<T> {
                             }
                         }
                         if last_i_spawned < bags.len() {
-                            todo!()
-                            // _par_flatten(
-                            //     &mut bags[last_i_spawned..bags_len],
-                            //     &mut out_rf[last_n_spawned..len],
-                            // );
+                            _par_flatten(
+                                &bags[last_i_spawned..bags_len],
+                                &out_rf[last_n_spawned..len],
+                            );
                         }
                     });
                     unsafe {

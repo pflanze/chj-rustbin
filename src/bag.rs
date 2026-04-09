@@ -272,7 +272,6 @@ fn _par_flatten<T: Send>(
     from: TRawSliceMut<Bag<T>>,
     to: TRawSliceMut<MaybeUninit<T>>,
 ) -> usize {
-    let to = unsafe { to.to_slice_mut() };
     // probe!(format!("_par_flatten from.len = {}, to.len= {}", from.len(), to.len()));
     let mut to_i = 0;
     for frombag in from {
@@ -282,17 +281,21 @@ fn _par_flatten<T: Send>(
         match bag {
             Bag::Empty => (),
             Bag::Leaf(item) => {
+                let to = unsafe { to.to_slice_mut() };
                 to[to_i] = MaybeUninit::new(item);
                 to_i += 1;
             }
             Bag::LeafVec(items) => {
                 for item in items {
+                    let to = unsafe { to.to_slice_mut() };
                     to[to_i] = MaybeUninit::new(item);
                     to_i += 1;
                 }
             }
             Bag::Branching(_, mut bags) => {
-                to_i += _par_flatten(&mut bags, &mut to[to_i..]);
+                let idx = to_i..;
+                to_i += _par_flatten(TRawSliceMut::from(&mut *bags),
+                                     to[to_i..]);
             }
         }
     }

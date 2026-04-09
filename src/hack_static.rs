@@ -1,4 +1,4 @@
-use std::{mem::transmute, slice::from_raw_parts_mut};
+use std::{mem::transmute, ops::{IndexMut, RangeFrom}, slice::from_raw_parts_mut};
 
 pub unsafe fn hack_static<'a, 'v, T: ?Sized>(rf: &'a mut T) -> &'v mut T {
     transmute(rf)
@@ -58,6 +58,16 @@ impl<T> Iterator for TRawSliceMut<T> {
             *data = unsafe { data.add(1) };
             Some(p)
         }
+    }
+}
+
+impl<T> IndexMut<RangeFrom<usize>> for TRawSliceMut<T> {
+    fn index_mut(&mut self, index: RangeFrom<usize>) -> &mut Self::Output {
+        let start = index.start;
+        let Self { data, len }= self;
+        let data = unsafe { data.add(start) };
+        let len = *len - start;
+        
     }
 }
 

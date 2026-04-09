@@ -226,7 +226,7 @@ impl<T> Bag<T> {
                         out.set_len(len)
                     };
                     let out_rf = &mut out;
-                    rayon::scope(move |scope| {
+                    rayon::scope(|scope| {
                         let bags_len = bags.len();
                         let mut n = 0;
                         let mut last_n_spawned = 0;

@@ -1,10 +1,11 @@
-use std::io::Write;
+use std::{io::Write, ops::Deref};
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 
 use crate::{
-    debian_version::parse::{Release, ReleaseName, ReleaseNumber},
+    debian_version::{contributors::MonthYear, parse::ReleaseNumber},
     let_format_or,
+    util::pad::pad_string_dotadjust,
 };
 
 macro_rules! rn {
@@ -60,14 +61,21 @@ pub struct ReleaseInfo {
     pub point_releases: Vec<PointRelease>,
 }
 
+pub fn release_prefix(r1: ReleaseNumber, r2: ReleaseNumber) -> &'static str {
+    if r1 == r2 {
+        "**"
+    } else if r1.eq_release(r2) {
+        // Never happens for releases before Etch
+        "* "
+    } else {
+        "  "
+    }
+}
+
 impl ReleaseInfo {
-    pub fn fmt(
-        &self,
-        show_point_releases: bool,
-        show_comments: bool,
-        mark_release: Option<ReleaseNumber>,
-        mut out: impl Write,
-    ) -> Result<(), std::io::Error> {
+    /// Without point releases or comments; returns a String so that
+    /// more can be added by wrapper classes.
+    pub fn unformatted_lines_main(&self) -> String {
         let ReleaseInfo {
             name,
             number,
@@ -76,84 +84,129 @@ impl ReleaseInfo {
             num_packages_source,
             num_developers,
             securitysupport_termination_date,
-            comments,
-            point_releases,
+            comments: _,
+            point_releases: _,
         } = self;
 
+        let_format_or!(num_packages_source, "?");
+        let_format_or!(num_developers, "?");
+        let_format_or!(securitysupport_termination_date, "?");
+
+        format!(
+            "name: {name}\n\
+             number: {number}\n\
+             release_date: {release_date}\n\
+             securitysupport: {securitysupport_termination_date}\n\
+             num_packages_binary: {num_packages_binary}\n\
+             num_packages_source: {num_packages_source}\n\
+             num_developers: {num_developers}\
+             "
+        )
+    }
+
+    pub fn fmt_point_releases(
+        &self,
+        mark_release: Option<ReleaseNumber>,
+        mut out: impl Write,
+    ) -> Result<(), std::io::Error> {
+        let prefix = if let Some(mark_release) = mark_release {
+            release_prefix(self.number, mark_release)
+        } else {
+            ""
+        };
+        writeln!(out, "{prefix}point_releases:")?;
+        for pr in &self.point_releases {
+            let PointRelease {
+                number,
+                release_date,
+            } = pr;
+            let prefix = if let Some(mark_release) = mark_release {
+                release_prefix(*number, mark_release)
+            } else {
+                ""
+            };
+            let mut line = format!("{prefix} ");
+            let number = number.to_string();
+            pad_string_dotadjust(&number, 3, Some(3), '.', &mut line);
+            line.push_str(release_date);
+            line.push('\n');
+            out.write_all(line.as_bytes())?;
+        }
+        Ok(())
+    }
+
+    pub fn fmt_comments(
+        &self,
+        mark_release: Option<ReleaseNumber>,
+        mut out: impl Write,
+    ) -> Result<(), std::io::Error> {
         let prefix = if let Some(mark_release) = mark_release {
             release_prefix(self.number, mark_release)
         } else {
             ""
         };
 
-        let_format_or!(num_packages_source, "?");
-        let_format_or!(num_developers, "?");
-        let_format_or!(securitysupport_termination_date, "?");
-
-        {
-            let unformatted = format!(
-                "name: {name}\n\
-                 number: {number}\n\
-                 release_date: {release_date}\n\
-                 securitysupport: {securitysupport_termination_date}\n\
-                 num_packages_binary: {num_packages_binary}\n\
-                 num_packages_source: {num_packages_source}\n\
-                 num_developers: {num_developers}\
-             "
-            );
-
-            let lines = unformatted.split('\n');
-            let max_key_len = lines
-                .clone()
-                .filter_map(|line| {
-                    let (ci, _c) = line
-                        .chars()
-                        .enumerate()
-                        .filter(|(_ci, c)| *c == ':')
-                        .next()?;
-                    Some(ci)
-                })
-                .max()
-                .expect("at least 1 line has ':'");
-            // XX just because `out` is not a String
-            let mut outstr = String::new();
-            for line in lines {
-                outstr.push_str(prefix);
-                pad_string_dotadjust(line, max_key_len, None, ':', &mut outstr);
-                outstr.push('\n');
-            }
-            out.write_all(outstr.as_bytes())?;
+        writeln!(out, "{prefix}comments:")?;
+        for line in self.comments.split('\n') {
+            writeln!(out, "{prefix}{line}")?;
         }
-
-        if show_point_releases {
-            writeln!(out, "{prefix}point_releases:")?;
-            for pr in point_releases {
-                let PointRelease {
-                    number,
-                    release_date,
-                } = pr;
-                let prefix = if let Some(mark_release) = mark_release {
-                    release_prefix(*number, mark_release)
-                } else {
-                    ""
-                };
-                let mut line = format!("{prefix} ");
-                let number = number.to_string();
-                pad_string_dotadjust(&number, 3, Some(3), '.', &mut line);
-                line.push_str(release_date);
-                line.push('\n');
-                out.write_all(line.as_bytes())?;
-            }
-        }
-
-        if show_comments {
-            writeln!(out, "{prefix}comments:")?;
-            for line in comments.split('\n') {
-                writeln!(out, "{prefix}{line}")?;
-            }
-        }
-
         Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct ParsedReleaseInfo {
+    pub release_info: ReleaseInfo,
+    /// The parsed version of release_date; None for "sid"
+    pub release_month_year: Option<MonthYear>,
+}
+
+impl Deref for ParsedReleaseInfo {
+    type Target = ReleaseInfo;
+
+    fn deref(&self) -> &Self::Target {
+        &self.release_info
+    }
+}
+
+fn parse_release_as_month_year(s: &str) -> Result<Option<MonthYear>> {
+    if s.starts_with("-") && s.contains("sid") {
+        return Ok(None);
+    }
+
+    let fields: Vec<_> = s.split('-').collect();
+    match fields.as_slice() {
+        [year, month, ..] => {
+            let year = year
+                .parse()
+                .with_context(|| anyhow!("field {year:?} in {s:?}"))?;
+            let month: u8 = month
+                .parse()
+                .with_context(|| anyhow!("field {month:?} in {s:?}"))?;
+            if month < 1 || month > 12 {
+                bail!("invalid month number {month}")
+            }
+            Ok(Some(MonthYear {
+                year,
+                month0: month - 1,
+            }))
+        }
+        _ => bail!("release date does not contain at least one '-': {s:?}"),
+    }
+}
+
+impl TryFrom<ReleaseInfo> for ParsedReleaseInfo {
+    type Error = anyhow::Error;
+
+    fn try_from(
+        release_info: ReleaseInfo,
+    ) -> std::result::Result<Self, Self::Error> {
+        let release_month_year =
+            parse_release_as_month_year(release_info.release_date)?;
+        Ok(Self {
+            release_info,
+            release_month_year,
+        })
     }
 }
 
@@ -174,7 +227,7 @@ fn releases() -> (Vec<ReleaseInfo>, ReleaseInfo) {
                     Ian Murdock "I'm going to take a break." 1994-04-01 [april?]
                     (https://lists.debian.org/debian-announce/1994/msg00005.html).
                     https://lists.debian.org/debian-announce/1995/msg00007.html"#,
-                point_releases: point_releases![]
+                point_releases: point_releases![],
             },
 
             ReleaseInfo {
@@ -189,7 +242,7 @@ fn releases() -> (Vec<ReleaseInfo>, ReleaseInfo) {
                     Ian Murdock stepped down 1996-03-04, handed over to Bruce Perens
                     (https://lists.debian.org/debian-announce/1996/msg00003.html).
                     https://lists.debian.org/debian-announce/1996/msg00021.html"#,
-                point_releases: point_releases![]
+                point_releases: point_releases![],
 
               },
 
@@ -204,7 +257,7 @@ fn releases() -> (Vec<ReleaseInfo>, ReleaseInfo) {
                 num_developers: Some("120 (leader Bruce Perens)"),
                 securitysupport_termination_date: None,
                 comments: "",
-                point_releases: point_releases![]
+                point_releases: point_releases![],
             },
 
             // https://lists.debian.org/debian-announce/1997/msg00013.html
@@ -217,7 +270,7 @@ fn releases() -> (Vec<ReleaseInfo>, ReleaseInfo) {
                 num_developers: Some("200 (leader Bruce Perens)"),
                 securitysupport_termination_date: None,
                 comments: "",
-                point_releases: point_releases![]
+                point_releases: point_releases![],
             },
 
             // Is the 1500+ number for binary packages really?
@@ -231,7 +284,7 @@ fn releases() -> (Vec<ReleaseInfo>, ReleaseInfo) {
                 num_developers: Some("400+ (leader Ian Jackson)"),
                 securitysupport_termination_date: None,
                 comments: "",
-                point_releases: point_releases![]
+                point_releases: point_releases![],
             },
 
             ReleaseInfo {
@@ -250,7 +303,7 @@ fn releases() -> (Vec<ReleaseInfo>, ReleaseInfo) {
                         the "apt" tool, vs. apt-get];
                       Alpha + Sparc
                     https://lists.debian.org/debian-announce/1999/msg00005.html"#,
-                point_releases: point_releases![]
+                point_releases: point_releases![],
             },
 
             ReleaseInfo {
@@ -264,7 +317,7 @@ fn releases() -> (Vec<ReleaseInfo>, ReleaseInfo) {
                 comments: r#"
                     PowerPC and ARM
                     Introduction of "Testing" distribution ("unstable" did already exist)"#,
-                point_releases: point_releases![]
+                point_releases: point_releases![],
             },
 
             ReleaseInfo {
@@ -276,7 +329,7 @@ fn releases() -> (Vec<ReleaseInfo>, ReleaseInfo) {
                 num_developers: Some("900+"),
                 securitysupport_termination_date: None,
                 comments: "First on DVD media",
-                point_releases: point_releases![]
+                point_releases: point_releases![],
             },
 
             ReleaseInfo {
@@ -290,7 +343,7 @@ fn releases() -> (Vec<ReleaseInfo>, ReleaseInfo) {
                 comments: r#"
                     *unofficial* AMD64 port; new installer (with RAID, XFS and LVM support)
                     'aptitude as the selected tool for package management'"#,
-                point_releases: point_releases![]
+                point_releases: point_releases![],
             },
 
             ReleaseInfo {
@@ -302,7 +355,7 @@ fn releases() -> (Vec<ReleaseInfo>, ReleaseInfo) {
                 num_developers: Some("1030+"),
                 securitysupport_termination_date: Some("2010-02-15"),
                 comments: "Includes AMD64, but drops m68k (which was still in unstable, though)",
-                point_releases: point_releases![]
+                point_releases: point_releases![],
             },
 
             ReleaseInfo {
@@ -321,7 +374,7 @@ fn releases() -> (Vec<ReleaseInfo>, ReleaseInfo) {
                     Further improvements in system security include the installation of available security updates before the first reboot by the Debian Installer, the reduction of setuid root binaries and open ports in the standard installation, and the use of GCC hardening features in the builds of several security-critical packages. Various applications have specific improvements, too. PHP for example is now built with the Suhosin hardening patch.
                     In addition to the regular installation media, Debian GNU/Linux can now also be directly used without prior installation. The special images used, known as live images, are available for CDs, USB sticks, and netboot setups. Initially, these are provided for the amd64 and i386 architectures only.
                 "#,
-                point_releases: point_releases![]
+                point_releases: point_releases![],
             },
 
             ReleaseInfo {
@@ -333,7 +386,7 @@ fn releases() -> (Vec<ReleaseInfo>, ReleaseInfo) {
                 num_developers: None,
                 securitysupport_termination_date: Some("2016-02-12"),
                 comments: r#""#,
-                point_releases: point_releases![]
+                point_releases: point_releases![],
             },
 
             ReleaseInfo {
@@ -357,7 +410,7 @@ fn releases() -> (Vec<ReleaseInfo>, ReleaseInfo) {
                     ["7.9", "2015-09-05"],
                     ["7.10", "2016-04-02"],
                     ["7.11", "2016-06-04 (final update)"],
-                ]
+                ],
             },
 
             ReleaseInfo {
@@ -418,7 +471,7 @@ fn releases() -> (Vec<ReleaseInfo>, ReleaseInfo) {
                     // with the installer that was discovered during image testing.
                     ["9.12", "2020-02-08"],
                     ["9.13", "2020-07-18 (final update)" ],
-                ]
+                ],
             },
 
             ReleaseInfo {
@@ -447,7 +500,7 @@ fn releases() -> (Vec<ReleaseInfo>, ReleaseInfo) {
                     // ["10.14", ],
                     // ["10.15", ],
                     // ["10.16", ],
-                ]
+                ],
             },
 
             ReleaseInfo {
@@ -471,7 +524,7 @@ fn releases() -> (Vec<ReleaseInfo>, ReleaseInfo) {
                     ["11.9", "2024-02-10"],
                     ["11.10", "2024-06-29"],
                     ["11.11", "2024-08-31"],
-                ]
+                ],
             },
 
             ReleaseInfo {
@@ -497,7 +550,7 @@ fn releases() -> (Vec<ReleaseInfo>, ReleaseInfo) {
                     ["12.11", "2025-05-17"],
                     ["12.12", "2025-09-06"],
                     ["12.13", "2026-01-10"],
-                ]
+                ],
             },
 
             ReleaseInfo {
@@ -514,7 +567,7 @@ fn releases() -> (Vec<ReleaseInfo>, ReleaseInfo) {
                     ["13.2", "2025-11-15"],
                     ["13.3", "2026-01-10"],
                     ["13.4", "2026-03-14"],
-                ]
+                ],
             },
 
             // ReleaseInfo {
@@ -526,7 +579,7 @@ fn releases() -> (Vec<ReleaseInfo>, ReleaseInfo) {
             //     num_developers: ,
             //     securitysupport_termination_date: ,
             //     comments: r#""#,
-            //     point_releases: point_releases![]
+            //     point_releases: point_releases![],
             // },
 
         ],
@@ -541,7 +594,7 @@ fn releases() -> (Vec<ReleaseInfo>, ReleaseInfo) {
             num_developers: None,
             securitysupport_termination_date: None,
             comments: "",
-            point_releases: point_releases![]
+            point_releases: point_releases![],
         }
     )
 }
@@ -559,9 +612,10 @@ fn check_sorted(mut items: impl Iterator<Item = ReleaseNumber>) -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug)]
 pub struct ReleaseInfos {
-    pub releases: Vec<ReleaseInfo>,
-    pub sid: ReleaseInfo,
+    pub releases: Vec<ParsedReleaseInfo>,
+    pub sid: ParsedReleaseInfo,
 }
 
 impl ReleaseInfos {
@@ -598,164 +652,16 @@ impl ReleaseInfos {
                     .expect("fix data");
             }
         }
-        Self { releases, sid }
-    }
 
-    pub fn get_release_by_name(
-        &self,
-        name: &ReleaseName,
-    ) -> Result<&ReleaseInfo> {
-        let all_releases = self.all_releases();
-        let items: Vec<_> = all_releases
-            .iter()
-            .filter(|r| r.name == name.as_ref())
-            .collect();
-        match items.len() {
-            0 => bail!("unknown release name {:?}", name.as_ref()),
-            1 => Ok(items[0]),
-            _ => bail!(
-                "buggy data: more than one release with name {:?}",
-                name.as_ref()
-            ),
-        }
-    }
+        (|| -> Result<_> {
+            let releases = releases
+                .into_iter()
+                .map(|r| r.try_into())
+                .collect::<Result<_>>()?;
+            let sid = sid.try_into()?;
 
-    pub fn get_release_by_number(
-        &self,
-        number: ReleaseNumber,
-    ) -> Result<&ReleaseInfo> {
-        let all_releases = self.all_releases();
-        let items: Vec<_> = all_releases
-            .iter()
-            .filter(|r| r.number.eq_release(number))
-            .collect();
-        match items.len() {
-            0 => bail!("unknown release number {}", number.major),
-            1 => Ok(items[0]),
-            _ => bail!(
-                "buggy data: more than one release with major number {}",
-                number.major
-            ),
-        }
-    }
-
-    pub fn get_release(&self, release: &Release) -> Result<&ReleaseInfo> {
-        match release {
-            Release::Number(rn) => self.get_release_by_number(*rn),
-            Release::Name(n) => self.get_release_by_name(n),
-        }
-    }
-
-    pub fn all_releases(&self) -> Vec<&ReleaseInfo> {
-        let mut all_releases: Vec<_> = self.releases.iter().collect();
-        all_releases.push(&self.sid);
-        all_releases
-    }
-
-    pub fn list_all_releases(
-        &self,
-        mark_version: ReleaseNumber,
-        mut out: impl Write,
-    ) -> Result<()> {
-        let all_releases = self.all_releases();
-        let name_max_len = all_releases
-            .iter()
-            .map(|r| r.name.len())
-            .max()
-            .expect("at least 1");
-        for r in all_releases {
-            // if r.name == "?" {
-            //     continue;
-            // }
-            let rest = {
-                let mut line = String::new();
-                pad_string_leftadjust(r.name, name_max_len, &mut line);
-                line.push(' ');
-                let numstr = r.number.to_string();
-                pad_string_dotadjust(&numstr, 3, Some(3), '.', &mut line);
-                line.push_str(r.release_date);
-                line
-            };
-            let prefix = if r.number.eq_release(mark_version) {
-                "* "
-            } else {
-                "  "
-            };
-            writeln!(out, "{prefix}{rest}")?;
-        }
-        Ok(())
-    }
-}
-
-fn pad_string_leftadjust(s: &str, len: usize, out: &mut String) {
-    out.push_str(s);
-    let slen = s.len();
-    if slen < len {
-        for _ in 0..(len - slen) {
-            out.push(' ');
-        }
-    }
-}
-
-fn pad_string_rightadjust(string: &str, len: usize, out: &mut String) {
-    let slen = string.len();
-    if slen < len {
-        for _ in 0..(len - slen) {
-            out.push(' ');
-        }
-    }
-    out.push_str(string);
-}
-
-/// Adjust on the first `dot` character in `string`; if there is no
-/// dot, adjust the right end on the dot position.
-fn pad_string_dotadjust(
-    string: &str,
-    left_of_dot: usize,
-    right_of_dot: Option<usize>,
-    dot: char,
-    out: &mut String,
-) {
-    let mut dotpositions =
-        string
-            .char_indices()
-            .enumerate()
-            .filter_map(
-                |(chari, (bytei, c))| {
-                    if c == dot {
-                        Some((chari, bytei))
-                    } else {
-                        None
-                    }
-                },
-            );
-    if let Some((_chari, bytei)) = dotpositions.next() {
-        let left = &string[0..bytei];
-        pad_string_rightadjust(left, left_of_dot, out);
-        out.push(dot);
-        let right = &string[bytei + 1..];
-        if let Some(right_of_dot) = right_of_dot {
-            pad_string_leftadjust(right, right_of_dot, out);
-        } else {
-            out.push_str(right);
-        }
-    } else {
-        pad_string_rightadjust(string, left_of_dot, out);
-        if let Some(right_of_dot) = right_of_dot {
-            for _ in 0..(1 + right_of_dot) {
-                out.push(' ');
-            }
-        }
-    }
-}
-
-fn release_prefix(r1: ReleaseNumber, r2: ReleaseNumber) -> &'static str {
-    if r1 == r2 {
-        "**"
-    } else if r1.eq_release(r2) {
-        // Never happens for releases before Etch
-        "* "
-    } else {
-        "  "
+            Ok(Self { releases, sid })
+        })()
+        .expect("proper constants")
     }
 }

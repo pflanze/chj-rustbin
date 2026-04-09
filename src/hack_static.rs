@@ -45,6 +45,22 @@ impl<T> TRawSliceMut<T> {
     }
 }
 
+impl<T> Iterator for TRawSliceMut<T> {
+    type Item = *mut T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let Self { data, len }=self;
+        if *len == 0 {
+            None
+        } else {
+            let p = *data;
+            *len -= 1;
+            *data = unsafe { data.add(1) };
+            Some(p)
+        }
+    }
+}
+
 pub unsafe fn hack_static2<'a, T>(rf: &'a mut [T]) -> TRawSliceMut<T> {
     TRawSliceMut::from(rf)
 }

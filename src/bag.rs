@@ -269,13 +269,15 @@ impl<T> Bag<T> {
 }
 
 fn _par_flatten<T: Send>(
-    from: TRawSliceMut<T>,
-    to: TRawSliceMut<T>,
+    from: TRawSliceMut<Bag<T>>,
+    to: TRawSliceMut<MaybeUninit<T>>,
 ) -> usize {
+    let to = unsafe { to.to_slice_mut() };
     // probe!(format!("_par_flatten from.len = {}, to.len= {}", from.len(), to.len()));
     let mut to_i = 0;
     for frombag in from {
         let mut bag = Bag::Empty;
+        let frombag: &mut Bag<T>;
         swap(&mut bag, frombag);
         match bag {
             Bag::Empty => (),

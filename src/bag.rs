@@ -7,8 +7,7 @@
 // Also see: `StringTree` (xmlhub-indexer)
 
 use std::{
-    mem::{swap, MaybeUninit},
-    num::NonZeroUsize,
+    cell::UnsafeCell, mem::{swap, MaybeUninit}, num::NonZeroUsize
 };
 
 use arbitrary::Arbitrary;
@@ -218,7 +217,7 @@ impl<T> Bag<T> {
                 }
                 Bag::Branching(_, mut bags) => {
                     probe!("par_flatten Branching");
-                    let mut out: Vec<MaybeUninit<T>> = Vec::with_capacity(len);
+                    let mut out: Vec<UnsafeCell<MaybeUninit<T>>> = Vec::with_capacity(len);
                     unsafe {
                         // Safe because it is MaybeUninit, and we set
                         // the source to Bag::Empty before converting
@@ -226,7 +225,7 @@ impl<T> Bag<T> {
                         // double free)
                         out.set_len(len)
                     };
-                    let out_rf = &mut out;
+                    let out_rf = &out;
                     rayon::scope(move |scope| {
                         let bags_len = bags.len();
                         let mut n = 0;
@@ -240,9 +239,9 @@ impl<T> Bag<T> {
                                 probe!(format!(
                                     "will spawn _par_flatten bags[{last_i_spawned}..{i1}], \
                                      out[{last_n_spawned}..{n}]"));
-                                let bagsrf = TRawSliceMut::from(
-                                    &mut bags[last_i_spawned..i1]);
-                                let outrf = TRawSliceMut::from(&mut out_rf[last_n_spawned..n]);
+                                let bagsrf = 
+                                    &bags[last_i_spawned..i1];
+                                let outrf = & out_rf[last_n_spawned..n];
                                 scope.spawn(move |_| {
                                     _par_flatten(bagsrf, outrf);
                                 });
@@ -261,7 +260,7 @@ impl<T> Bag<T> {
                     unsafe {
                         // MaybeUninit::assume_init(out)
                         out.into_iter()
-                            .map(|v| MaybeUninit::assume_init(v))
+                            .map(|v| MaybeUninit::assume_init(v.into_inner()))
                             .collect()
                     }
                 }
@@ -273,8 +272,8 @@ impl<T> Bag<T> {
 // unsafe impl<T> Send for *mut Bag<T> {}
 
 fn _par_flatten<T: Send>(
-    from: TRawSliceMut<Bag<T>>,
-    to: TRawSliceMut<MaybeUninit<T>>,
+    from: &[Bag<T>],
+    to: &[UnsafeCell<MaybeUninit<T>>],
 ) -> usize {
     // probe!(format!("_par_flatten from.len = {}, to.len= {}", from.len(), to.len()));
     let mut to_i = 0;

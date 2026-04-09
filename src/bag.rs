@@ -7,12 +7,13 @@
 // Also see: `StringTree` (xmlhub-indexer)
 
 use std::{
-    cell::UnsafeCell, mem::{swap, MaybeUninit}, num::NonZeroUsize
+    mem::{swap, MaybeUninit},
+    num::NonZeroUsize,
 };
 
 use arbitrary::Arbitrary;
 
-use crate::{hack_static::{hack_static, TRawSliceMut}, probe};
+use crate::{hack_static::MySyncUnsafeCell, probe};
 
 #[derive(Debug, Clone)]
 pub enum Bag<T> {
@@ -199,7 +200,7 @@ impl<T> Bag<T> {
     pub fn par_flatten(self) -> Vec<T>
     where
         // XXX HACK: Sync would nbot be necessary
-        T: Send+ Sync,
+        T: Send + Sync,
     {
         let len = self.len();
         if len < 500000 {
@@ -215,9 +216,14 @@ impl<T> Bag<T> {
                     probe!("par_flatten LeafVec");
                     items
                 }
-                Bag::Branching(_, mut bags) => {
+                Bag::Branching(_, bags) => {
+                    let bags: Vec<MySyncUnsafeCell<Bag<T>>> = bags
+                        .into_iter()
+                        .map(|v| MySyncUnsafeCell::from(v))
+                        .collect();
                     probe!("par_flatten Branching");
-                    let mut out: Vec<SyncUnsa<MaybeUninit<T>>> = Vec::with_capacity(len);
+                    let mut out: Vec<MySyncUnsafeCell<MaybeUninit<T>>> =
+                        Vec::with_capacity(len);
                     unsafe {
                         // Safe because it is MaybeUninit, and we set
                         // the source to Bag::Empty before converting
@@ -226,7 +232,7 @@ impl<T> Bag<T> {
                         out.set_len(len)
                     };
                     let out_rf = &out;
-                    rayon::scope(move |scope| {
+                    rayon::scope(|scope| {
                         let bags_len = bags.len();
                         let mut n = 0;
                         let mut last_n_spawned = 0;
@@ -239,10 +245,9 @@ impl<T> Bag<T> {
                                 probe!(format!(
                                     "will spawn _par_flatten bags[{last_i_spawned}..{i1}], \
                                      out[{last_n_spawned}..{n}]"));
-                                let bagsrf = 
-                                    &bags[last_i_spawned..i1];
-                                let outrf = & out_rf[last_n_spawned..n];
-                                scope.spawn(move |_| {
+                                let bagsrf = &bags[last_i_spawned..i1];
+                                let outrf = &out_rf[last_n_spawned..n];
+                                scope.spawn(|_| {
                                     _par_flatten(bagsrf, outrf);
                                 });
                                 last_i_spawned = i1;
@@ -271,33 +276,35 @@ impl<T> Bag<T> {
 
 // unsafe impl<T> Send for *mut Bag<T> {}
 
-fn _par_flatten<T: Send>(
-    from: &[Bag<T>],
-    to: &[UnsafeCell<MaybeUninit<T>>],
+fn _par_flatten<'a, 'b, T: Send>(
+    from: &'a [MySyncUnsafeCell<Bag<T>>],
+    to: &'b [MySyncUnsafeCell<MaybeUninit<T>>],
 ) -> usize {
     // probe!(format!("_par_flatten from.len = {}, to.len= {}", from.len(), to.len()));
     let mut to_i = 0;
     for frombag in from {
         let mut bag = Bag::Empty;
-        let frombag: &mut Bag<T> = unsafe { &mut *frombag };
-        swap(&mut bag, frombag);
+        swap(&mut bag, unsafe { frombag.get_mut() });
         match bag {
             Bag::Empty => (),
             Bag::Leaf(item) => {
-                let to = unsafe { to.to_slice_mut() };
-                to[to_i] = MaybeUninit::new(item);
+                // Thanks to my Deref with unsafe inside, we don't need unsafe here
+                unsafe { to[to_i].set(MaybeUninit::new(item)) };
                 to_i += 1;
             }
             Bag::LeafVec(items) => {
                 for item in items {
-                    let to = unsafe { to.to_slice_mut() };
-                    to[to_i] = MaybeUninit::new(item);
+                    let item2 = MaybeUninit::new(item);
+                    unsafe { to[to_i].set(item2) };
                     to_i += 1;
                 }
             }
-            Bag::Branching(_, mut bags) => {
-                to_i += _par_flatten(TRawSliceMut::from(&mut *bags),
-                                     to.subslice(to_i..));
+            Bag::Branching(_, bags) => {
+                let bags: Vec<MySyncUnsafeCell<Bag<T>>> = bags
+                    .into_iter()
+                    .map(|v| MySyncUnsafeCell::from(v))
+                    .collect();
+                to_i += _par_flatten(&bags, &to[to_i..]);
             }
         }
     }

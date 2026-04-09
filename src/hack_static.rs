@@ -1,4 +1,45 @@
-use std::{mem::transmute, ops::{Index, IndexMut, RangeFrom}, slice::from_raw_parts_mut};
+use std::{
+    cell::UnsafeCell,
+    mem::transmute,
+    ops::{Deref, RangeFrom},
+    slice::from_raw_parts_mut,
+};
+
+// std uses : Sync
+pub struct MySyncUnsafeCell<T>(UnsafeCell<T>);
+
+unsafe impl<T> Sync for MySyncUnsafeCell<T> {}
+
+impl<T> MySyncUnsafeCell<T> {
+    pub fn into_inner(self) -> T {
+        self.0.into_inner()
+    }
+
+    pub unsafe fn set(&self, val: T) {
+        let ptr = self.0.get();
+        unsafe { *ptr = val };
+    }
+
+    pub unsafe fn get_mut(&self) -> &mut T {
+        let ptr = self.0.get();
+        unsafe { &mut *ptr }
+    }
+}
+
+impl<T> From<T> for MySyncUnsafeCell<T> {
+    fn from(value: T) -> Self {
+        MySyncUnsafeCell(UnsafeCell::from(value))
+    }
+}
+
+impl<T> Deref for MySyncUnsafeCell<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        // evil XXX
+        unsafe { &*self.0.get() }
+    }
+}
 
 pub unsafe fn hack_static<'a, 'v, T: ?Sized>(rf: &'a mut T) -> &'v mut T {
     transmute(rf)
@@ -12,7 +53,10 @@ pub struct TRawSliceMut<T> {
 
 impl<T> Clone for TRawSliceMut<T> {
     fn clone(&self) -> Self {
-        Self { data: self.data.clone(), len: self.len.clone() }
+        Self {
+            data: self.data.clone(),
+            len: self.len.clone(),
+        }
     }
 }
 
@@ -32,7 +76,10 @@ impl<T> TRawSliceMut<T> {
         from_raw_parts_mut(data, len)
     }
 
-    pub fn split_at_mut(self, pos: usize) -> (TRawSliceMut<T>, TRawSliceMut<T>) {
+    pub fn split_at_mut(
+        self,
+        pos: usize,
+    ) -> (TRawSliceMut<T>, TRawSliceMut<T>) {
         let Self { data, len } = self;
         assert!(pos <= len);
         // unnecessary check?, as data+len must be within usize and
@@ -54,19 +101,18 @@ impl<T> TRawSliceMut<T> {
 
     pub fn subslice(self, index: RangeFrom<usize>) -> Self {
         let start = index.start;
-        let Self { data, len }= self;
+        let Self { data, len } = self;
         let data = unsafe { data.add(start) };
         let len = len - start;
         Self { data, len }
     }
-        
 }
 
 impl<T> Iterator for TRawSliceMut<T> {
     type Item = *mut T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let Self { data, len }=self;
+        let Self { data, len } = self;
         if *len == 0 {
             None
         } else {
@@ -99,4 +145,3 @@ impl<T> Iterator for TRawSliceMut<T> {
 pub unsafe fn hack_static2<'a, T>(rf: &'a mut [T]) -> TRawSliceMut<T> {
     TRawSliceMut::from(rf)
 }
-

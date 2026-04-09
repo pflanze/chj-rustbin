@@ -217,7 +217,7 @@ impl<T> Bag<T> {
                 }
                 Bag::Branching(_, mut bags) => {
                     probe!("par_flatten Branching");
-                    let mut out: Vec<UnsafeCell<MaybeUninit<T>>> = Vec::with_capacity(len);
+                    let mut out: Vec<SyncUnsa<MaybeUninit<T>>> = Vec::with_capacity(len);
                     unsafe {
                         // Safe because it is MaybeUninit, and we set
                         // the source to Bag::Empty before converting

@@ -7,7 +7,7 @@
 // Also see: `StringTree` (xmlhub-indexer)
 
 use std::{
-    mem::{swap, MaybeUninit},
+    mem::{swap, transmute, MaybeUninit},
     num::NonZeroUsize,
 };
 
@@ -217,10 +217,10 @@ impl<T> Bag<T> {
                     items
                 }
                 Bag::Branching(_, bags) => {
-                    let bags: Vec<MySyncUnsafeCell<Bag<T>>> = bags
-                        .into_iter()
-                        .map(|v| MySyncUnsafeCell::from(v))
-                        .collect();
+                    let bags: Vec<MySyncUnsafeCell<Bag<T>>> =
+                        unsafe {
+                            transmute(bags)
+                        };
                     probe!("par_flatten Branching");
                     let mut out: Vec<MySyncUnsafeCell<MaybeUninit<T>>> =
                         Vec::with_capacity(len);
@@ -299,10 +299,10 @@ fn _par_flatten<'a, 'b, T: Send>(
                 }
             }
             Bag::Branching(_, bags) => {
-                let bags: Vec<MySyncUnsafeCell<Bag<T>>> = bags
-                    .into_iter()
-                    .map(|v| MySyncUnsafeCell::from(v))
-                    .collect();
+                let bags: Vec<MySyncUnsafeCell<Bag<T>>> =
+                    unsafe {
+                        transmute(bags)
+                    };
                 to_i += _par_flatten(&bags, &to[to_i..]);
             }
         }

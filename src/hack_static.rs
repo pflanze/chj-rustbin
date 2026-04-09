@@ -1,14 +1,22 @@
-use std::{mem::transmute, ops::{IndexMut, RangeFrom}, slice::from_raw_parts_mut};
+use std::{mem::transmute, ops::{Index, IndexMut, RangeFrom}, slice::from_raw_parts_mut};
 
 pub unsafe fn hack_static<'a, 'v, T: ?Sized>(rf: &'a mut T) -> &'v mut T {
     transmute(rf)
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 pub struct TRawSliceMut<T> {
     data: *mut T,
     len: usize,
 }
+
+impl<T> Clone for TRawSliceMut<T> {
+    fn clone(&self) -> Self {
+        Self { data: self.data.clone(), len: self.len.clone() }
+    }
+}
+
+impl<T> Copy for TRawSliceMut<T> {}
 
 impl<T> From<&mut [T]> for TRawSliceMut<T> {
     fn from(sl: &mut [T]) -> Self {
@@ -43,6 +51,15 @@ impl<T> TRawSliceMut<T> {
         };
         (head, rest)
     }
+
+    pub fn subslice(self, index: RangeFrom<usize>) -> Self {
+        let start = index.start;
+        let Self { data, len }= self;
+        let data = unsafe { data.add(start) };
+        let len = len - start;
+        Self { data, len }
+    }
+        
 }
 
 impl<T> Iterator for TRawSliceMut<T> {
@@ -61,15 +78,23 @@ impl<T> Iterator for TRawSliceMut<T> {
     }
 }
 
-impl<T> IndexMut<RangeFrom<usize>> for TRawSliceMut<T> {
-    fn index_mut(&mut self, index: RangeFrom<usize>) -> &mut Self::Output {
-        let start = index.start;
-        let Self { data, len }= self;
-        let data = unsafe { data.add(start) };
-        let len = *len - start;
-        
-    }
-}
+// impl<T> Index<RangeFrom<usize>> for TRawSliceMut<T> {
+//     type Output = ;
+
+//     fn index(&self, index: RangeFrom<usize>) -> &Self::Output {
+//         todo!()
+//     }
+// }
+
+// impl<T> IndexMut<RangeFrom<usize>> for TRawSliceMut<T> {
+//     fn index_mut(&mut self, index: RangeFrom<usize>) -> &mut Self::Output {
+//         let start = index.start;
+//         let Self { data, len }= self;
+//         let data = unsafe { data.add(start) };
+//         let len = *len - start;
+//         todo!()
+//     }
+// }
 
 pub unsafe fn hack_static2<'a, T>(rf: &'a mut [T]) -> TRawSliceMut<T> {
     TRawSliceMut::from(rf)

@@ -199,7 +199,8 @@ impl<T> Bag<T> {
 
     pub fn par_flatten(self) -> Vec<T>
     where
-        T: Send,
+        // XXX HACK: Sync would nbot be necessary
+        T: Send+ Sync,
     {
         let len = self.len();
         if len < 500000 {
@@ -242,7 +243,7 @@ impl<T> Bag<T> {
                                 let bagsrf = TRawSliceMut::from(
                                     &mut bags[last_i_spawned..i1]);
                                 let outrf = TRawSliceMut::from(&mut out_rf[last_n_spawned..n]);
-                                scope.spawn(|_| {
+                                scope.spawn(move |_| {
                                     _par_flatten(bagsrf, outrf);
                                 });
                                 last_i_spawned = i1;
@@ -250,10 +251,11 @@ impl<T> Bag<T> {
                             }
                         }
                         if last_i_spawned < bags.len() {
-                            _par_flatten(
-                                &mut bags[last_i_spawned..bags_len],
-                                &mut out_rf[last_n_spawned..len],
-                            );
+                            todo!()
+                            // _par_flatten(
+                            //     &mut bags[last_i_spawned..bags_len],
+                            //     &mut out_rf[last_n_spawned..len],
+                            // );
                         }
                     });
                     unsafe {
@@ -268,6 +270,8 @@ impl<T> Bag<T> {
     }
 }
 
+// unsafe impl<T> Send for *mut Bag<T> {}
+
 fn _par_flatten<T: Send>(
     from: TRawSliceMut<Bag<T>>,
     to: TRawSliceMut<MaybeUninit<T>>,
@@ -276,7 +280,7 @@ fn _par_flatten<T: Send>(
     let mut to_i = 0;
     for frombag in from {
         let mut bag = Bag::Empty;
-        let frombag: &mut Bag<T>;
+        let frombag: &mut Bag<T> = unsafe { &mut *frombag };
         swap(&mut bag, frombag);
         match bag {
             Bag::Empty => (),
@@ -293,9 +297,8 @@ fn _par_flatten<T: Send>(
                 }
             }
             Bag::Branching(_, mut bags) => {
-                let idx = to_i..;
                 to_i += _par_flatten(TRawSliceMut::from(&mut *bags),
-                                     to[to_i..]);
+                                     to.subslice(to_i..));
             }
         }
     }

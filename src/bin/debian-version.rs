@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::{anyhow, Context, Result};
 use chj_rustbin::debian_version::{
-    parse::DebianVersion,
+    contributors::Contributors, parse::DebianVersion,
     release_info_with_contributors::ReleaseInfosWithContributors,
     release_infos::ReleaseInfos,
 };
@@ -69,14 +69,23 @@ fn main() -> Result<()> {
         .unwrap_or_else(|| release_info.number);
     let mut out = stdout().lock();
     if all {
+        let contributors = Contributors::new();
         for r in &infos.releases_including_sid {
-            r.fmt(point, comments, Some(release_number), &mut out)?;
+            r.fmt(
+                &contributors,
+                point,
+                comments,
+                Some(release_number),
+                &mut out,
+            )?;
             write!(&mut out, "\n")?;
         }
     } else if list {
         infos.list_all_releases(release_number, &mut out)?;
     } else {
+        let contributors = Contributors::new();
         release_info.fmt(
+            &contributors,
             point,
             comments,
             if point { Some(release_number) } else { None },

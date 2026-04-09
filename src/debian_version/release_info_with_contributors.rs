@@ -1,4 +1,7 @@
-use std::{io::Write, ops::Deref};
+use std::{
+    io::Write,
+    ops::{Deref, RangeInclusive},
+};
 
 use anyhow::{bail, Result};
 
@@ -16,7 +19,7 @@ use crate::{
 #[derive(Debug)]
 pub struct ReleaseInfoWithContributors {
     pub release_info: ParsedReleaseInfo,
-    pub num_contributors: usize,
+    pub work_period: RangeInclusive<MonthYear>,
 }
 
 impl Deref for ReleaseInfoWithContributors {
@@ -28,8 +31,15 @@ impl Deref for ReleaseInfoWithContributors {
 }
 
 impl ReleaseInfoWithContributors {
+    pub fn num_contributors(&self, contributors: &Contributors) -> usize {
+        contributors
+            .filter_active_in_period(self.work_period.clone())
+            .count()
+    }
+
     pub fn fmt(
         &self,
+        contributors: &Contributors,
         show_point_releases: bool,
         show_comments: bool,
         mark_release: Option<ReleaseNumber>,
@@ -37,7 +47,7 @@ impl ReleaseInfoWithContributors {
     ) -> Result<(), std::io::Error> {
         let ReleaseInfoWithContributors {
             release_info,
-            num_contributors,
+            work_period: _,
         } = self;
 
         let prefix = if let Some(mark_release) = mark_release {
@@ -46,6 +56,7 @@ impl ReleaseInfoWithContributors {
             ""
         };
 
+        let num_contributors = self.num_contributors(contributors);
         let mut unformatted = release_info.unformatted_lines_main();
         {
             use std::fmt::Write;
@@ -83,8 +94,6 @@ impl From<ReleaseInfos> for ReleaseInfosWithContributors {
         let ReleaseInfos { mut releases, sid } = value;
         releases.push(sid);
 
-        let contributors = Contributors::new();
-
         let mut releases_including_sid = vec![];
         let mut prev_month_year: Option<MonthYear> = None;
         for release_info in releases {
@@ -92,16 +101,14 @@ impl From<ReleaseInfos> for ReleaseInfosWithContributors {
                 prev_month_year.unwrap_or(MonthYear { year: 0, month0: 0 });
             let this = release_info.release_month_year;
             prev_month_year = this;
-            let work_time = prev..=this.unwrap_or(MonthYear {
+            let work_period = prev..=this.unwrap_or(MonthYear {
                 year: 3000,
                 month0: 0,
             });
-            let num_contributors =
-                contributors.filter_active_in_period(work_time).count();
 
             releases_including_sid.push(ReleaseInfoWithContributors {
                 release_info,
-                num_contributors,
+                work_period,
             });
         }
         Self {

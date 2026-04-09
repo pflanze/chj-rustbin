@@ -13,7 +13,7 @@ use std::{
 
 use arbitrary::Arbitrary;
 
-use crate::{hack_static::hack_static, probe};
+use crate::{hack_static::{hack_lifetime_via_pointer, hack_static}, probe};
 
 #[derive(Debug, Clone)]
 pub enum Bag<T> {
@@ -240,12 +240,12 @@ impl<T> Bag<T> {
                                     "will spawn _par_flatten bags[{last_i_spawned}..{i1}], \
                                      out[{last_n_spawned}..{n}]"));
                                 let bagsrf = unsafe {
-                                    hack_static(&mut bags[last_i_spawned..i1])
+                                    hack_lifetime_via_pointer(&mut bags[last_i_spawned..i1])
                                 };
                                 let outrf = unsafe {
-                                    hack_static(&mut out_rf[last_n_spawned..n])
+                                    hack_lifetime_via_pointer(&mut out_rf[last_n_spawned..n])
                                 };
-                                scope.spawn(|_| {
+                                scope.spawn(move |_| {
                                     _par_flatten(bagsrf, outrf);
                                 });
                                 last_i_spawned = i1;
@@ -271,9 +271,9 @@ impl<T> Bag<T> {
     }
 }
 
-fn _par_flatten<T: Send>(
-    from: &mut [Bag<T>],
-    to: &mut [MaybeUninit<T>],
+fn _par_flatten<'a, 'b: 'a, T: Send>(
+    from: &'a mut [Bag<T>],
+    to: &'b mut [MaybeUninit<T>],
 ) -> usize {
     // probe!(format!("_par_flatten from.len = {}, to.len= {}", from.len(), to.len()));
     let mut to_i = 0;
@@ -293,7 +293,7 @@ fn _par_flatten<T: Send>(
                 }
             }
             Bag::Branching(_, mut bags) => {
-                to_i += _par_flatten(&mut bags, &mut to[to_i..]);
+                to_i += _par_flatten(&mut *bags, &mut to[to_i..]);
             }
         }
     }

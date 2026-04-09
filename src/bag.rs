@@ -13,7 +13,7 @@ use std::{
 
 use arbitrary::Arbitrary;
 
-use crate::{hack_static::{hack_lifetime_via_pointer, hack_static}, probe};
+use crate::{hack_static::ConsSlice, probe};
 
 #[derive(Debug, Clone)]
 pub enum Bag<T> {
@@ -225,37 +225,36 @@ impl<T> Bag<T> {
                         // double free)
                         out.set_len(len)
                     };
-                    let out_rf = &mut out;
+                    let mut out_rf = ConsSlice::from(&mut *out);
+                    let bags_len = bags.len();
                     rayon::scope(|scope| {
-                        let bags_len = bags.len();
+                        let mut bags_rf = ConsSlice::from(&mut *bags);
                         let mut n = 0;
                         let mut last_n_spawned = 0;
                         let mut last_i_spawned = 0;
                         for i in 0..bags_len {
-                            n += bags[i].len();
+                            n += bags_rf[i].len();
                             let out_len = n - last_n_spawned;
                             if out_len > 500000 {
                                 let i1 = i + 1;
                                 probe!(format!(
                                     "will spawn _par_flatten bags[{last_i_spawned}..{i1}], \
                                      out[{last_n_spawned}..{n}]"));
-                                let bagsrf = unsafe {
-                                    hack_lifetime_via_pointer(&mut bags[last_i_spawned..i1])
-                                };
-                                let outrf = unsafe {
-                                    hack_lifetime_via_pointer(&mut out_rf[last_n_spawned..n])
-                                };
-                                scope.spawn(move |_| {
+                                let bagsrf =
+                                    bags_rf.slice_from_to(last_i_spawned, i1);
+                                let outrf =
+                                    out_rf.slice_from_to(last_n_spawned, n);
+                                scope.spawn(|_| {
                                     _par_flatten(bagsrf, outrf);
                                 });
                                 last_i_spawned = i1;
                                 last_n_spawned = n;
                             }
                         }
-                        if last_i_spawned < bags.len() {
+                        if last_i_spawned < bags_len {
                             _par_flatten(
-                                &mut bags[last_i_spawned..bags_len],
-                                &mut out_rf[last_n_spawned..len],
+                                bags_rf.slice_from_to(last_i_spawned, bags_len),
+                                out_rf.slice_from_to(last_n_spawned, len),
                             );
                         }
                     });

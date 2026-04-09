@@ -12,7 +12,7 @@ use memmap2::{MmapMut, MmapOptions};
 use crate::unsync_unsend::UnSyncUnSend;
 
 #[derive(Debug, Clone, Copy)]
-struct RawSliceMut {
+pub struct RawSliceMut {
     data: *mut u8,
     len: usize,
 }

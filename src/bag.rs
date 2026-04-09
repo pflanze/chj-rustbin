@@ -13,7 +13,7 @@ use std::{
 
 use arbitrary::Arbitrary;
 
-use crate::{hack_static::hack_static, probe};
+use crate::{hack_static::{hack_static, TRawSliceMut}, probe};
 
 #[derive(Debug, Clone)]
 pub enum Bag<T> {
@@ -239,12 +239,9 @@ impl<T> Bag<T> {
                                 probe!(format!(
                                     "will spawn _par_flatten bags[{last_i_spawned}..{i1}], \
                                      out[{last_n_spawned}..{n}]"));
-                                let bagsrf = unsafe {
-                                    hack_static(&mut bags[last_i_spawned..i1])
-                                };
-                                let outrf = unsafe {
-                                    hack_static(&mut out_rf[last_n_spawned..n])
-                                };
+                                let bagsrf = TRawSliceMut::from(
+                                    &mut bags[last_i_spawned..i1]);
+                                let outrf = TRawSliceMut::from(&mut out_rf[last_n_spawned..n]);
                                 scope.spawn(|_| {
                                     _par_flatten(bagsrf, outrf);
                                 });
@@ -272,8 +269,8 @@ impl<T> Bag<T> {
 }
 
 fn _par_flatten<T: Send>(
-    from: &mut [Bag<T>],
-    to: &mut [MaybeUninit<T>],
+    from: TRawSliceMut<T>,
+    to: TRawSliceMut<T>,
 ) -> usize {
     // probe!(format!("_par_flatten from.len = {}, to.len= {}", from.len(), to.len()));
     let mut to_i = 0;

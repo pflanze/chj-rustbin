@@ -54,7 +54,9 @@ fn main() -> Result<()> {
         tmp = std::fs::read_to_string("/etc/debian_version").with_context(
             || {
                 anyhow!(
-                "reading file '/etc/debian_version' -- this is for Debian only"
+                    "reading file '/etc/debian_version' -- reading the version \
+                     is for Debian only; you can instead pass a version/name \
+                     as an argument"
             )
             },
         )?;

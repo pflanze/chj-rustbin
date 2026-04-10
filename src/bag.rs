@@ -13,7 +13,7 @@ use std::{
 
 use arbitrary::Arbitrary;
 
-use crate::{hack_static::{hack_lifetime_via_pointer, hack_static}, probe};
+use crate::{hack_static::hack_lifetime_via_pointer, probe};
 
 #[derive(Debug, Clone)]
 pub enum Bag<T> {
@@ -240,10 +240,14 @@ impl<T> Bag<T> {
                                     "will spawn _par_flatten bags[{last_i_spawned}..{i1}], \
                                      out[{last_n_spawned}..{n}]"));
                                 let bagsrf = unsafe {
-                                    hack_lifetime_via_pointer(&mut bags[last_i_spawned..i1])
+                                    hack_lifetime_via_pointer(
+                                        &mut bags[last_i_spawned..i1],
+                                    )
                                 };
                                 let outrf = unsafe {
-                                    hack_lifetime_via_pointer(&mut out_rf[last_n_spawned..n])
+                                    hack_lifetime_via_pointer(
+                                        &mut out_rf[last_n_spawned..n],
+                                    )
                                 };
                                 scope.spawn(move |_| {
                                     _par_flatten(bagsrf, outrf);

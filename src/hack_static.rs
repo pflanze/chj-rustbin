@@ -9,6 +9,5 @@ pub unsafe fn hack_lifetime_via_pointer<'a, 'v, T>(
 ) -> &'v mut [T] {
     let len = rf.len();
     let ptr = rf.as_mut_ptr();
-    dbg!((ptr, len));
     unsafe { from_raw_parts_mut(ptr, len) }
 }

@@ -27,12 +27,10 @@ unsafe impl<'a, T> Send for ConsSlice<'a, T> {}
 
 impl<'a, T> From<&'a mut [T]> for ConsSlice<'a, T> {
     fn from(value: &'a mut [T]) -> Self {
-        let ptr = value.as_mut_ptr();
-        let len = value.len();
         ConsSlice {
             handed_out_before_index: 0,
-            ptr,
-            len,
+            ptr: value.as_mut_ptr(),
+            len: value.len(),
             _lifetime: PhantomData,
         }
     }

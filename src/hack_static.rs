@@ -1,4 +1,3 @@
-
 use std::{
     marker::PhantomData, mem::transmute, ops::Index, slice::from_raw_parts_mut,
 };
@@ -17,7 +16,7 @@ pub unsafe fn hack_lifetime_via_pointer<'a: 'v, 'v, T>(
 }
 
 pub struct ConsSlice<'a, T> {
-    handed_out_until_index: usize,
+    handed_out_before_index: usize,
     ptr: *mut T,
     len: usize,
     _lifetime: PhantomData<&'a ()>,
@@ -31,7 +30,7 @@ impl<'a, T> From<&'a mut [T]> for ConsSlice<'a, T> {
         let ptr = value.as_mut_ptr();
         let len = value.len();
         ConsSlice {
-            handed_out_until_index: 0,
+            handed_out_before_index: 0,
             ptr,
             len,
             _lifetime: PhantomData,
@@ -44,13 +43,13 @@ impl<'a, T> Index<usize> for ConsSlice<'a, T> {
 
     fn index(&self, index: usize) -> &Self::Output {
         let Self {
-            handed_out_until_index,
+            handed_out_before_index,
             ptr,
             len,
             _lifetime,
         } = self;
         assert!(index < *len);
-        assert!(index >= *handed_out_until_index);
+        assert!(index >= *handed_out_before_index);
         unsafe {
             let p = ptr.add(index);
             &*p
@@ -69,14 +68,14 @@ impl<'a, T> ConsSlice<'a, T> {
     {
         assert!(from <= to);
         let Self {
-            handed_out_until_index,
+            handed_out_before_index,
             ptr,
             len,
             _lifetime,
         } = self;
-        assert!(from >= *handed_out_until_index);
+        assert!(from >= *handed_out_before_index);
         assert!(to <= *len);
-        *handed_out_until_index = to;
+        *handed_out_before_index = to;
         unsafe { from_raw_parts_mut(ptr.add(from), to - from) }
     }
 }

@@ -240,10 +240,24 @@ impl<T> Bag<T> {
                         // The number of entries collected to be
                         // copied into `out` at any time
                         let mut n = 0;
+                        // The remaining number of entries to do, to
+                        // judge if a spawn is really warranted
+                        let mut n_rest = len;
                         while bags_rest_i < bags_rest.len() {
-                            n += bags_rest[bags_rest_i].len();
+                            {
+                                let bag_len = bags_rest[bags_rest_i].len();
+                                n += bag_len;
+                                n_rest -= bag_len;
+                            }
                             let bags_rest_i1 = bags_rest_i + 1;
                             if n >= MIN_OUT_SLICE_LEN {
+                                if n_rest < MIN_OUT_SLICE_LEN / 2 {
+                                    debug!(
+                                        "do not spawn, instead do the whole \
+                                         rest ({n_rest}) as the last chunk"
+                                    );
+                                    break;
+                                }
                                 let bagsrf;
                                 (bagsrf, bags_rest) =
                                     bags_rest.split_at_mut(bags_rest_i1);

@@ -10,6 +10,7 @@ fn main() -> Result<()> {
         probe!("random_data");
         let mut random_data = vec![0; 10_000_000];
         getrandom(&mut random_data)?;
+        dbg!(random_data.len());
         random_data
     };
     let mut data = {

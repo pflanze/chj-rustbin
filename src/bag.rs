@@ -7,7 +7,7 @@
 // Also see: `StringTree` (xmlhub-indexer)
 
 use std::{
-    mem::{swap, MaybeUninit},
+    mem::{swap, transmute, MaybeUninit},
     num::NonZeroUsize,
 };
 
@@ -269,10 +269,10 @@ impl<T> Bag<T> {
                     {
                         probe!("assume_init");
                         unsafe {
-                            // MaybeUninit::assume_init(out)
-                            out.into_iter()
-                                .map(|v| MaybeUninit::assume_init(v))
-                                .collect()
+                            // out.into_iter()
+                            //     .map(|v| MaybeUninit::assume_init(v))
+                            //     .collect()
+                            transmute(out)
                         }
                     }
                 }

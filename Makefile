@@ -13,11 +13,15 @@ test_bag: target/release/test-bag
 test: test_intersection test_priorities test_bag
 	cargo test --release
 
-miri: miri-leaked_region
+miri: miri-bag miri-leaked_region miri-lst
 
 miri-leaked_region:
 	RUST_LOG=trace MIRIFLAGS='-Zmiri-tree-borrows -Zmiri-disable-isolation' \
 	   cargo +nightly miri run --bin test-leaked_region
+
+miri-bag:
+	RUST_LOG=trace MIRIFLAGS='-Zmiri-tree-borrows -Zmiri-disable-isolation' \
+	   cargo +nightly miri run --bin test-bag
 
 # -Zmiri-ignore-leaks only because of threads that are not joined
 # (perhaps the rayon thread pools?). Requires a dir ~/.mozilla with

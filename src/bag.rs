@@ -226,13 +226,12 @@ impl<T> Bag<T> {
                         out.set_len(len)
                     };
                     let mut out_rf = ConsSlice::from(&mut *out);
-                    let bags_len = bags.len();
                     let mut bags_rf = ConsSlice::from(&mut *bags);
                     rayon::scope(move |scope| {
                         let mut n = 0;
                         let mut last_n_spawned = 0;
                         let mut last_i_spawned = 0;
-                        for i in 0..bags_len {
+                        for i in 0..bags_rf.len() {
                             n += bags_rf[i].len();
                             let out_len = n - last_n_spawned;
                             if out_len > 500000 {
@@ -251,9 +250,12 @@ impl<T> Bag<T> {
                                 last_n_spawned = n;
                             }
                         }
-                        if last_i_spawned < bags_len {
+                        if last_i_spawned < bags_rf.len() {
                             _par_flatten(
-                                bags_rf.slice_from_to(last_i_spawned, bags_len),
+                                bags_rf.slice_from_to(
+                                    last_i_spawned,
+                                    bags_rf.len(),
+                                ),
                                 out_rf.slice_from_to(last_n_spawned, len),
                             );
                         }

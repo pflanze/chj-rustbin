@@ -56,6 +56,11 @@ impl<'a, T> Index<usize> for ConsSlice<'a, T> {
 }
 
 impl<'a, T> ConsSlice<'a, T> {
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
     pub fn slice_from_to<'s>(
         &'s mut self,
         from: usize,

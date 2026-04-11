@@ -23,7 +23,7 @@ pub struct ConsSlice<'a, T> {
 }
 
 unsafe impl<'a, T> Send for ConsSlice<'a, T> {}
-unsafe impl<'a, T> Sync for ConsSlice<'a, T> {}
+// Do *not* implement Sync for ConsSlice, it's not safe.
 
 impl<'a, T> From<&'a mut [T]> for ConsSlice<'a, T> {
     fn from(value: &'a mut [T]) -> Self {

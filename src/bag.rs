@@ -327,7 +327,7 @@ fn my_arbitrary_bag<'a, T: Arbitrary<'a>>(
     depth: usize,
 ) -> arbitrary::Result<Bag<T>> {
     match (|| -> arbitrary::Result<_> {
-        let n = u.int_in_range(0..=depth)?;
+        let n = u.int_in_range(0..=(depth / 2))?;
         if n == 0 {
             let (size, vec) = my_arbitrary_vec(u, depth + 1)?;
             if size == 0 {

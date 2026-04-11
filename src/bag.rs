@@ -222,10 +222,11 @@ impl<T> Bag<T> {
                     probe!("par_flatten Branching");
                     let mut out: Vec<MaybeUninit<T>> = Vec::with_capacity(len);
                     unsafe {
-                        // Safe because it is MaybeUninit, and we set
-                        // the source to Bag::Empty before converting
-                        // to initialized (we might leak, but won't
-                        // double free)
+                        // Safe because the elements are MaybeUninit,
+                        // and when moving out of the source to this,
+                        // we set the source to Bag::Empty before
+                        // converting this Vec to initialized (we
+                        // might leak, but won't double free)
                         out.set_len(len)
                     };
                     let mut bags_rest = &mut *bags;

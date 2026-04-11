@@ -4,7 +4,7 @@ use chj_rustbin::bag::Bag;
 use getrandom::getrandom;
 
 fn main() -> Result<()> {
-    let mut random_data = vec![0; 5_000_000];
+    let mut random_data = vec![0; 10_000_000];
     getrandom(&mut random_data)?;
     let mut data = Unstructured::new(&random_data);
     let bag = Bag::<i32>::arbitrary(&mut data)?;

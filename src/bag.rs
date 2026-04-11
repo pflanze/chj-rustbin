@@ -248,6 +248,7 @@ impl<T> Bag<T> {
                                     bags_rest.split_at_mut(bags_rest_i1);
                                 let outrf;
                                 (outrf, out_rest) = out_rest.split_at_mut(n);
+                                probe!(format!("_par_flatten for n={n}"));
                                 scope.spawn(|_| {
                                     _par_flatten(bagsrf, outrf);
                                 });
@@ -260,14 +261,19 @@ impl<T> Bag<T> {
                         // MIN_OUT_SLICE_LEN above is processed
                         // without spawning a new task
                         if n > 0 {
+                            probe!(format!("_par_flatten remainder n={n} out_rest.len()={}",
+                                           out_rest.len()));
                             _par_flatten(bags_rest, out_rest);
                         }
                     });
-                    unsafe {
-                        // MaybeUninit::assume_init(out)
-                        out.into_iter()
-                            .map(|v| MaybeUninit::assume_init(v))
-                            .collect()
+                    {
+                        probe!("assume_init");
+                        unsafe {
+                            // MaybeUninit::assume_init(out)
+                            out.into_iter()
+                                .map(|v| MaybeUninit::assume_init(v))
+                                .collect()
+                        }
                     }
                 }
             }
@@ -279,7 +285,6 @@ fn _par_flatten<T: Send>(
     from: &mut [Bag<T>],
     to: &mut [MaybeUninit<T>],
 ) -> usize {
-    // probe!(format!("_par_flatten from.len = {}, to.len= {}", from.len(), to.len()));
     let mut to_i = 0;
     for frombag in from {
         let mut bag = Bag::Empty;

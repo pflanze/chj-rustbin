@@ -227,8 +227,8 @@ impl<T> Bag<T> {
                     };
                     let mut out_rf = ConsSlice::from(&mut *out);
                     let bags_len = bags.len();
-                    rayon::scope(|scope| {
-                        let mut bags_rf = ConsSlice::from(&mut *bags);
+                    let mut bags_rf = ConsSlice::from(&mut *bags);
+                    rayon::scope(move |scope| {
                         let mut n = 0;
                         let mut last_n_spawned = 0;
                         let mut last_i_spawned = 0;

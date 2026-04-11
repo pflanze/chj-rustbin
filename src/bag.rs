@@ -12,6 +12,7 @@ use std::{
 };
 
 use arbitrary::Arbitrary;
+use log::debug;
 
 use crate::probe;
 
@@ -345,7 +346,7 @@ fn my_arbitrary_bag<'a, T: Arbitrary<'a>>(
     })() {
         Ok(v) => Ok(v),
         Err(_) => {
-            eprintln!("fallback");
+            debug!("fallback");
             Ok(Bag::Empty)
         }
     }

@@ -172,9 +172,21 @@ impl<T> Bag<T> {
     }
 
     pub fn push(&mut self, val: T) {
-        // XX should we optimize by having our own specialized
-        // dispatch here? But, just make sure push_bag/add_bag is
-        // inlined?
+        // Should we optimize by having our own specialized
+        // dispatch here?
+        match self {
+            Bag::Empty => {
+                *self = Bag::Leaf(val);
+                return;
+            }
+            Bag::Leaf(_) => (),
+            Bag::LeafVec(ref mut items) => {
+                items.push(val);
+                return;
+            }
+            Bag::Branching(_, _) => (),
+        }
+        // Fallback:
         self.push_bag(Bag::Leaf(val));
     }
 

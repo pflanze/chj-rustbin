@@ -7,7 +7,10 @@ test_intersection: target/release/intersection
 test_priorities: target/release/priorities
 	test/priorities-run
 
-test: test_intersection test_priorities
+test_bag: target/release/test-bag
+	target/release/test-bag
+
+test: test_intersection test_priorities test_bag
 	cargo test --release
 
 miri: miri-leaked_region

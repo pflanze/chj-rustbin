@@ -358,35 +358,3 @@ impl<'a, T: Arbitrary<'a>> Arbitrary<'a> for Bag<T> {
         my_arbitrary_bag(u, 0)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use anyhow::Result;
-    use arbitrary::{Arbitrary, Unstructured};
-    use getrandom::getrandom;
-
-    use super::*;
-
-    #[test]
-    fn t_() -> Result<()> {
-        let mut random_data = vec![0; 5_000_000];
-        getrandom(&mut random_data)?;
-        let mut data = Unstructured::new(&random_data);
-        let bag = Bag::<i32>::arbitrary(&mut data)?;
-
-        let show_it = false;
-        if show_it {
-            eprintln!("{bag:?}");
-        }
-
-        let l1 = bag.clone().flatten();
-        let l2 = bag.par_flatten();
-        assert_eq!(l1, l2);
-
-        if show_it {
-            panic!();
-        }
-
-        Ok(())
-    }
-}

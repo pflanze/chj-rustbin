@@ -13,6 +13,7 @@ fn main() -> Result<()> {
     if show_it {
         eprintln!("{bag:?}");
     }
+    eprintln!("bag.len() = {}", bag.len());
 
     let l1 = bag.clone().flatten();
     let l2 = bag.par_flatten();

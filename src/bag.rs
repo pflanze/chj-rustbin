@@ -219,7 +219,10 @@ impl<T> Bag<T> {
                     items
                 }
                 Bag::Branching(_, mut bags) => {
-                    probe!("par_flatten Branching");
+                    probe!(format!(
+                        "par_flatten Branching with bags lengths = {:?}",
+                        bags.iter().map(|b| b.len()).collect::<Vec<_>>()
+                    ));
                     let mut out: Vec<MaybeUninit<T>> = Vec::with_capacity(len);
                     unsafe {
                         // Safe because the elements are MaybeUninit,

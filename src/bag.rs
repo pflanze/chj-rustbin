@@ -244,6 +244,7 @@ impl<T> Bag<T> {
                         // judge if a spawn is really warranted
                         let mut n_rest = len;
                         while bags_rest_i < bags_rest.len() {
+                            dbg!(n_rest);
                             {
                                 let bag_len = bags_rest[bags_rest_i].len();
                                 n += bag_len;

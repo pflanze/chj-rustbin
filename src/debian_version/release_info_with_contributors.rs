@@ -3,13 +3,15 @@ use std::{
     ops::{Deref, RangeInclusive},
 };
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 
 use crate::{
     debian_version::{
         contributors::{Contributors, MonthYear},
-        parse::{Release, ReleaseName, ReleaseNumber},
-        release_infos::{release_prefix, ParsedReleaseInfo, ReleaseInfos},
+        get_release::ReleaseNameAndNumber,
+        infos::Infos,
+        parse::ReleaseNumber,
+        release_info::{release_prefix, ParsedReleaseInfo},
     },
     util::pad::{
         line_up_on_colon, pad_string_dotadjust, pad_string_leftadjust,
@@ -27,6 +29,16 @@ impl Deref for ReleaseInfoWithContributors {
 
     fn deref(&self) -> &Self::Target {
         &self.release_info
+    }
+}
+
+impl ReleaseNameAndNumber for ReleaseInfoWithContributors {
+    fn name(&self) -> &str {
+        self.name
+    }
+
+    fn number(&self) -> ReleaseNumber {
+        self.number
     }
 }
 
@@ -84,19 +96,13 @@ impl ReleaseInfoWithContributors {
     }
 }
 
-#[derive(Debug)]
-pub struct ReleaseInfosWithContributors {
-    pub releases_including_sid: Vec<ReleaseInfoWithContributors>,
-}
-
-impl From<ReleaseInfos> for ReleaseInfosWithContributors {
-    fn from(value: ReleaseInfos) -> Self {
-        let ReleaseInfos { mut releases, sid } = value;
-        releases.push(sid);
+impl From<Infos<ParsedReleaseInfo>> for Infos<ReleaseInfoWithContributors> {
+    fn from(value: Infos<ParsedReleaseInfo>) -> Self {
+        let Infos { infos } = value;
 
         let mut releases_including_sid = vec![];
         let mut prev_month_year: Option<MonthYear> = None;
-        for release_info in releases {
+        for release_info in infos {
             let prev =
                 prev_month_year.unwrap_or(MonthYear { year: 0, month0: 0 });
             let this = release_info.release_month_year;
@@ -112,66 +118,18 @@ impl From<ReleaseInfos> for ReleaseInfosWithContributors {
             });
         }
         Self {
-            releases_including_sid,
+            infos: releases_including_sid,
         }
     }
 }
 
-impl ReleaseInfosWithContributors {
-    pub fn get_release_by_name(
-        &self,
-        name: &ReleaseName,
-    ) -> Result<&ReleaseInfoWithContributors> {
-        let all_releases = &self.releases_including_sid;
-        let items: Vec<_> = all_releases
-            .iter()
-            .filter(|r| r.name == name.as_ref())
-            .collect();
-        match items.len() {
-            0 => bail!("unknown release name {:?}", name.as_ref()),
-            1 => Ok(items[0]),
-            _ => bail!(
-                "buggy data: more than one release with name {:?}",
-                name.as_ref()
-            ),
-        }
-    }
-
-    pub fn get_release_by_number(
-        &self,
-        number: ReleaseNumber,
-    ) -> Result<&ReleaseInfoWithContributors> {
-        let all_releases = &self.releases_including_sid;
-        let items: Vec<_> = all_releases
-            .iter()
-            .filter(|r| r.number.eq_release(number))
-            .collect();
-        match items.len() {
-            0 => bail!("unknown release number {}", number.major),
-            1 => Ok(items[0]),
-            _ => bail!(
-                "buggy data: more than one release with major number {}",
-                number.major
-            ),
-        }
-    }
-
-    pub fn get_release(
-        &self,
-        release: &Release,
-    ) -> Result<&ReleaseInfoWithContributors> {
-        match release {
-            Release::Number(rn) => self.get_release_by_number(*rn),
-            Release::Name(n) => self.get_release_by_name(n),
-        }
-    }
-
+impl Infos<ReleaseInfoWithContributors> {
     pub fn list_all_releases(
         &self,
         mark_version: ReleaseNumber,
         mut out: impl Write,
     ) -> Result<()> {
-        let all_releases = &self.releases_including_sid;
+        let all_releases = &self.infos;
         let name_max_len = all_releases
             .iter()
             .map(|r| r.name.len())

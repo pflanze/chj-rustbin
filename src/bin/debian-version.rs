@@ -8,9 +8,9 @@ use std::{
 
 use anyhow::{anyhow, Context, Result};
 use chj_rustbin::debian_version::{
-    contributors::Contributors, parse::DebianVersion,
-    release_info_with_contributors::ReleaseInfosWithContributors,
-    release_infos::ReleaseInfos,
+    contributors::Contributors, infos::Infos, parse::DebianVersion,
+    release_info::ParsedReleaseInfo,
+    release_info_with_contributors::ReleaseInfoWithContributors,
 };
 use clap::Parser;
 
@@ -63,7 +63,8 @@ fn main() -> Result<()> {
         &tmp
     };
     let version = DebianVersion::from_str(version.trim())?;
-    let infos: ReleaseInfosWithContributors = ReleaseInfos::new().into();
+    let infos: Infos<ReleaseInfoWithContributors> =
+        Infos::<ParsedReleaseInfo>::new().into();
     let release_info = infos.get_release(&version.release)?;
     let release_number = version
         .release
@@ -72,7 +73,7 @@ fn main() -> Result<()> {
     let mut out = stdout().lock();
     if all {
         let contributors = Contributors::new();
-        for r in &infos.releases_including_sid {
+        for r in &infos.infos {
             r.fmt(
                 &contributors,
                 point,

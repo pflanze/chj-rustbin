@@ -3,7 +3,10 @@ use std::{io::Write, ops::Deref};
 use anyhow::{anyhow, bail, Context, Result};
 
 use crate::{
-    debian_version::{contributors::MonthYear, parse::ReleaseNumber},
+    debian_version::{
+        contributors::MonthYear, get_release::ReleaseNameAndNumber,
+        infos::Infos, parse::ReleaseNumber,
+    },
     let_format_or,
     util::pad::pad_string_dotadjust,
 };
@@ -59,6 +62,16 @@ pub struct ReleaseInfo {
     pub securitysupport_termination_date: Option<&'static str>,
     pub comments: &'static str,
     pub point_releases: Vec<PointRelease>,
+}
+
+impl ReleaseNameAndNumber for ReleaseInfo {
+    fn name(&self) -> &str {
+        self.name
+    }
+
+    fn number(&self) -> ReleaseNumber {
+        self.number
+    }
 }
 
 pub fn release_prefix(r1: ReleaseNumber, r2: ReleaseNumber) -> &'static str {
@@ -166,6 +179,16 @@ impl Deref for ParsedReleaseInfo {
 
     fn deref(&self) -> &Self::Target {
         &self.release_info
+    }
+}
+
+impl ReleaseNameAndNumber for ParsedReleaseInfo {
+    fn name(&self) -> &str {
+        self.name
+    }
+
+    fn number(&self) -> ReleaseNumber {
+        self.number
     }
 }
 
@@ -612,15 +635,9 @@ fn check_sorted(mut items: impl Iterator<Item = ReleaseNumber>) -> Result<()> {
     Ok(())
 }
 
-#[derive(Debug)]
-pub struct ReleaseInfos {
-    pub releases: Vec<ParsedReleaseInfo>,
-    pub sid: ParsedReleaseInfo,
-}
-
-impl ReleaseInfos {
+impl Infos<ParsedReleaseInfo> {
     pub fn new() -> Self {
-        let (releases, sid) = releases();
+        let (mut releases, sid) = releases();
 
         // Some checks
         let max_release_number = releases
@@ -629,8 +646,12 @@ impl ReleaseInfos {
             .max()
             .expect("at least 1 release");
         assert!(sid.number > max_release_number);
+
+        releases.push(sid);
+
         check_sorted(releases.iter().map(|r| r.number))
             .expect("fix data please");
+
         for release in &releases {
             let ReleaseInfo {
                 name: _,
@@ -653,15 +674,11 @@ impl ReleaseInfos {
             }
         }
 
-        (|| -> Result<_> {
-            let releases = releases
-                .into_iter()
-                .map(|r| r.try_into())
-                .collect::<Result<_>>()?;
-            let sid = sid.try_into()?;
-
-            Ok(Self { releases, sid })
-        })()
-        .expect("proper constants")
+        let releases = releases
+            .into_iter()
+            .map(|r| r.try_into())
+            .collect::<Result<_>>()
+            .expect("proper constants");
+        Self { infos: releases }
     }
 }

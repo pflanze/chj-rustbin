@@ -340,6 +340,9 @@ fn _par_flatten<T: Send>(
     to_i
 }
 
+// -----------------------------------------------------------------------------
+// Testing
+
 // Somehow derive(Arbitrary) always yielded Empty. As does
 // Vec::arbitrary. So implement it explicitly and avoid normal
 // arbitrary impls, huh. Also, we need to taper off to get some decent

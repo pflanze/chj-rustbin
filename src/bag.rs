@@ -259,6 +259,7 @@ impl<T> Bag<T> {
                             );
                         }
                     });
+                    drop(bags);
                     unsafe {
                         // MaybeUninit::assume_init(out)
                         out.into_iter()

@@ -29,6 +29,7 @@ pub mod region;
 pub mod sequences;
 pub mod text;
 pub mod time;
+pub mod unsafe_util;
 pub mod unsync_unsend;
 pub mod util;
 pub mod whichgit;

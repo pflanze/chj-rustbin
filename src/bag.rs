@@ -297,6 +297,9 @@ impl<T> Bag<T> {
                             _par_flatten(bags_rest, out_rest);
                         }
                     });
+                    // Enforce the assumption that `bags` exists past
+                    // the rayon scope.
+                    drop(bags);
                     {
                         probe!("assume_init");
                         unsafe {

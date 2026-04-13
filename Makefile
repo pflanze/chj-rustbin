@@ -8,7 +8,7 @@ test_priorities: target/release/priorities
 	test/priorities-run
 
 test_bag: target/release/test-bag
-	target/release/test-bag
+	target/release/test-bag --random-len 50000000 --slice-len 500000
 
 test: test_intersection test_priorities test_bag
 	cargo test --release
@@ -21,7 +21,7 @@ miri-leaked_region:
 
 miri-bag:
 	RUST_LOG=trace MIRIFLAGS='-Zmiri-tree-borrows -Zmiri-disable-isolation' \
-	   cargo +nightly miri run --bin test-bag
+	   cargo +nightly miri run --bin test-bag -- --random-len 500000 --slice-len 5000
 
 # -Zmiri-ignore-leaks only because of threads that are not joined
 # (perhaps the rayon thread pools?). Requires a dir ~/.mozilla with

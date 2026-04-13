@@ -48,6 +48,8 @@ use rayon::{
 };
 use regex::Regex;
 
+const MIN_OUT_SLICE_LEN: usize = 500000;
+
 #[derive(clap::ValueEnum, Clone, Debug)]
 enum ColorMode {
     Always,
@@ -1378,8 +1380,8 @@ impl GetItems {
         let (items, errors) =
             self._find(dir, include_top, metadata, global_leaked_regions);
         probe!("flattening");
-        let items = items.par_flatten();
-        let errors = errors.par_flatten();
+        let items = items.par_flatten(MIN_OUT_SLICE_LEN);
+        let errors = errors.par_flatten(MIN_OUT_SLICE_LEN);
         Ok((items, errors))
     }
 }

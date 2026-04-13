@@ -210,14 +210,12 @@ impl<T> Bag<T> {
         out
     }
 
-    pub fn par_flatten(self) -> Vec<T>
+    pub fn par_flatten(self, min_out_slice_len: usize) -> Vec<T>
     where
         T: Send,
     {
-        const MIN_OUT_SLICE_LEN: usize = 500000;
-
         let len = self.len();
-        if len < MIN_OUT_SLICE_LEN {
+        if len < min_out_slice_len {
             self.flatten()
         } else {
             match self {
@@ -273,8 +271,8 @@ impl<T> Bag<T> {
                                 n_rest -= bag_len;
                             }
                             let bags_rest_i1 = bags_rest_i + 1;
-                            if n >= MIN_OUT_SLICE_LEN {
-                                if n_rest < MIN_OUT_SLICE_LEN / 2 {
+                            if n >= min_out_slice_len {
+                                if n_rest < min_out_slice_len / 2 {
                                     debug!(
                                         "do not spawn, instead do the whole \
                                          rest ({n_rest}) as the last chunk"

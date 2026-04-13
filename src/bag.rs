@@ -14,7 +14,7 @@ use std::{
 use arbitrary::Arbitrary;
 use log::debug;
 
-use crate::probe;
+use crate::{probe, unsafe_util::unsafe_sync_send::UnsafeSync};
 
 #[derive(Debug, Clone)]
 pub enum Bag<T> {
@@ -230,12 +230,14 @@ impl<T> Bag<T> {
                     probe!("par_flatten LeafVec");
                     items
                 }
-                Bag::Branching(_, mut bags) => {
+                Bag::Branching(_, bags) => {
                     probe!(format!(
                         "par_flatten Branching with bags lengths = {:?}",
                         bags.iter().map(|b| b.len()).collect::<Vec<_>>()
                     ));
-                    let mut out: Vec<MaybeUninit<T>> = Vec::with_capacity(len);
+                    let bags = uninit_vec(bags);
+                    let mut out: Vec<MaybeUninit<UnsafeSync<T>>> =
+                        Vec::with_capacity(len);
                     unsafe {
                         // Safe because the elements are MaybeUninit,
                         // and when moving out of the source to this,
@@ -244,7 +246,7 @@ impl<T> Bag<T> {
                         // might leak, but won't double free)
                         out.set_len(len)
                     };
-                    let mut bags_rest = &mut *bags;
+                    let mut bags_rest = &*bags;
                     let mut out_rest = &mut *out;
                     rayon::scope(move |scope| {
                         // Go through all bags, increase the output
@@ -261,7 +263,12 @@ impl<T> Bag<T> {
                         while bags_rest_i < bags_rest.len() {
                             dbg!(n_rest);
                             {
-                                let bag_len = bags_rest[bags_rest_i].len();
+                                let bag_len = unsafe {
+                                    let b =
+                                        &*(&bags_rest[bags_rest_i]).as_ptr();
+                                    b.deref()
+                                }
+                                .len();
                                 n += bag_len;
                                 n_rest -= bag_len;
                             }
@@ -276,11 +283,11 @@ impl<T> Bag<T> {
                                 }
                                 let bagsrf;
                                 (bagsrf, bags_rest) =
-                                    bags_rest.split_at_mut(bags_rest_i1);
+                                    bags_rest.split_at(bags_rest_i1);
                                 let outrf;
                                 (outrf, out_rest) = out_rest.split_at_mut(n);
                                 probe!(format!("_par_flatten for n={n}"));
-                                scope.spawn(|_| {
+                                scope.spawn(move |_| {
                                     _par_flatten(bagsrf, outrf);
                                 });
                                 (bags_rest_i, n) = (0, 0);
@@ -315,28 +322,64 @@ impl<T> Bag<T> {
     }
 }
 
+fn uninit_item<T>(item: &T) -> &MaybeUninit<T> {
+    unsafe { transmute(item) }
+}
+
+fn uninit_slice<T>(slice: &[T]) -> &[MaybeUninit<UnsafeSync<T>>] {
+    unsafe { transmute(slice) }
+}
+
+fn uninit_vec<T>(vec: Vec<T>) -> Vec<MaybeUninit<UnsafeSync<T>>> {
+    unsafe { transmute(vec) }
+}
+
+unsafe fn copy_item<T>(
+    from: &MaybeUninit<T>,
+    to: &mut MaybeUninit<UnsafeSync<T>>,
+) {
+    unsafe {
+        let to = &mut *to.as_mut_ptr();
+        let to = to.deref_mut();
+        let to: *mut T = to;
+        std::ptr::copy_nonoverlapping(from.as_ptr(), to, 1);
+    }
+}
+
+/// To must be at least as long as from
+unsafe fn copy_slice<T>(
+    from: &[MaybeUninit<UnsafeSync<T>>],
+    to: &mut [MaybeUninit<UnsafeSync<T>>],
+) -> usize {
+    let len = from.len();
+    let to_ptr = to.as_mut_ptr();
+    assert!(len <= to.len());
+    unsafe {
+        std::ptr::copy_nonoverlapping(from.as_ptr(), to_ptr, len);
+    }
+    len
+}
+
 fn _par_flatten<T: Send>(
-    from: &mut [Bag<T>],
-    to: &mut [MaybeUninit<T>],
+    from: &[MaybeUninit<UnsafeSync<Bag<T>>>],
+    to: &mut [MaybeUninit<UnsafeSync<T>>],
 ) -> usize {
     let mut to_i = 0;
     for frombag in from {
-        let mut bag = Bag::Empty;
-        swap(&mut bag, frombag);
-        match bag {
+        let frombag = unsafe { &*frombag.as_ptr() };
+        let frombag = unsafe { frombag.deref() };
+        match frombag {
             Bag::Empty => (),
             Bag::Leaf(item) => {
-                to[to_i] = MaybeUninit::new(item);
+                unsafe { copy_item(uninit_item(item), &mut to[to_i]) };
                 to_i += 1;
             }
             Bag::LeafVec(items) => {
-                for item in items {
-                    to[to_i] = MaybeUninit::new(item);
-                    to_i += 1;
-                }
+                to_i +=
+                    unsafe { copy_slice(uninit_slice(items), &mut to[to_i..]) };
             }
-            Bag::Branching(_, mut bags) => {
-                to_i += _par_flatten(&mut bags, &mut to[to_i..]);
+            Bag::Branching(_, bags) => {
+                to_i += _par_flatten(uninit_slice(&bags), &mut to[to_i..]);
             }
         }
     }

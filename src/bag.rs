@@ -320,31 +320,34 @@ impl<T> Bag<T> {
     }
 }
 
-fn uninit_item<T>(item: &T) -> &MaybeUninit<T> {
-    unsafe { transmute(item) }
-}
-
-fn uninit_slice<T>(slice: &[T]) -> &[MaybeUninit<UnsafeSync<T>>] {
+/// Safety: if used to memcpy items, then `slice` must be inside a
+/// MaybeUninit wrapper.
+unsafe fn uninit_slice<T>(slice: &[T]) -> &[MaybeUninit<UnsafeSync<T>>] {
     unsafe { transmute(slice) }
 }
 
 fn uninit_vec<T>(vec: Vec<T>) -> Vec<MaybeUninit<UnsafeSync<T>>> {
+    // Safe because the two T wrappers are transparent, prevent access
+    // without unsafe (hence another thread can't access it anyway
+    // safely), and the values are now ManuallyDrop, hence while leaks
+    // are possible, those are not unsafe.
     unsafe { transmute(vec) }
 }
 
-unsafe fn copy_item<T>(
-    from: &MaybeUninit<T>,
-    to: &mut MaybeUninit<UnsafeSync<T>>,
-) {
+/// Only safe if &T is inside a MaybeUninit wrapper, since a memcpy is
+/// made without marking T as now being invalid.
+unsafe fn copy_item<T>(from: &T, to: &mut MaybeUninit<UnsafeSync<T>>) {
     unsafe {
         let to = &mut *to.as_mut_ptr();
         let to = to.deref_mut();
         let to: *mut T = to;
-        std::ptr::copy_nonoverlapping(from.as_ptr(), to, 1);
+        std::ptr::copy_nonoverlapping(from, to, 1);
     }
 }
 
-/// To must be at least as long as from
+/// Safety: `from` is invalidated, hence must not be aliasing with
+/// storage that is *not* MaybeUninit. `to` must be at least as long
+/// as `from` (currently checked, panics otherwise).
 unsafe fn copy_slice<T>(
     from: &[MaybeUninit<UnsafeSync<T>>],
     to: &mut [MaybeUninit<UnsafeSync<T>>],
@@ -369,7 +372,7 @@ fn _par_flatten<T: Send>(
         match frombag {
             Bag::Empty => (),
             Bag::Leaf(item) => {
-                unsafe { copy_item(uninit_item(item), &mut to[to_i]) };
+                unsafe { copy_item(item, &mut to[to_i]) };
                 to_i += 1;
             }
             Bag::LeafVec(items) => {
@@ -377,7 +380,14 @@ fn _par_flatten<T: Send>(
                     unsafe { copy_slice(uninit_slice(items), &mut to[to_i..]) };
             }
             Bag::Branching(_, bags) => {
-                to_i += _par_flatten(uninit_slice(&bags), &mut to[to_i..]);
+                to_i += _par_flatten(
+                    unsafe {
+                        // Safe because bags is within a MaybeUninit
+                        // wrapper
+                        uninit_slice(&bags)
+                    },
+                    &mut to[to_i..],
+                );
             }
         }
     }

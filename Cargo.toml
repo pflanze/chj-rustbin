@@ -16,6 +16,8 @@ panic = "abort"
 opt-level = "s"
 
 [dependencies]
+clap-with-warnings = { path = "../clap-with-warnings/clap-with-warnings" }
+
 clap = { version = "3", features = ["derive"] }
 anyhow = "1.0"
 log = "0.4.8"

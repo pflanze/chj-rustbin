@@ -1393,38 +1393,22 @@ static GLOBAL: MiMalloc = MiMalloc;
 fn main() -> Result<()> {
     cpu_probe::init()?;
 
-    let Opt {
-        verbose,
-        debug,
-        ls_dir,
-        find_dir,
-        ignore,
-        color,
-        long,
-        z,
-        zo,
-        time,
-        time_reversed,
-        show_files_from_future,
-        reverse,
-        no_optimize,
-        processing_commands,
-    } = Opt::from_args();
+    let opt = Opt::from_args();
 
-    if ls_dir.is_some() && find_dir.is_some() {
+    if opt.ls_dir.is_some() && opt.find_dir.is_some() {
         bail!("please only give one of the --ls-dir or --find-dir options")
     }
 
-    if verbose {
+    if opt.verbose {
         std::env::set_var("RUST_LOG", "info");
     }
-    if debug {
+    if opt.debug {
         std::env::set_var("RUST_LOG", "trace");
     }
     env_logger::init();
 
-    let orig_cmds = parse_processing_commands(&processing_commands)?;
-    let cmds = if no_optimize {
+    let orig_cmds = parse_processing_commands(&opt.processing_commands)?;
+    let cmds = if opt.no_optimize {
         orig_cmds
     } else {
         let cmds = optimize_processing_commands(&orig_cmds);
@@ -1432,10 +1416,10 @@ fn main() -> Result<()> {
         cmds
     };
 
-    let input_record_separator = if z { 0 } else { b'\n' };
-    let output_record_separator = if zo { 0 } else { b'\n' };
+    let input_record_separator = if opt.z { 0 } else { b'\n' };
+    let output_record_separator = if opt.zo { 0 } else { b'\n' };
 
-    let use_color = match color {
+    let use_color = match opt.color {
         ColorMode::Always => true,
         ColorMode::Never => false,
         ColorMode::Auto => is_a_terminal(1),
@@ -1446,15 +1430,15 @@ fn main() -> Result<()> {
     let desired_number_of_paths_per_chunk = 1000;
     let buf_size = desired_number_of_paths_per_chunk * 100;
 
-    let ignore = if ignore.is_empty() {
+    let ignore = if opt.ignore.is_empty() {
         None
     } else {
-        Some(EfficientRegex::new_either_from(&ignore))
+        Some(EfficientRegex::new_either_from(&opt.ignore))
     };
 
     let get_items = GetItems {
         ignore,
-        long,
+        long: opt.long,
         use_color,
     };
 
@@ -1464,7 +1448,7 @@ fn main() -> Result<()> {
     // null-terminated paths each, in either mode
     let (mut items, errors): (Vec<Item>, Vec<anyhow::Error>) = {
         probe!("get items");
-        if let Some(basepath) = ls_dir {
+        if let Some(basepath) = opt.ls_dir {
             set_current_dir(&basepath).with_context(|| {
                 anyhow!("changing to directory {basepath:?}")
             })?;
@@ -1477,7 +1461,7 @@ fn main() -> Result<()> {
                 ),
                 0,
             )
-        } else if let Some(basepath) = find_dir {
+        } else if let Some(basepath) = opt.find_dir {
             if false {
                 get_items.from_read_buf_stream(
                     FindBufStream::new(buf_size, basepath, true)?.par_bridge(),
@@ -1499,19 +1483,23 @@ fn main() -> Result<()> {
         }
     };
 
-    let sortfn = sort_function(reverse, time, time_reversed);
+    let sortfn = sort_function(opt.reverse, opt.time, opt.time_reversed);
     {
         probe!("sort_items");
         items.par_sort_by(|a, b| sortfn(a, b));
     }
 
-    let selected_items =
-        run_processing_commands(&mut items, &cmds, now, show_files_from_future);
+    let selected_items = run_processing_commands(
+        &mut items,
+        &cmds,
+        now,
+        opt.show_files_from_future,
+    );
 
     probe!("writing to stdout");
     (|| -> Result<()> {
         use std::io::Write;
-        if !long {
+        if !opt.long {
             let mut outp = BufWriter::new(stdout().lock());
             for item in selected_items {
                 outp.write_all(item.path.as_os_str().as_bytes())?;

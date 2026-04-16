@@ -38,6 +38,7 @@ use chj_rustbin::{
 };
 use chrono::{DateTime, Datelike, Local, Timelike};
 use clap::Parser;
+use clap_with_warnings::clap_with_warnings;
 use log::info;
 use mimalloc::MiMalloc;
 use rand::{rngs::ThreadRng, Rng};
@@ -70,6 +71,7 @@ impl FromStr for ColorMode {
     }
 }
 
+#[clap_with_warnings]
 #[derive(clap::Parser, Debug)]
 /// Partial `ls` replacement that takes the paths to (sort and) show
 /// from stdin
@@ -1397,7 +1399,7 @@ static GLOBAL: MiMalloc = MiMalloc;
 fn main() -> Result<()> {
     cpu_probe::init()?;
 
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
 
     if opt.ls_dir.is_some() && opt.find_dir.is_some() {
         bail!("please only give one of the --ls-dir or --find-dir options")

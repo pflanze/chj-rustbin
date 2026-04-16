@@ -238,10 +238,10 @@ impl<T> Bag<T> {
                         Vec::with_capacity(len);
                     unsafe {
                         // Safe because the elements are MaybeUninit,
-                        // and when moving out of the source to this,
-                        // we set the source to Bag::Empty before
-                        // converting this Vec to initialized (we
-                        // might leak, but won't double free)
+                        // and while we memcpy the source to this, the
+                        // source has been converted to MaybeUninit
+                        // elements as well (we might leak, but won't
+                        // double free)
                         out.set_len(len)
                     };
                     let mut bags_rest = &*bags;

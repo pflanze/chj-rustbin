@@ -164,7 +164,9 @@ dependencies = [
 
 [[package]]
 name = "clap-with-warnings"
-version = "0.1.0"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "342ed1566eef3892daa3e529bed0ae61def71da381368cbaed04a9493da0e2b9"
 dependencies = [
  "proc-macro2",
  "quote",

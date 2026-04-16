@@ -12,6 +12,7 @@ test_bag: target/release/test-bag
 
 test: test_intersection test_priorities test_bag
 	cargo test --release
+	git status > /dev/null || true
 
 miri: miri-bag miri-leaked_region miri-lst
 

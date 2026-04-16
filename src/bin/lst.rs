@@ -89,6 +89,10 @@ impl FromStr for ColorMode {
 /// Sorting should behave like `ls` when `--like-ls` is given.
 #[clap(name = "lst from chj-rustbin")]
 struct Opt {
+    /// (XXX Check that unused fields are detected)
+    #[clap(short, long)]
+    some_unused_field: bool,
+
     /// Say what is done
     #[clap(short, long)]
     verbose: bool,

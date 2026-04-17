@@ -502,6 +502,14 @@ mod tests {
     }
 }
 
+fn fast_lowercase_cmp(a: char, b: char) -> Ordering {
+    if a.is_ascii() && b.is_ascii() {
+        a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase())
+    } else {
+        a.to_lowercase().cmp(b.to_lowercase())
+    }
+}
+
 fn ci_cmp(a: &Path, b: &Path) -> Ordering {
     if let Some(a) = a.to_str() {
         if let Some(b) = b.to_str() {
@@ -516,7 +524,7 @@ fn ci_cmp(a: &Path, b: &Path) -> Ordering {
             loop {
                 if let Some(ac) = achars.next() {
                     if let Some(bc) = bchars.next() {
-                        match ac.to_lowercase().cmp(bc.to_lowercase()) {
+                        match fast_lowercase_cmp(ac, bc) {
                             Ordering::Equal => {
                                 if stricter_ordering == Ordering::Equal {
                                     // ac == bc in lower-case; now

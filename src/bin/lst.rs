@@ -1022,7 +1022,7 @@ struct Item<'t> {
     path: &'t Path,
     metadata: EssentialMetadata,
     /// Metadata for the path if there was no error getting it
-    link_target: Option<(Box<Path>, Option<EssentialMetadata>)>,
+    link_target: Option<(Box<Path>, Option<Box<EssentialMetadata>>)>,
 }
 
 #[test]
@@ -1037,7 +1037,9 @@ fn t_sizes() {
     assert_eq!(size_of::<FileKind>(), 1);
 
     assert_eq!(size_of::<EssentialMetadata>(), 64);
-    assert_eq!(size_of::<Item>(), 160); // 16+64+8+64=152
+    // 16+64+8+64=152, actually 160 when flat; 104 when boxing
+    // link_target metadata
+    assert_eq!(size_of::<Item>(), 104);
 }
 
 impl<'t> Item<'t> {
@@ -1068,7 +1070,7 @@ impl<'t> Item<'t> {
                     } else {
                         None
                     };
-                    Some((t.into(), metadata2))
+                    Some((t.into(), metadata2.map(Box::new)))
                 }
                 Err(_) => None,
             }

@@ -1025,6 +1025,21 @@ struct Item<'t> {
     link_target: Option<(Box<Path>, Option<EssentialMetadata>)>,
 }
 
+#[test]
+fn t_sizes() {
+    assert_eq!(size_of::<UnixFileType>(), 1);
+    // Sec and nsec both taking up 8 B
+    assert_eq!(size_of::<SystemTime>(), 16);
+    assert_eq!(size_of::<RDev>(), 8);
+    assert_eq!(size_of::<Mode>(), 4);
+    assert_eq!(size_of::<Uid>(), 4);
+    assert_eq!(size_of::<Gid>(), 4);
+    assert_eq!(size_of::<FileKind>(), 1);
+
+    assert_eq!(size_of::<EssentialMetadata>(), 64);
+    assert_eq!(size_of::<Item>(), 160); // 16+64+8+64=152
+}
+
 impl<'t> Item<'t> {
     pub fn from_path_and_metadata(
         path: &'t Path,

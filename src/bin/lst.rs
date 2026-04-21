@@ -630,7 +630,7 @@ fn run_processing_commands<'t: 'u, 'u: 'v, 'v>(
             ProcessingCommand::Reverse => selected_items.reverse(),
             ProcessingCommand::FilterDays(range) => {
                 let new_items: Vec<Item<'t>> = selected_items
-                    .iter_mut()
+                    .into_iter()
                     .filter(|item| {
                         let f = |age_days| match range {
                             IntRange::At(n) => u64::from(*n) == age_days,

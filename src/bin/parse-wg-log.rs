@@ -529,7 +529,7 @@ impl<'a> Row<'a> {
 
 fn main() -> Result<()> {
     let opt: Opt = Opt::from_args();
-    if !opt.show_direct && opt.tsv.is_none() {
+    if !opt.show_direct && !opt.tsv.is_some() {
         eprintln!(
             "WARNING: neither --tsv nor --show-direct given, \
                    going to parse without output"

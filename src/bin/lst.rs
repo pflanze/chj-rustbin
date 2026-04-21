@@ -568,35 +568,31 @@ fn sort_function<'t: 'v, 'v>(
         } else {
             |a, b| ci_cmp(a.path, b.path)
         }
-    } else {
-        if time_reversed {
-            if !reverse {
-                |a, b| {
-                    a.mtime()
-                        .cmp(&b.mtime())
-                        .then_with(|| ci_cmp(&a.path, &b.path))
-                }
-            } else {
-                |b, a| {
-                    a.mtime()
-                        .cmp(&b.mtime())
-                        .then_with(|| ci_cmp(&a.path, &b.path))
-                }
+    } else if time_reversed {
+        if !reverse {
+            |a, b| {
+                a.mtime()
+                    .cmp(&b.mtime())
+                    .then_with(|| ci_cmp(a.path, b.path))
             }
         } else {
-            if reverse {
-                |a, b| {
-                    a.mtime()
-                        .cmp(&b.mtime())
-                        .then_with(|| ci_cmp(&b.path, &a.path))
-                }
-            } else {
-                |b, a| {
-                    a.mtime()
-                        .cmp(&b.mtime())
-                        .then_with(|| ci_cmp(&b.path, &a.path))
-                }
+            |b, a| {
+                a.mtime()
+                    .cmp(&b.mtime())
+                    .then_with(|| ci_cmp(a.path, b.path))
             }
+        }
+    } else if reverse {
+        |a, b| {
+            a.mtime()
+                .cmp(&b.mtime())
+                .then_with(|| ci_cmp(b.path, a.path))
+        }
+    } else {
+        |b, a| {
+            a.mtime()
+                .cmp(&b.mtime())
+                .then_with(|| ci_cmp(b.path, a.path))
         }
     }
 }
@@ -630,7 +626,7 @@ fn run_processing_commands<'t: 'u, 'u: 'v, 'v>(
             ProcessingCommand::Reverse => selected_items.reverse(),
             ProcessingCommand::FilterDays(range) => {
                 let new_items: Vec<Item<'t>> = selected_items
-                    .into_iter()
+                    .iter_mut()
                     .filter(|item| {
                         let f = |age_days| match range {
                             IntRange::At(n) => u64::from(*n) == age_days,
@@ -787,7 +783,7 @@ impl<P: RwxPosition> Rwx<P> {
         ((self.0 >> 1) & 1) > 0
     }
     pub fn x(self) -> bool {
-        ((self.0 >> 0) & 1) > 0
+        (self.0 & 1) > 0
     }
 }
 
@@ -814,12 +810,10 @@ impl<P: RwxPosition> Display for Rwx<P> {
             } else {
                 'x'
             }
+        } else if self.s_or_t() {
+            P::S_CHAR_UNSET
         } else {
-            if self.s_or_t() {
-                P::S_CHAR_UNSET
-            } else {
-                '-'
-            }
+            '-'
         };
         f.write_char(x_char)?;
         Ok(())
@@ -842,7 +836,7 @@ impl Mode {
     }
     pub fn o(self) -> Rwx<RwxOther> {
         let flags = ((self.0 & 0o7000) >> 9) as u8;
-        let flag = ((flags >> 0) & 1) << 3;
+        let flag = (flags & 1) << 3;
         Rwx((self.0 & 0o0007) as u8 | flag, PhantomData)
     }
     pub fn s_bits(self) -> u32 {
@@ -1354,12 +1348,10 @@ impl GetItems {
                             lock.0.push_bag(items);
                             lock.1.push_bag(errors);
                         });
-                    } else {
-                        if let Some(item) = Item::from_path_and_metadata(
-                            path, *long, *use_color, metadata,
-                        )? {
-                            items.push(item);
-                        }
+                    } else if let Some(item) = Item::from_path_and_metadata(
+                        path, *long, *use_color, metadata,
+                    )? {
+                        items.push(item);
                     }
                 }
                 Ok(())

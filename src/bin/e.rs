@@ -1078,15 +1078,15 @@ fn main() -> Result<()> {
         env::set_var("ALTERNATE_EDITOR", "/usr/bin/false");
     }
 
-    if files_or_args.len() > 8 {
-        if !ask_yn(&format!(
+    if files_or_args.len() > 8
+        && !ask_yn(&format!(
             "{program_name}: got {} arguments, do you really want to open \
                               so many files?",
             files_or_args.len()
-        ))? {
-            eprintln!("{program_name}: cancelled.");
-            return Ok(());
-        }
+        ))?
+    {
+        eprintln!("{program_name}: cancelled.");
+        return Ok(());
     }
 
     // Check if emacs daemon is up, if not, start it. Then open each

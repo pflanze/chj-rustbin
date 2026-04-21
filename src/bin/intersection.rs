@@ -77,12 +77,11 @@ impl SortOrder {
         }
     }
     fn compare(self, l1: &Line, l2: &Line) -> Ordering {
-        let res = match self {
+        // eprintln!("compare({:?}, {:?}) = {:?}", l1.string, l2.string, res);
+        match self {
             SortOrder::Lexical => l1.string.cmp(&l2.string),
             SortOrder::Numeric => l1.i64.cmp(&l2.i64),
-        };
-        // eprintln!("compare({:?}, {:?}) = {:?}", l1.string, l2.string, res);
-        res
+        }
     }
 }
 

@@ -629,7 +629,7 @@ where
                 return Ok(Priority::Date(ndt_wowy));
             } else {
                 return Err(parse_error! {
-                    message: "garbage after date/time".to_string(),
+                    message: format!("garbage after date/time"),
                     context: rest.into()
                 });
             }
@@ -1484,7 +1484,8 @@ where
                     // currently not valid, even a date always starts
                     // with a number, not identifier, thus:
                     return Err(parse_error! {
-                        message: "expecting a class (identifier), keyword, date or priority".to_string(),
+                        message: format!(
+                            "expecting a class (identifier), keyword, date or priority"),
                         context: ident.into()
                     });
                 }
@@ -1610,9 +1611,9 @@ where
             let (wdaystr, rest) =
                 rest.take_while(|c: char| c.is_ascii_alphabetic());
             match wdaystr.len() {
-                2..=8 => (),
+                2 | 3 | 4 | 5 | 6 | 7 | 8 => (),
                 _ => Err(
-                    parse_error! { message: "no match for weekday name".to_string(),
+                    parse_error! { message: format!("no match for weekday name"),
                     context: (&wdaystr).into() },
                 )?,
             }

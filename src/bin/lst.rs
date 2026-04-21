@@ -787,7 +787,7 @@ impl<P: RwxPosition> Rwx<P> {
         ((self.0 >> 1) & 1) > 0
     }
     pub fn x(self) -> bool {
-        (self.0 & 1) > 0
+        ((self.0 >> 0) & 1) > 0
     }
 }
 
@@ -840,7 +840,7 @@ impl Mode {
     }
     pub fn o(self) -> Rwx<RwxOther> {
         let flags = ((self.0 & 0o7000) >> 9) as u8;
-        let flag = (flags & 1) << 3;
+        let flag = ((flags >> 0) & 1) << 3;
         Rwx((self.0 & 0o0007) as u8 | flag, PhantomData)
     }
     pub fn s_bits(self) -> u32 {

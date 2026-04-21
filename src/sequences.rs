@@ -21,7 +21,7 @@ pub fn group<T, G>(
     Gen::new(|co| async move {
         let mut v = Some(Vec::new());
         let mut last_item = None;
-        while let Some(item) = inp.next() {
+        for item in inp.by_ref() {
             if let Some(last) = last_item.take() {
                 let same = belong(&last, &item);
                 v.as_mut().unwrap().push(last);
@@ -58,7 +58,7 @@ pub fn try_group<T, G, E>(
     Gen::new(|co| async move {
         let mut v = Some(Vec::new());
         let mut last_item = None;
-        while let Some(result_item) = inp.next() {
+        for result_item in inp.by_ref() {
             match result_item {
                 Ok(item) => {
                     if let Some(last) = last_item.take() {

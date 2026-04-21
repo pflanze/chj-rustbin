@@ -38,23 +38,21 @@ pub fn merge<T>(
                         r.extend(biter);
                         break;
                     }
+                } else if let Some(b) = biter.next() {
+                    match cmp(&cur_trailer, &b) {
+                        Ordering::Less | Ordering::Equal => {
+                            r.push(cur_trailer);
+                            cur_trailer = b;
+                            source_was_b = true;
+                        }
+                        Ordering::Greater => {
+                            r.push(b);
+                        }
+                    };
                 } else {
-                    if let Some(b) = biter.next() {
-                        match cmp(&cur_trailer, &b) {
-                            Ordering::Less | Ordering::Equal => {
-                                r.push(cur_trailer);
-                                cur_trailer = b;
-                                source_was_b = true;
-                            }
-                            Ordering::Greater => {
-                                r.push(b);
-                            }
-                        };
-                    } else {
-                        r.push(cur_trailer);
-                        r.extend(aiter);
-                        break;
-                    }
+                    r.push(cur_trailer);
+                    r.extend(aiter);
+                    break;
                 }
             }
         } else {

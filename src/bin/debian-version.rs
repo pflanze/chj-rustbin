@@ -81,7 +81,7 @@ fn main() -> Result<()> {
                 Some(release_number),
                 &mut out,
             )?;
-            write!(&mut out, "\n")?;
+            writeln!(&mut out)?;
         }
     } else if list {
         infos.list_all_releases(release_number, &mut out)?;

@@ -102,20 +102,20 @@ fn main() -> Result<()> {
         }
     };
 
-    let total_string = ph(du.total(&*shared_inodes));
+    let total_string = ph(du.total(&shared_inodes));
 
     if sum {
         writeln!(&mut out, "{total_string}")?;
     } else {
-        let dirs_string = ph(du.total_subdirs(&*shared_inodes));
-        let files_string = ph(du.total_files(&*shared_inodes));
+        let dirs_string = ph(du.total_subdirs(&shared_inodes));
+        let files_string = ph(du.total_files(&shared_inodes));
 
         let mut subdirs: Vec<(u64, DirDiskUsage)> = du
             .subdirs
             .into_iter()
             .filter_map(|du| -> Option<_> {
                 let du = du.ok()?;
-                Some((du.total(&*shared_inodes), du))
+                Some((du.total(&shared_inodes), du))
             })
             .collect();
 

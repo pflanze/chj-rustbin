@@ -60,7 +60,7 @@ pub struct Contributor<'t> {
 
 impl<'t> PartialOrd for Contributor<'t> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        match self.name.partial_cmp(&other.name) {
+        match self.name.partial_cmp(other.name) {
             Some(core::cmp::Ordering::Equal) => {}
             ord => return ord,
         }
@@ -97,6 +97,12 @@ pub const CONTRIBUTORS: &str =
 #[derive(Debug, Clone)]
 pub struct Contributors {
     pub all: Vec<Contributor<'static>>,
+}
+
+impl Default for Contributors {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Contributors {

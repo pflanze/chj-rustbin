@@ -10,13 +10,11 @@ pub fn extension_from_ascii_or_utf8_bytes(
     let dot_pos = path.iter().rposition(|b| *b == b'.')?;
     if let Some(separator_pos) = path.iter().rposition(|b| *b == path_separator)
     {
-        if !(separator_pos + 1 < dot_pos) {
+        if separator_pos + 1 >= dot_pos {
             return None;
         }
-    } else {
-        if dot_pos < 1 {
-            return None;
-        }
+    } else if dot_pos < 1 {
+        return None;
     }
     let slice = &path[dot_pos + 1..];
     if slice.is_empty() {

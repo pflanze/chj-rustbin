@@ -19,9 +19,9 @@ impl Excludes {
         file_name: &OsStr,
         is_dir: bool,
     ) -> bool {
-        (self.exclude_dot_files && filename_is_dot(&file_name))
+        (self.exclude_dot_files && filename_is_dot(file_name))
             || (self.exclude_emacs_backups
-                && filename_is_emacs_backup(&file_name))
+                && filename_is_emacs_backup(file_name))
             || (if is_dir { &self.dirs } else { &self.files })
                 .contains(file_name)
     }

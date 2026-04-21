@@ -267,7 +267,7 @@ fn main() -> Result<()> {
             let full_path = if opt.fullpath {
                 opt.directory_path.join(path)
             } else {
-                path.into()
+                path
             };
             // (todo: is going via OsString for bytes the correct approach?)
 

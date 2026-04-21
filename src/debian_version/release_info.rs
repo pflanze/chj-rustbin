@@ -206,7 +206,7 @@ fn parse_release_as_month_year(s: &str) -> Result<Option<MonthYear>> {
             let month: u8 = month
                 .parse()
                 .with_context(|| anyhow!("field {month:?} in {s:?}"))?;
-            if month < 1 || month > 12 {
+            if !(1..=12).contains(&month) {
                 bail!("invalid month number {month}")
             }
             Ok(Some(MonthYear {
@@ -633,6 +633,12 @@ fn check_sorted(mut items: impl Iterator<Item = ReleaseNumber>) -> Result<()> {
         }
     }
     Ok(())
+}
+
+impl Default for Infos<ParsedReleaseInfo> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Infos<ParsedReleaseInfo> {

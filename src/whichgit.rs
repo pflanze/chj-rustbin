@@ -20,7 +20,7 @@ pub enum GitDirError {
 /// string or Git is not available.
 pub fn git_working_dir() -> Result<Option<String>, GitDirError> {
     let output = Command::new("git")
-        .args(&["rev-parse", "--git-dir"])
+        .args(["rev-parse", "--git-dir"])
         .output()
         .map_err(|_| GitDirError::NoGit)?;
 

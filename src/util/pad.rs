@@ -73,11 +73,8 @@ pub fn line_up_on_colon<'t>(
     let max_key_len = unadjusted_lines
         .clone()
         .filter_map(|line| {
-            let (ci, _c) = line
-                .chars()
-                .enumerate()
-                .filter(|(_ci, c)| *c == ':')
-                .next()?;
+            let (ci, _c) =
+                line.chars().enumerate().find(|(_ci, c)| *c == ':')?;
             Some(ci)
         })
         .max()?;

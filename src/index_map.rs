@@ -3,13 +3,16 @@
 
 // Also offer a variant that requires T to implement Default?
 
-use std::{
-    mem::replace,
-    ops::{Index, IndexMut},
-};
+use std::ops::{Index, IndexMut};
 
 #[derive(Debug)]
 pub struct IndexMap<T>(Vec<Option<T>>);
+
+impl<T> Default for IndexMap<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl<T> IndexMap<T> {
     pub fn new() -> Self {
@@ -25,7 +28,7 @@ impl<T> IndexMap<T> {
             self.0.push(Some(val));
             None
         } else {
-            replace(&mut self.0[key], Some(val))
+            self.0[key].replace(val)
         }
     }
 

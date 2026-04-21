@@ -42,7 +42,7 @@ pub fn init() -> Result<()> {
 
 thread_local! {
     // Safety: do not touch! Only access from the code in this module!
-    pub static THREAD_LOCAL_CONTEXT: UnsafeCell<*const CpuProbeInner> = UnsafeCell::new(null());
+    pub static THREAD_LOCAL_CONTEXT: UnsafeCell<*const CpuProbeInner> = const { UnsafeCell::new(null()) };
 }
 
 #[macro_export]

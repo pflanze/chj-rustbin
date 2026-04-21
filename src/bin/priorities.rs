@@ -470,7 +470,7 @@ fn add_year_from_basetime<C: ParseContext + Clone>(
     base: NaiveDateTime,
 ) -> Result<NaiveDateTime, ParseError<C>> {
     let base_noyear = NaiveDateTimeWithoutYear::from(&base);
-    match base_noyear.compare(&noyear) {
+    match base_noyear.compare(noyear) {
         Ordering::Less => noyear.clone().with_year(base.year()),
         Ordering::Equal => Ok(base),
         Ordering::Greater => noyear
@@ -1575,7 +1575,7 @@ where
                 let rest = T!(rest.expect_separator(&options.time_separator))?;
                 let (mm, rest) = T!(rest.take_n_while(2, is_ascii_digit_char, msg))?;
                 let rest = T!(rest.expect_separator(&options.time_separator))?;
-                if let Some((ss, rest)) = rest.take_n_while(2, is_ascii_digit_char, msg).ok() {
+                if let Ok((ss, rest)) = rest.take_n_while(2, is_ascii_digit_char, msg) {
                     ((hh, mm, Some(ss)), rest)
                 } else {
                     ((hh, mm, None), rest)
@@ -1927,7 +1927,7 @@ fn find_all_markers<'s, B: Backing>(
             let mut p = s.clone();
             while let Some((string, rest)) = p.find_str_rest(key) {
                 p = rest.clone();
-                let before = s.s[0..string.position].chars().rev().next();
+                let before = s.s[0..string.position].chars().next_back();
                 let after = rest.first();
                 if is_word_boundary(before) && is_word_boundary(after) {
                     found.push((*status, string, rest));
@@ -2339,7 +2339,7 @@ fn parse_path(
 
     // Get workflow status from the *folder(s)* (above we got it from
     // the file name, only):
-    let (workflow_status, is_archived_2) = WorkflowStatus::try_from(&*path)
+    let (workflow_status, is_archived_2) = WorkflowStatus::try_from(&path)
         .unwrap_or((workflow_status_from_filename, false));
 
     Ok(TaskInfo {

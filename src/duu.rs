@@ -39,7 +39,7 @@ fn t_bytes_to_gib_string() {
 
 // Bytes as KB, rounded up
 pub fn bytes_to_kb(bytes: u64) -> u64 {
-    (bytes + 1023) / 1024
+    bytes.div_ceil(1024)
 }
 
 pub fn to_human_readable(
@@ -232,7 +232,7 @@ pub struct InodeData {
 impl InodeData {
     /// The number of bytes to consider for each usage site
     pub fn bytes_share_rounded(&self) -> u64 {
-        (self.bytes + (self.share_count + 1) / 2) / self.share_count
+        (self.bytes + self.share_count.div_ceil(2)) / self.share_count
     }
 }
 
@@ -315,7 +315,7 @@ impl GetDirDiskUsage {
                             if nlink > 1 && blocks > 0 {
                                 if self.share_globally {
                                     file_bytes += (blocks * blocksize
-                                        + (nlink + 1) / 2)
+                                        + nlink.div_ceil(2))
                                         / nlink;
                                 } else {
                                     let key = InodeKey {

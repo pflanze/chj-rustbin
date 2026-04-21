@@ -199,10 +199,8 @@ impl Timepoint {
     }
     /// The first timestamp from the left
     pub fn timestamp(&self) -> &Tai64N {
-        for dp in &self.0 {
-            if let Some(dp) = dp {
-                return &dp.timestamp;
-            }
+        for dp in self.0.iter().flatten() {
+            return &dp.timestamp;
         }
         panic!("always having at least one entry")
     }
@@ -212,10 +210,8 @@ impl Timepoint {
         a.0
     }
     pub fn date_and_hour(&self) -> DateHourUtc {
-        for dp in &self.0 {
-            if let Some(dp) = dp {
-                return dp.date_and_hour;
-            }
+        for dp in self.0.iter().flatten() {
+            return dp.date_and_hour;
         }
         panic!("always having at least one entry")
     }
@@ -423,7 +419,6 @@ fn parse_files(files: Vec<PathBuf>) -> impl Iterator<Item = Result<Datapoint>> {
                 }
             }
         }
-        ()
     })
     .into_iter()
 }
@@ -658,7 +653,7 @@ fn main() -> Result<()> {
 
             let num_servers_running = 3; // configure XX
             let shared = RowShared {
-                time: group.first_timepoint().timestamp().clone(),
+                time: *group.first_timepoint().timestamp(),
                 total_all_ifaces_hour,
                 num_servers_running,
             };
@@ -686,7 +681,7 @@ fn main() -> Result<()> {
 
         for (i, by_month) in &by_user_month {
             let mut summary: Vec<_> = by_month.iter().collect();
-            summary.sort_by(|a, b| (*a).0.cmp(b.0));
+            summary.sort_by(|a, b| a.0.cmp(b.0));
             let iface = WireguardInterface(*i);
             let mut outp = BufWriter::new(File::create(format!(
                 "{tsv_basepath}{iface}-summary.tsv"

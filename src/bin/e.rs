@@ -247,7 +247,7 @@ fn slurp256_parse<T: FromBStr<Err = bstr_parse::ParseIntError>>(
 ) -> Result<T, Slurp256Error> {
     let mut buf: [u8; 257] = [0; 257];
     let len = read(fd, &mut buf).map_err(Slurp256Error::Io)?;
-    close(fd).or_else(|e| Err(Slurp256Error::Io(e)))?;
+    close(fd).map_err(|e| Slurp256Error::Io(e))?;
     if len == 257 {
         return Err(Slurp256Error::InputTooLarge);
     }
@@ -265,7 +265,7 @@ fn slurp256_parse<T: FromBStr<Err = bstr_parse::ParseIntError>>(
     };
     let s = &buf[0..end];
     s.parse()
-        .or_else(|e| Err(Slurp256Error::NoParse(e, Vec::from(s))))
+        .map_err(|e| Slurp256Error::NoParse(e, Vec::from(s)))
 }
 
 fn backtick<
@@ -300,7 +300,7 @@ fn backtick<
         }
         close(streamw)?;
 
-        execvp(&cmd[0], &cmd)?;
+        execvp(&cmd[0], cmd)?;
         unsafe { _exit(123) }; // never reached, to satisfy type system
     }
 }
@@ -361,7 +361,7 @@ fn run_cmd_with_log(
                     &line,
                     "Waiting for Emacs...",
                 );
-                if line.len() > 0 {
+                if !line.is_empty() {
                     let mut buf = Vec::new();
                     writeln!(
                         &mut buf,
@@ -418,7 +418,7 @@ fn run_cmd_with_log(
         dup2(streamw, 2)?;
         close(streamw)?;
 
-        execvp(&cmd[0], &cmd)?;
+        execvp(&cmd[0], cmd)?;
         Ok(0) // in child, never reached, just to satisfy type system
     }
 }
@@ -617,7 +617,7 @@ impl<'s> PathOrMore<'s> {
     /// (todo: refactor). Careful: you should use `new` instead to get
     /// the full logic based on doing file IO!
     fn parse_from_cstring(path_or_more: &'s CStr) -> Self {
-        if let Some(s) = path_or_more.to_str().ok() {
+        if let Ok(s) = path_or_more.to_str() {
             if let Some((path, pos)) =
                 if let Some((prefix, rest)) = starts_with_a_b(s) {
                     match std::fs::metadata(prefix) {
@@ -654,12 +654,12 @@ impl<'s> PathOrMore<'s> {
     /// copy-paste from gitk, meaning paths *will* be from the git
     /// root.
     fn new(path_or_more: &'s CStr, have_hr: bool) -> Result<Self> {
-        if path_is_normal_file(&path_or_more) {
+        if path_is_normal_file(path_or_more) {
             return Ok(PathOrMore::OnlyPathFallback(Cow::Borrowed(
-                &path_or_more,
+                path_or_more,
             )));
         }
-        let slf = PathOrMore::parse_from_cstring(&path_or_more);
+        let slf = PathOrMore::parse_from_cstring(path_or_more);
         if path_is_normal_file(slf.path_cstr().as_ref()) {
             // found the right match
             return Ok(slf);
@@ -852,7 +852,7 @@ fn emacs_possibly_start_daemon(
                 if do_debug() {
                     eprintln!("{program_name}: child {} {:?}", getpid(), cmd)
                 }
-                run_cmd_with_log(program_name, &cmd, &logpath)
+                run_cmd_with_log(program_name, &cmd, logpath)
             })?,
             &cmd,
         )?;
@@ -1072,7 +1072,7 @@ fn main() -> Result<()> {
         logpath
     };
 
-    if None == env::var_os("ALTERNATE_EDITOR") {
+    if env::var_os("ALTERNATE_EDITOR").is_none() {
         // Make sure emacsclient will not try to exec the file
         // argument (from PATH)! (Genuine bug?)
         env::set_var("ALTERNATE_EDITOR", "/usr/bin/false");
@@ -1151,7 +1151,7 @@ fn main() -> Result<()> {
             }
         }
         if do_wait {
-            while pids.len() > 0 {
+            while !pids.is_empty() {
                 let (pid, status) = wait_until_gone()?;
                 if let Some(cmd) = pids.remove(&pid) {
                     xcheck_status(status, &cmd)?;

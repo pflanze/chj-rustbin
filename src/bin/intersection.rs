@@ -309,15 +309,10 @@ fn main() -> Result<()> {
             Mode::SetThenLinear
         };
 
-        match mode {
-            Mode::Sorted(_) => {
-                if opt.set {
-                    bail!(
-                        "only one of --set or --sorted (or --numeric) is valid"
-                    );
-                }
+        if let Mode::Sorted(_) = mode {
+            if opt.set {
+                bail!("only one of --set or --sorted (or --numeric) is valid");
             }
-            _ => (),
         }
 
         (mode, paths, opt.fddrop)

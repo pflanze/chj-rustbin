@@ -213,7 +213,7 @@ pub fn file_path_types_sortable_iter<
     if sorted {
         let vec =
             file_path_types_vec(region, file_parent, opt, excludes, true)?;
-        Ok(Box::new(vec.into_iter().map(|v| Ok(v))))
+        Ok(Box::new(vec.into_iter().map(Ok)))
     } else {
         Ok(Box::new(file_path_types_iter(
             region,

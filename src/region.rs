@@ -99,6 +99,12 @@ impl<'m, T: 'm, R, M: for<'g> Fn(&'g mut T) -> &'g mut R> DerefMut
     }
 }
 
+impl<'region, T> Default for Region<'region, T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'region, T> Region<'region, T> {
     pub fn new() -> Self {
         Self {

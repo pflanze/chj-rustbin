@@ -84,11 +84,8 @@ pub fn regex_fast_match_function(re: &Regex) -> Option<FastMatch> {
 
 impl EfficientRegex {
     fn try_new_fast_match(re: &[Regex]) -> Option<Self> {
-        let fast: BTreeSet<FastMatch> = re
-            .iter()
-            .map(|re| regex_fast_match_function(re))
-            .filter_map(|v| v)
-            .collect();
+        let fast: BTreeSet<FastMatch> =
+            re.iter().map(regex_fast_match_function).flatten().collect();
         if fast.len() == re.len() {
             match fast.len() {
                 1 => {
@@ -132,17 +129,17 @@ impl EfficientRegex {
         let full_re_str = std::str::from_utf8(&full_re)
             .expect("re were guaranteed to be utf8");
         debug!("{full_re_str:?}");
-        let mut b = RegexBuilder::new(&full_re_str);
+        let mut b = RegexBuilder::new(full_re_str);
         b.unicode(false);
         match b.build() {
             Ok(_) => Self::RegexForBytes(
-                bytes::Regex::new(&full_re_str)
+                bytes::Regex::new(full_re_str)
                     .expect("synt correct and verified OK for bytes?"),
             ),
             Err(_) => {
                 info!("fallback to regex matching with unicode");
                 Self::RegexForStrings(
-                    Regex::new(&full_re_str).expect("syntactically correct"),
+                    Regex::new(full_re_str).expect("syntactically correct"),
                 )
             }
         }

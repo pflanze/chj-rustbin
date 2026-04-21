@@ -73,7 +73,7 @@ impl<'t, const COLUMNS: usize> YatTableWriteGuard<'t, COLUMNS> {
     }
 
     pub fn add_cell_bytes(&mut self, bytes: &[u8]) {
-        _ = self.table.storage.extend_from_slice(bytes);
+        self.table.storage.extend_from_slice(bytes);
         self.row.0[self.written] = bytes
             .len()
             .try_into()
@@ -84,7 +84,7 @@ impl<'t, const COLUMNS: usize> YatTableWriteGuard<'t, COLUMNS> {
     /// Push further bytes to the cell that was last added (panics if
     /// none was added).
     pub fn amend_cell_bytes(&mut self, bytes: &[u8]) {
-        _ = self.table.storage.extend_from_slice(bytes);
+        self.table.storage.extend_from_slice(bytes);
         let added_len: u32 = bytes
             .len()
             .try_into()
@@ -138,7 +138,7 @@ impl<const COLUMNS: usize> YatTable<COLUMNS> {
         let max_gap_len = self.max_widths.0.iter().copied().max().unwrap_or(0)
             as usize
             + COL_SEPARATION;
-        let spaces = vec![b' '].repeat(max_gap_len);
+        let spaces = [b' '].repeat(max_gap_len);
         let mut i: usize = 0;
         for row in &self.rows {
             for col in 0..COLUMNS {

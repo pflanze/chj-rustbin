@@ -41,7 +41,7 @@ pub fn drop_white_end(s: &str) -> &str {
             return &s[0..s.len() - i];
         }
     }
-    return "";
+    ""
 }
 
 pub fn after_white(s: &str) -> Option<&str> {
@@ -103,8 +103,7 @@ mod tests {
 }
 
 pub fn take_while(s: &str, pred: impl Fn(char) -> bool) -> (&str, &str) {
-    let mut it = s.chars().enumerate();
-    while let Some((i, c)) = it.next() {
+    for (i, c) in s.chars().enumerate() {
         if !pred(c) {
             return (&s[0..i], &s[i..]);
         }

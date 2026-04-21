@@ -45,7 +45,7 @@ impl FromStr for ReleaseNumber {
             anyhow!("expecting a number string, got: {p0:?}")
         })?;
         if let Some(p1) = parts.next() {
-            if let Some(_) = parts.next() {
+            if parts.next().is_some() {
                 bail!("expecting major.minor version number, but got more parts: {s:?}");
             }
             let minor = Some(u16::from_str(p1).with_context(|| {
@@ -71,7 +71,7 @@ impl FromStr for ReleaseName {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.len() == 0 {
+        if s.is_empty() {
             bail!("release name cannot be the empty string");
         }
         if s.contains(|c: char| !c.is_ascii_alphabetic()) {
@@ -131,7 +131,7 @@ impl FromStr for DebianVersion {
         let p0 = parts.next().expect("split always returns at least 1 part");
         let release = Release::from_str(p0)?;
         if let Some(p1) = parts.next() {
-            if let Some(_) = parts.next() {
+            if parts.next().is_some() {
                 bail!("debian version can't contain more than one slash: {s:?}")
             }
             Ok(Self {

@@ -19,9 +19,9 @@ pub trait IntoOwningBacking<S: AsRef<str>> {
 pub trait Backing: AsRef<str> + ToOwned + PartialEq {}
 
 impl Backing for str {}
-impl<'t> Backing for &'t str {}
+impl Backing for &str {}
 impl Backing for String {}
-impl<'t> Backing for &'t String {}
+impl Backing for &String {}
 impl Backing for Arc<str> {}
 impl Backing for Rc<str> {}
 

@@ -310,8 +310,7 @@ fn remove_two<T>(vec: &mut Vec<T>, i1: usize, i2: usize) {
 fn optimize_processing_commands(
     cmds: &[ProcessingCommand],
 ) -> Vec<ProcessingCommand> {
-    let mut out: Vec<ProcessingCommand> =
-        cmds.iter().map(|v| v.clone()).collect();
+    let mut out: Vec<ProcessingCommand> = cmds.to_vec();
 
     loop {
         // Eliminate duplicate Reverse commands
@@ -536,21 +535,18 @@ fn ci_cmp(a: &Path, b: &Path) -> Ordering {
                                     // end
                                     stricter_ordering = bc.cmp(&ac);
                                 }
-                                ()
                             }
                             v => return v,
                         }
                     } else {
                         return Ordering::Greater;
                     }
+                } else if bchars.next().is_some() {
+                    return Ordering::Less;
                 } else {
-                    if let Some(_) = bchars.next() {
-                        return Ordering::Less;
-                    } else {
-                        // Don't return Equal, still make it
-                        // deterministic:
-                        return stricter_ordering.then_with(|| a.cmp(b));
-                    }
+                    // Don't return Equal, still make it
+                    // deterministic:
+                    return stricter_ordering.then_with(|| a.cmp(b));
                 }
             }
         }
@@ -568,9 +564,9 @@ fn sort_function<'t: 'v, 'v>(
 ) -> for<'a, 'b, 'i> fn(a: &'a Item<'i>, b: &'b Item<'i>) -> Ordering {
     if !time {
         if reverse {
-            |b, a| ci_cmp(&a.path, &b.path)
+            |b, a| ci_cmp(a.path, b.path)
         } else {
-            |a, b| ci_cmp(&a.path, &b.path)
+            |a, b| ci_cmp(a.path, b.path)
         }
     } else {
         if time_reversed {
@@ -901,7 +897,7 @@ impl RDev {
     /// No idea if it uses anything more than 8 bits? But the original
     /// combined value *is* 64-bit.
     pub fn major(self) -> u64 {
-        (self.0 >> 8) as u64
+        self.0 >> 8
     }
     pub fn minor(self) -> u8 {
         (self.0 & ((1 << 8) - 1)) as u8
@@ -967,24 +963,19 @@ impl EssentialMetadata {
                         ))),
                     )
                 } else {
-                    match self.file_kind {
-                        Some(k) => Some(match k {
-                            FileKind::EmacsBackupFile => Style::new().fg_color(
-                                Some(Color::Ansi(AnsiColor::BrightBlack)),
-                            ),
-                            FileKind::VisualMedia => {
-                                Style::new().bold().fg_color(Some(Color::Ansi(
-                                    AnsiColor::BrightMagenta,
-                                )))
-                            }
-                            FileKind::Audio => Style::new()
-                                .fg_color(Some(Color::Ansi(AnsiColor::Cyan))),
-                            FileKind::Archive => Style::new()
-                                .bold()
-                                .fg_color(Some(Color::Ansi(AnsiColor::Red))),
-                        }),
-                        None => None,
-                    }
+                    self.file_kind.map(|k| match k {
+                        FileKind::EmacsBackupFile => Style::new().fg_color(
+                            Some(Color::Ansi(AnsiColor::BrightBlack)),
+                        ),
+                        FileKind::VisualMedia => Style::new().bold().fg_color(
+                            Some(Color::Ansi(AnsiColor::BrightMagenta)),
+                        ),
+                        FileKind::Audio => Style::new()
+                            .fg_color(Some(Color::Ansi(AnsiColor::Cyan))),
+                        FileKind::Archive => Style::new()
+                            .bold()
+                            .fg_color(Some(Color::Ansi(AnsiColor::Red))),
+                    })
                 }
             }
             UnixFileType::Dir => Some(if mode.o().w() {
@@ -1065,16 +1056,13 @@ impl<'t> Item<'t> {
             match path.read_link() {
                 Ok(t) => {
                     let metadata2 = if stat_link_target {
-                        path.metadata()
+                        path.metadata().ok().and_then(|m| {
+                            EssentialMetadata::from_symlink_metadata(
+                                &m,
+                                t.to_file_kind(),
+                            )
                             .ok()
-                            .map(|m| {
-                                EssentialMetadata::from_symlink_metadata(
-                                    &m,
-                                    t.to_file_kind(),
-                                )
-                                .ok()
-                            })
-                            .flatten()
+                        })
                     } else {
                         None
                     };
@@ -1224,7 +1212,7 @@ impl TableFromItems {
                     if is_broken_link {
                         style
                     } else {
-                        target_metadata.as_ref().map(|m| m.style()).flatten()
+                        target_metadata.as_ref().and_then(|m| m.style())
                     }
                 } else {
                     None
@@ -1254,7 +1242,7 @@ impl GetItems {
         if let Some(ignore) = &self.ignore {
             ignore.is_match_path(path)
         } else {
-            return false;
+            false
         }
     }
 
@@ -1278,7 +1266,7 @@ impl GetItems {
                     let chunk = chunk.leak();
                     let paths = chunk.split(|c| *c == input_record_separator);
 
-                    Ok(paths
+                    paths
                         .map(|path| {
                             let path: &OsStr = OsStr::from_bytes(path);
                             let path: &Path = path.as_ref();
@@ -1293,7 +1281,7 @@ impl GetItems {
                             Item::from_path(path, self.long, self.use_color)
                         })
                         .filter_map(|r| r.transpose())
-                        .collect::<Result<Vec<_>>>()?)
+                        .collect::<Result<Vec<_>>>()
                 })() {
                     Ok(v) => (vec![v], vec![]),
                     Err(e) => (vec![], vec![e]),
@@ -1604,7 +1592,7 @@ fn main() -> Result<()> {
                 let mut outp = stdout().lock();
                 let output_ioslices: Vec<_> =
                     output_chunks.iter().map(|v| IoSlice::new(v)).collect();
-                outp.write_vectored(&*output_ioslices)?;
+                outp.write_vectored(&output_ioslices)?;
                 outp.flush()?;
             }
         }
@@ -1616,7 +1604,7 @@ fn main() -> Result<()> {
         let mut msgs: Vec<u8> = Vec::new();
         for error in errors {
             use std::io::Write;
-            _ = write!(&mut msgs, "{error}\n");
+            _ = writeln!(&mut msgs, "{error}");
         }
         let msgs: &str = std::str::from_utf8(&msgs).expect("already utf8");
         bail!("while generating the above list:\n{msgs}");

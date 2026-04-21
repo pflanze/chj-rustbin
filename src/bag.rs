@@ -16,8 +16,9 @@ use log::debug;
 
 use crate::{probe, unsafe_util::unsafe_sync_send::UnsafeSync};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum Bag<T> {
+    #[default]
     Empty,
     Leaf(T),
     LeafVec(Vec<T>),
@@ -28,12 +29,6 @@ pub enum Bag<T> {
 fn t_bag_size() {
     use std::mem::size_of;
     assert_eq!(size_of::<Bag<bool>>(), 8 * 4);
-}
-
-impl<T> Default for Bag<T> {
-    fn default() -> Self {
-        Bag::Empty
-    }
 }
 
 impl<T> From<T> for Bag<T> {
@@ -262,8 +257,7 @@ impl<T> Bag<T> {
                             dbg!(n_rest);
                             {
                                 let bag_len = unsafe {
-                                    let b =
-                                        &*(&bags_rest[bags_rest_i]).as_ptr();
+                                    let b = &*bags_rest[bags_rest_i].as_ptr();
                                     b.deref()
                                 }
                                 .len();
@@ -384,7 +378,7 @@ fn _par_flatten<T: Send>(
                     unsafe {
                         // Safe because bags is within a MaybeUninit
                         // wrapper
-                        uninit_slice(&bags)
+                        uninit_slice(bags)
                     },
                     &mut to[to_i..],
                 );

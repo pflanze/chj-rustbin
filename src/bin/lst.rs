@@ -814,10 +814,12 @@ impl<P: RwxPosition> Display for Rwx<P> {
             } else {
                 'x'
             }
-        } else if self.s_or_t() {
-            P::S_CHAR_UNSET
         } else {
-            '-'
+            if self.s_or_t() {
+                P::S_CHAR_UNSET
+            } else {
+                '-'
+            }
         };
         f.write_char(x_char)?;
         Ok(())
@@ -1352,10 +1354,12 @@ impl GetItems {
                             lock.0.push_bag(items);
                             lock.1.push_bag(errors);
                         });
-                    } else if let Some(item) = Item::from_path_and_metadata(
-                        path, *long, *use_color, metadata,
-                    )? {
-                        items.push(item);
+                    } else {
+                        if let Some(item) = Item::from_path_and_metadata(
+                            path, *long, *use_color, metadata,
+                        )? {
+                            items.push(item);
+                        }
                     }
                 }
                 Ok(())

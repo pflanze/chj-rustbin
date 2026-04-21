@@ -568,31 +568,35 @@ fn sort_function<'t: 'v, 'v>(
         } else {
             |a, b| ci_cmp(a.path, b.path)
         }
-    } else if time_reversed {
-        if !reverse {
-            |a, b| {
-                a.mtime()
-                    .cmp(&b.mtime())
-                    .then_with(|| ci_cmp(a.path, b.path))
+    } else {
+        if time_reversed {
+            if !reverse {
+                |a, b| {
+                    a.mtime()
+                        .cmp(&b.mtime())
+                        .then_with(|| ci_cmp(&a.path, &b.path))
+                }
+            } else {
+                |b, a| {
+                    a.mtime()
+                        .cmp(&b.mtime())
+                        .then_with(|| ci_cmp(&a.path, &b.path))
+                }
             }
         } else {
-            |b, a| {
-                a.mtime()
-                    .cmp(&b.mtime())
-                    .then_with(|| ci_cmp(a.path, b.path))
+            if reverse {
+                |a, b| {
+                    a.mtime()
+                        .cmp(&b.mtime())
+                        .then_with(|| ci_cmp(&b.path, &a.path))
+                }
+            } else {
+                |b, a| {
+                    a.mtime()
+                        .cmp(&b.mtime())
+                        .then_with(|| ci_cmp(&b.path, &a.path))
+                }
             }
-        }
-    } else if reverse {
-        |a, b| {
-            a.mtime()
-                .cmp(&b.mtime())
-                .then_with(|| ci_cmp(b.path, a.path))
-        }
-    } else {
-        |b, a| {
-            a.mtime()
-                .cmp(&b.mtime())
-                .then_with(|| ci_cmp(b.path, a.path))
         }
     }
 }

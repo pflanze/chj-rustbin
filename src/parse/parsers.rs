@@ -564,7 +564,7 @@ impl<'t, B: Backing> ParseableStr<'t, B> {
         if !pred(c) {
             return err();
         }
-        let (pos, _) = cs.next().unwrap_or((s.len(), ' '));
+        let (pos, _) = cs.next().unwrap_or_else(|| (s.len(), ' '));
         Ok(ParseableStr {
             position: position + pos,
             backing,
@@ -699,7 +699,7 @@ impl<'t, B: Backing> ParseableStr<'t, B> {
         if let Some(failed_pos) = failed_pos {
             pos = failed_pos;
         } else {
-            (pos, _) = cs.next().unwrap_or((s.len(), ' '));
+            (pos, _) = cs.next().unwrap_or_else(|| (s.len(), ' '));
         }
         Ok((
             ParseableStr {

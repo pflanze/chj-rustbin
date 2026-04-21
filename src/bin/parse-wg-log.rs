@@ -462,7 +462,21 @@ impl<'a> Row<'a> {
     fn write_header(outp: &mut impl Write) -> Result<(), std::io::Error> {
         writeln!(
             outp,
-            "time window start\ttime excel\treceived B\tsent B\treceived B/hour\tsent B/hour\ttotal B/hour\tall interfaces B/hour\tfraction of all traffic\tnum servers running\tfree traffic B/hour\tbilled traffic B\tbilled cost EUR\tyour cost EUR"
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            "time window start",
+            "time excel",
+            "received B",
+            "sent B",
+            "received B/hour",
+            "sent B/hour",
+            "total B/hour",
+            "all interfaces B/hour",
+            "fraction of all traffic",
+            "num servers running",
+            "free traffic B/hour",
+            "billed traffic B",
+            "billed cost EUR",
+            "your cost EUR"
         )
     }
     fn write(

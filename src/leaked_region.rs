@@ -26,6 +26,9 @@ impl From<&mut [u8]> for RawSliceMut {
 }
 
 impl RawSliceMut {
+    // Silence clippy: why take &mut when the type is Copy--which is
+    // the whole point of the unsafe.
+    #[allow(clippy::wrong_self_convention)]
     unsafe fn to_slice_mut<'t>(self) -> &'t mut [u8] {
         let Self { data, len } = self;
         from_raw_parts_mut(data, len)

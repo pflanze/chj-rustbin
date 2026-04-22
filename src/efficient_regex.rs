@@ -85,7 +85,7 @@ pub fn regex_fast_match_function(re: &Regex) -> Option<FastMatch> {
 impl EfficientRegex {
     fn try_new_fast_match(re: &[Regex]) -> Option<Self> {
         let fast: BTreeSet<FastMatch> =
-            re.iter().map(regex_fast_match_function).flatten().collect();
+            re.iter().filter_map(regex_fast_match_function).collect();
         if fast.len() == re.len() {
             match fast.len() {
                 1 => {

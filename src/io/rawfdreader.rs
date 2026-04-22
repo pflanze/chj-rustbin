@@ -16,7 +16,7 @@ impl FromRawFd for RawFdReader {
 
 impl Read for RawFdReader {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        assert!(buf.len() <= isize::max_value() as usize);
+        assert!(buf.len() <= isize::MAX as usize);
         match unsafe { libc::read(self.fd, buf.as_mut_ptr() as _, buf.len()) } {
             x if x < 0 => Err(Error::last_os_error()),
             x => Ok(x as usize),

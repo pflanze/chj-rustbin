@@ -48,17 +48,11 @@ pub enum FileType {
 
 impl FileType {
     pub fn is_dir(self) -> bool {
-        match self {
-            FileType::Dir => true,
-            _ => false,
-        }
+        matches!(self, FileType::Dir)
     }
     /// Does not include symlinks
     pub fn is_file(self) -> bool {
-        match self {
-            FileType::File => true,
-            _ => false,
-        }
+        matches!(self, FileType::File)
     }
 }
 

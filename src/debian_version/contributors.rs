@@ -60,17 +60,18 @@ pub struct Contributor<'t> {
 
 impl<'t> PartialOrd for Contributor<'t> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        match self.name.partial_cmp(other.name) {
-            Some(core::cmp::Ordering::Equal) => {}
-            ord => return ord,
-        }
-        self.active.start().partial_cmp(other.active.start())
+        Some(self.cmp(other))
     }
 }
 
 impl<'t> Ord for Contributor<'t> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.partial_cmp(other).expect("always succeeds")
+        match self.name.cmp(other.name) {
+            core::cmp::Ordering::Equal => {
+                self.active.start().cmp(other.active.start())
+            }
+            ord => ord,
+        }
     }
 }
 

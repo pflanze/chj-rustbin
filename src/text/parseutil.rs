@@ -59,7 +59,7 @@ pub fn cleanwhite(s: &str) -> &str {
 }
 
 pub fn take_while(s: &str, pred: impl Fn(char) -> bool) -> (&str, &str) {
-    for (i, c) in s.chars().enumerate() {
+    for (i, c) in s.char_indices() {
         if !pred(c) {
             return (&s[0..i], &s[i..]);
         }
@@ -181,5 +181,16 @@ mod tests {
         t(" foo  ", "foo");
         t(" f oo  ", "f oo");
         t("  ", "");
+    }
+
+    #[test]
+    fn t_take_while() {
+        let t = take_while;
+        let not_f = |c: char| -> bool { c != 'f' };
+        assert_eq!(t("", not_f), ("", ""));
+        assert_eq!(t("ab", not_f), ("ab", ""));
+        assert_eq!(t("abf", not_f), ("ab", "f"));
+        assert_eq!(t("abfg", not_f), ("ab", "fg"));
+        assert_eq!(t("äbfg", not_f), ("äb", "fg"));
     }
 }

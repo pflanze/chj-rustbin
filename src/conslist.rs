@@ -16,24 +16,34 @@ pub fn cons<'l, T>(v: T, r: &'l List<T>) -> List<'l, T> {
 }
 
 impl<'t, T> List<'t, T> {
+    pub fn is_empty(&self) -> bool {
+        match self {
+            List::Pair(_, _) => false,
+            List::Null => true,
+        }
+    }
+
     pub fn len(&self) -> usize {
         match self {
             List::Pair(_, r) => r.len() + 1,
             List::Null => 0,
         }
     }
+
     pub fn first(&self) -> Option<&T> {
         match self {
             List::Pair(v, _) => Some(v),
             List::Null => None,
         }
     }
+
     pub fn rest(&self) -> Option<&List<'_, T>> {
         match self {
             List::Pair(_, r) => Some(r),
             List::Null => None,
         }
     }
+
     pub fn last(&self) -> Option<&T> {
         match self {
             List::Pair(v, List::Null) => Some(v),
@@ -41,6 +51,7 @@ impl<'t, T> List<'t, T> {
             List::Null => None,
         }
     }
+
     /// A Vec of all the values as references.
     // For reverse simply reverse the Vec afterwards yourself? (Could
     // also get length then fill in unsafely or require Default.)
@@ -58,6 +69,7 @@ impl<'t, T> List<'t, T> {
         }
         vs
     }
+
     pub fn to_vec(&self) -> Vec<T>
     where
         T: Clone,

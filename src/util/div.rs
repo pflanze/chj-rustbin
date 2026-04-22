@@ -16,12 +16,13 @@ use std::{
 // that rustc (pre polonius) does not let go of the reference in the
 // None case; so we use an Err instead and pick up the reference from
 // there.
-pub fn hashmap_get_mut<'m, K: Eq + Hash, P: Eq + Hash + ?Sized, V>(
+pub fn hashmap_get_mut<'m, K, P, V>(
     m: &'m mut HashMap<K, V>,
     k: &P,
 ) -> Result<&'m mut V, &'m mut HashMap<K, V>>
 where
-    K: Borrow<P>,
+    P: Eq + Hash + ?Sized,
+    K: Eq + Hash + Borrow<P>,
 {
     let pm: *mut _ = m;
     // Safe because in the true branch we track using the lifetimes
@@ -35,12 +36,13 @@ where
 }
 
 // Same (see hashmap_get_mut) for BTreeMap.
-pub fn btreemap_get_mut<'m, K: Ord, P: Ord + ?Sized, V>(
+pub fn btreemap_get_mut<'m, K, P, V>(
     m: &'m mut BTreeMap<K, V>,
     k: &P,
 ) -> Result<&'m mut V, &'m mut BTreeMap<K, V>>
 where
-    K: Borrow<P>,
+    P: Ord + ?Sized,
+    K: Ord + Borrow<P>,
 {
     let pm: *mut _ = m;
     // Safe because in the true branch we track using the lifetimes

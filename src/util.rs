@@ -4,5 +4,4 @@ pub mod map_trait;
 pub mod pad;
 pub mod range_utils;
 pub mod scope;
-pub mod statify;
 pub mod vec_by_len;

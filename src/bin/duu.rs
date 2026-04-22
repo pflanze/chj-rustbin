@@ -161,9 +161,8 @@ fn main() -> Result<()> {
         write_line(total_string, "total".as_bytes(), &mut out)?;
     }
 
-    let exit_code;
-    if errors.is_empty() {
-        exit_code = 0;
+    let exit_code = if errors.is_empty() {
+        0
     } else {
         errors.sort();
         let num_errors = errors.len();
@@ -176,8 +175,8 @@ fn main() -> Result<()> {
         for error in &errors {
             writeln!(&mut out, "{error}")?;
         }
-        exit_code = 1;
-    }
+        1
+    };
 
     drop(out);
     exit(exit_code);

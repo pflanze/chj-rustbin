@@ -504,7 +504,7 @@ fn main() -> Result<()> {
                     for line in v {
                         tmpline.clear();
                         tmpline.push_str(&line);
-                        println(&mut out, &mut tmpline)?;
+                        println(&mut out, &tmpline)?;
                     }
                 }
                 Mode::SetThenLinear => {
@@ -512,7 +512,7 @@ fn main() -> Result<()> {
                     let mut inp = ReadWithContext::open_path(&path)?;
                     while inp.easy_read_line(&mut tmpline)? {
                         if set.contains(&KString::from(&tmpline)) {
-                            println(&mut out, &mut tmpline)?;
+                            println(&mut out, &tmpline)?;
                         }
                     }
                 }

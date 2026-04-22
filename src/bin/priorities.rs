@@ -1189,6 +1189,7 @@ where
 // not), followed by the same. Even in "list" case, the [ ] are not
 // part of it, `[single_value]` and `single_value` are treated the
 // same. "List" context expects at least one value.
+#[allow(clippy::type_complexity)]
 fn take_one_value_from<'s, B: Backing>(
     s: ParseableStr<'s, B>,
 ) -> Result<
@@ -1523,6 +1524,7 @@ enum ParseTimeWdayErrorKind {
 // This is really the continuation of parsing the date part of a
 // datetime value; it expects a separator at first. Returns (hour,
 // minute, second) along weekday info and the input rest.
+#[allow(clippy::type_complexity)]
 fn parse_time_wday<'s, B: Backing>(
     s: ParseableStr<'s, B>,
     options: &ParseDatOptions,
@@ -1640,6 +1642,7 @@ where
 /// because it doesn't have the year. If `weekday_is_optional` is
 /// true, still parse weekday if present, but do not report match
 /// failures.
+#[allow(clippy::type_complexity)]
 fn parse_dat_without_year<'s, B: Backing + Debug>(
     s: &ParseableStr<'s, B>,
     options: &ParseDatOptions,
@@ -1759,6 +1762,7 @@ impl<C: ParseContext> NaiveDateTimeWithOrWithoutYear<C> {
 }
 
 // "2024-09-29_205249_Sun" -- XX update
+#[allow(clippy::type_complexity)]
 fn parse_dat<'s, B: Backing + Debug>(
     s: &ParseableStr<'s, B>,
     options: &ParseDatOptions,
@@ -1969,6 +1973,7 @@ fn t_find_all_markers() {
 
 // Parse a marker's optional `{..}` block, return parsed block and
 // rest
+#[allow(clippy::type_complexity)]
 fn parse_marker<'s, B: Backing + Debug>(
     (_status, marker_string, rest): (
         WorkflowStatus,
@@ -2001,6 +2006,7 @@ where
 
 // Find and parse all markers (with their parsed block, if any),
 // skipping over marker strings that are within blocks.
+#[allow(clippy::type_complexity)]
 fn find_all_parsed_markers<'s, B: Backing + Debug>(
     markers: Vec<(WorkflowStatus, ParseableStr<'s, B>, ParseableStr<'s, B>)>,
 ) -> Result<
@@ -2073,6 +2079,7 @@ impl<C: ParseContext> MarkerStatus<C> {
 // `WorkflowStatus::Archived` was seen (which is otherwise
 // skipped). Also see `WorkflowStatus::try_from` which does the same
 // evaluation for directories.
+#[allow(clippy::type_complexity)]
 fn find_marker_status<'s, B: Backing + Debug>(
     markers: Vec<(
         Option<TaskInfoDeclarations<StringParseContext<&'s B>>>,
@@ -2461,6 +2468,7 @@ fn main() -> Result<()> {
     let mut errors = 0;
 
     for directory in directories {
+        #[allow(clippy::type_complexity)]
         let mut itemss: Vec<
             Vec<(usize, Result<TaskInfo<StringParseContext<String>>>)>,
         > = recursive_file_path_types_iter(

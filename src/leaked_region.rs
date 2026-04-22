@@ -66,6 +66,7 @@ pub struct GlobalLeakedRegions {
     // threads exiting must not deallocate the memory!--XX ah, now
     // stores back the mostly-used-up-slice, not the whole region,
     // back here, so won't be useful for reading!
+    #[allow(clippy::type_complexity)]
     regions: Mutex<HashMap<ThreadId, (Vec<MmapMut>, Vec<InnerLeakedRegion>)>>,
 }
 

@@ -572,6 +572,7 @@ impl<'t, B: Backing> ParseableStr<'t, B> {
         })
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn take_identifier(
         &self,
     ) -> Result<(ParseableStr<'t, B>, ParseableStr<'t, B>), Box<Expected<'t, B>>>
@@ -626,6 +627,7 @@ impl<'t, B: Backing> ParseableStr<'t, B> {
     /// Take `n` characters matching `pred`. Does not check whether
     /// there are more than `n` characters matching `pred`, just
     /// returns what was found so far.
+    #[allow(clippy::type_complexity)]
     pub fn take_n_while(
         &self,
         n: usize,
@@ -640,6 +642,7 @@ impl<'t, B: Backing> ParseableStr<'t, B> {
     /// `pred`. Does not check whether there are more than `n_max`
     /// characters matching `pred`, just returns what was found so
     /// far.
+    #[allow(clippy::type_complexity)]
     pub fn take_nrange_while(
         &self,
         n_min: usize,

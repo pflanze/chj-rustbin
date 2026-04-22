@@ -305,7 +305,9 @@ impl<T> Bag<T> {
                             // out.into_iter()
                             //     .map(|v| MaybeUninit::assume_init(v))
                             //     .collect()
-                            transmute(out)
+                            transmute::<Vec<MaybeUninit<UnsafeSync<T>>>, Vec<T>>(
+                                out,
+                            )
                         }
                     }
                 }

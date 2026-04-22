@@ -769,12 +769,13 @@ impl RwxPosition for RwxOther {
 #[derive(Debug, PartialEq, Eq)]
 pub struct Rwx<P: RwxPosition>(u8, PhantomData<fn() -> P>);
 
+impl<P: RwxPosition> Copy for Rwx<P> {}
+
 impl<P: RwxPosition> Clone for Rwx<P> {
     fn clone(&self) -> Self {
-        Self(self.0, PhantomData)
+        *self
     }
 }
-impl<P: RwxPosition> Copy for Rwx<P> {}
 
 impl<P: RwxPosition> Rwx<P> {
     pub fn s_or_t(self) -> bool {

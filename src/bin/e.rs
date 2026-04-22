@@ -247,7 +247,7 @@ fn slurp256_parse<T: FromBStr<Err = bstr_parse::ParseIntError>>(
 ) -> Result<T, Slurp256Error> {
     let mut buf: [u8; 257] = [0; 257];
     let len = read(fd, &mut buf).map_err(Slurp256Error::Io)?;
-    close(fd).map_err(|e| Slurp256Error::Io(e))?;
+    close(fd).map_err(Slurp256Error::Io)?;
     if len == 257 {
         return Err(Slurp256Error::InputTooLarge);
     }

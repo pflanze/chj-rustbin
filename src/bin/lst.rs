@@ -574,13 +574,13 @@ fn sort_function<'t: 'v, 'v>(
                 |a, b| {
                     a.mtime()
                         .cmp(&b.mtime())
-                        .then_with(|| ci_cmp(&a.path, &b.path))
+                        .then_with(|| ci_cmp(a.path, b.path))
                 }
             } else {
                 |b, a| {
                     a.mtime()
                         .cmp(&b.mtime())
-                        .then_with(|| ci_cmp(&a.path, &b.path))
+                        .then_with(|| ci_cmp(a.path, b.path))
                 }
             }
         } else {
@@ -588,13 +588,13 @@ fn sort_function<'t: 'v, 'v>(
                 |a, b| {
                     a.mtime()
                         .cmp(&b.mtime())
-                        .then_with(|| ci_cmp(&b.path, &a.path))
+                        .then_with(|| ci_cmp(b.path, a.path))
                 }
             } else {
                 |b, a| {
                     a.mtime()
                         .cmp(&b.mtime())
-                        .then_with(|| ci_cmp(&b.path, &a.path))
+                        .then_with(|| ci_cmp(b.path, a.path))
                 }
             }
         }

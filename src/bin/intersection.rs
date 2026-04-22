@@ -4,7 +4,6 @@ use kstring::KString;
 use std::cmp::Ordering;
 use std::collections::{HashSet, VecDeque};
 use std::fs::File;
-use std::i64::MIN;
 use std::io::{stdout, BufReader, BufWriter, Write};
 use std::os::unix::prelude::{FromRawFd, MetadataExt};
 use std::path::PathBuf;
@@ -70,7 +69,7 @@ enum SortOrder {
 impl SortOrder {
     fn perhaps_parse_number(self, line: &str) -> Result<i64> {
         match self {
-            SortOrder::Lexical => Ok(MIN),
+            SortOrder::Lexical => Ok(i64::MIN),
             SortOrder::Numeric => line
                 .parse()
                 .with_context(|| anyhow!("not an i64 number: {:?}", line)),
@@ -96,7 +95,7 @@ impl Line {
     fn new() -> Line {
         Line {
             string: String::new(),
-            i64: MIN,
+            i64: i64::MIN,
         }
     }
     fn read_and_parse_line(

@@ -1,11 +1,11 @@
-/// Cons list. Only works with normal references. That's because
-/// making it generic for the reference/container type appears
-/// unworkable, even though feasible in principle, due to requiring
-/// explicit type parameters on every single cons call. The solution
-/// will be to generate the code for versions using Rc, Arc or
-/// whatever when needed. (Or, use dyn?, or perhaps/probably rather,
-/// enum.)
-
+/// Cons lists
+///
+/// These only work with normal references. That's because making it
+/// generic for the reference/container type appears unworkable, even
+/// though feasible in principle, due to requiring explicit type
+/// parameters on every single cons call. The solution will be to
+/// generate the code for versions using Rc, Arc or whatever when
+/// needed. (Or, use dyn?, or perhaps/probably rather, enum.)
 pub enum List<'t, T> {
     Pair(T, &'t List<'t, T>),
     Null,

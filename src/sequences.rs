@@ -1,6 +1,8 @@
 use genawaiter::rc::Gen;
 
-/// Build groups of items from the input stream. A group finishes when
+/// Build groups of items from the input stream.
+///
+/// A group finishes when
 /// `belong`, being passed the previous and new item, returns
 /// false. Each group is first collected in a Vec, then passed to the
 /// `construct` function as a mutable reference via an `Option` (which
@@ -9,10 +11,10 @@ use genawaiter::rc::Gen;
 /// is so that `construct` can take it out via `.take().unwrap()` if
 /// it wishes; if it does, `group` creates a new Vec for the next
 /// group, otherwise it reuses the old one for efficiency.
-
+///
 /// The resulting iterator is empty (no group is reported) if the
 /// input is empty.
-
+///
 pub fn group<T, G>(
     mut inp: impl Iterator<Item = T>,
     belong: impl Fn(&T, &T) -> bool,

@@ -90,10 +90,10 @@ where
 pub fn parse_hex<const N: usize>(s: &str) -> Result<[u8; N]> {
     let mut r = [0; N];
     let mut cs = s.chars();
-    for i in 0..N {
+    for rref in &mut r {
         let a = next_hex_digit(&mut cs)?;
         let b = next_hex_digit(&mut cs)?;
-        r[i] = (a * 16 + b) as u8;
+        *rref = (a * 16 + b) as u8;
     }
     Ok(r)
 }
@@ -192,5 +192,18 @@ mod tests {
         assert_eq!(t("abf", not_f), ("ab", "f"));
         assert_eq!(t("abfg", not_f), ("ab", "fg"));
         assert_eq!(t("äbfg", not_f), ("äb", "fg"));
+    }
+
+    #[test]
+    fn t_parse_hex() {
+        assert_eq!(parse_hex("").unwrap(), []);
+        assert_eq!(parse_hex("abcd").unwrap(), [0xab, 0xcd]);
+        assert_eq!(parse_hex("abcd0f").unwrap(), [0xab, 0xcd, 0x0f]);
+        // XX: is this a bug?:
+        assert_eq!(parse_hex::<2>("abcd0f").unwrap(), [0xab, 0xcd]);
+        assert_eq!(
+            parse_hex::<2>("bcd").err().unwrap().to_string(),
+            "hex string too short"
+        );
     }
 }

@@ -1248,7 +1248,7 @@ impl GetItems {
     }
 
     /// Leaks the backing memory for Item for now for simplicity
-    fn from_read_buf_stream(
+    fn get_from_read_buf_stream(
         &self,
         input: impl ParallelIterator<Item = Result<Vec<u8>, ReadBufStreamError>>,
         input_record_separator: u8,
@@ -1468,7 +1468,7 @@ fn main() -> Result<()> {
             set_current_dir(&basepath).with_context(|| {
                 anyhow!("changing to directory {basepath:?}")
             })?;
-            get_items.from_read_buf_stream(
+            get_items.get_from_read_buf_stream(
                 ReadDirBufStream::new(
                     std::fs::read_dir(".").with_context(|| {
                         anyhow!("reading directory {basepath:?}")
@@ -1479,7 +1479,7 @@ fn main() -> Result<()> {
             )
         } else if let Some(basepath) = opt.find_dir {
             if false {
-                get_items.from_read_buf_stream(
+                get_items.get_from_read_buf_stream(
                     FindBufStream::new(buf_size, basepath, true)?.par_bridge(),
                     0,
                 )
@@ -1487,7 +1487,7 @@ fn main() -> Result<()> {
                 get_items.find(&basepath, true, &global_leaked_regions)?
             }
         } else {
-            get_items.from_read_buf_stream(
+            get_items.get_from_read_buf_stream(
                 ParReadBufStream::from(ReadBufStream::new(
                     stdin().lock(),
                     buf_size,

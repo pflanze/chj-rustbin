@@ -58,6 +58,7 @@ impl<'t, T> List<'t, T> {
     pub fn as_ref_vec(&self) -> Vec<&T> {
         let mut vs = Vec::new();
         let mut r = self;
+        #[allow(clippy::while_let_loop)]
         loop {
             match r {
                 List::Pair(v, r2) => {
@@ -76,6 +77,7 @@ impl<'t, T> List<'t, T> {
     {
         let mut vs: Vec<T> = Vec::new();
         let mut r = self;
+        #[allow(clippy::while_let_loop)]
         loop {
             match r {
                 List::Pair(v, r2) => {

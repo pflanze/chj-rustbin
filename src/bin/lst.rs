@@ -1591,9 +1591,19 @@ fn main() -> Result<()> {
             {
                 probe!("write out");
                 let mut outp = stdout().lock();
-                let output_ioslices: Vec<_> =
-                    output_chunks.iter().map(|v| IoSlice::new(v)).collect();
-                outp.write_vectored(&output_ioslices)?;
+                let mut output_ioslices = Vec::new();
+                let mut tot_size = 0;
+                for v in &output_chunks {
+                    output_ioslices.push(IoSlice::new(v));
+                    tot_size += v.len();
+                }
+                let written = outp.write_vectored(&output_ioslices)?;
+                if written != tot_size {
+                    bail!(
+                        "could only write {written} out of {tot_size} bytes; \
+                         todo: change to `write_all_vectored` once stable"
+                    )
+                }
                 outp.flush()?;
             }
         }

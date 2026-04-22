@@ -58,50 +58,6 @@ pub fn cleanwhite(s: &str) -> &str {
     drop_white(drop_white_end(s))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn t_drop_white() {
-        fn t(inp: &str, outp: &str) {
-            assert_eq!(drop_white(inp), outp)
-        }
-        t("foo", "foo");
-        t("  foo", "foo");
-        t("foo  ", "foo  ");
-        t(" foo  ", "foo  ");
-        t(" f oo  ", "f oo  ");
-        t("  ", "");
-    }
-
-    #[test]
-    fn t_drop_white_end() {
-        fn t(inp: &str, outp: &str) {
-            assert_eq!(drop_white_end(inp), outp)
-        }
-        t("foo", "foo");
-        t("  foo", "  foo");
-        t("foo  ", "foo");
-        t(" foo  ", " foo");
-        t(" f oo  ", " f oo");
-        t("  ", "");
-    }
-
-    #[test]
-    fn t_cleanwhite() {
-        fn t(inp: &str, outp: &str) {
-            assert_eq!(cleanwhite(inp), outp)
-        }
-        t("foo", "foo");
-        t("  foo", "foo");
-        t("foo  ", "foo");
-        t(" foo  ", "foo");
-        t(" f oo  ", "f oo");
-        t("  ", "");
-    }
-}
-
 pub fn take_while(s: &str, pred: impl Fn(char) -> bool) -> (&str, &str) {
     for (i, c) in s.chars().enumerate() {
         if !pred(c) {
@@ -181,5 +137,49 @@ pub fn parse_byte_multiplier(s: &str) -> Result<u64> {
         Ok(1024 * 1024 * 1024 * 1024 * 1024)
     } else {
         bail!("unknown multiplier {s:?}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn t_drop_white() {
+        fn t(inp: &str, outp: &str) {
+            assert_eq!(drop_white(inp), outp)
+        }
+        t("foo", "foo");
+        t("  foo", "foo");
+        t("foo  ", "foo  ");
+        t(" foo  ", "foo  ");
+        t(" f oo  ", "f oo  ");
+        t("  ", "");
+    }
+
+    #[test]
+    fn t_drop_white_end() {
+        fn t(inp: &str, outp: &str) {
+            assert_eq!(drop_white_end(inp), outp)
+        }
+        t("foo", "foo");
+        t("  foo", "  foo");
+        t("foo  ", "foo");
+        t(" foo  ", " foo");
+        t(" f oo  ", " f oo");
+        t("  ", "");
+    }
+
+    #[test]
+    fn t_cleanwhite() {
+        fn t(inp: &str, outp: &str) {
+            assert_eq!(cleanwhite(inp), outp)
+        }
+        t("foo", "foo");
+        t("  foo", "foo");
+        t("foo  ", "foo");
+        t(" foo  ", "foo");
+        t(" f oo  ", "f oo");
+        t("  ", "");
     }
 }

@@ -1,9 +1,15 @@
 //! Allocate byte slices in thread-local region allocators
 
 use std::{
-    collections::HashMap, ffi::OsStr, marker::PhantomData, mem::swap,
-    os::unix::ffi::OsStrExt, path::Path, slice::from_raw_parts_mut,
-    sync::Mutex, thread::ThreadId,
+    collections::{hash_map::Entry, HashMap},
+    ffi::OsStr,
+    marker::PhantomData,
+    mem::swap,
+    os::unix::ffi::OsStrExt,
+    path::Path,
+    slice::from_raw_parts_mut,
+    sync::Mutex,
+    thread::ThreadId,
 };
 
 use log::trace;
@@ -138,13 +144,11 @@ impl<'g> Drop for LeakedRegion<'g> {
                     .lock()
                     .expect("no panics");
                 match regions.entry(thread_id) {
-                    std::collections::hash_map::Entry::Occupied(
-                        occupied_entry,
-                    ) => {
+                    Entry::Occupied(occupied_entry) => {
                         let boxes_and_regions = occupied_entry.into_mut();
                         boxes_and_regions.1.push(inner_leaked_region);
                     }
-                    std::collections::hash_map::Entry::Vacant(_) => {
+                    Entry::Vacant(_) => {
                         unreachable!("entry for thread was made when creating the LeakedRegion")
                     }
                 }
@@ -160,7 +164,7 @@ impl<'g> LeakedRegion<'g> {
             let mut boxes_and_regions =
                 global_leaked_regions.regions.lock().expect("no panics");
             let boxes = match boxes_and_regions.entry(thread_id) {
-                std::collections::hash_map::Entry::Occupied(occupied_entry) => {
+                Entry::Occupied(occupied_entry) => {
                     let (boxes, regions) = occupied_entry.into_mut();
                     if let Some(inner_leaked_region) = regions.pop() {
                         return Self {
@@ -171,7 +175,7 @@ impl<'g> LeakedRegion<'g> {
                     }
                     boxes
                 }
-                std::collections::hash_map::Entry::Vacant(vacant_entry) => {
+                Entry::Vacant(vacant_entry) => {
                     &mut vacant_entry.insert((Vec::new(), Vec::new())).0
                 }
             };

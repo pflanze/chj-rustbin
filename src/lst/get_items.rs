@@ -622,8 +622,7 @@ impl GetItems {
     }
 
     /// Integrated "find", with `read_dir`, path filtering and
-    /// `Item::from_path` intertwined for efficiency. Leaks the
-    /// backing memory for Item for now for simplicity
+    /// `Item::from_path` intertwined for efficiency.
     pub fn find<'p>(
         &self,
         dir: &Path,

@@ -403,7 +403,7 @@ mod tests {
                 }
             })
             .collect();
-        let sortfn = sort_function(
+        let sortfn = cmp_function(
             rng.gen_bool(0.5),
             rng.gen_bool(0.5),
             rng.gen_bool(0.5),
@@ -497,11 +497,14 @@ mod tests {
 /// If `time_reversed`, then time sorting is with newest items at the
 /// bottom by default; this also changes to forward alphanumeric
 /// fallback for that sorting.
-fn sort_function<'t: 'v, 'v>(
+fn cmp_function(
     reverse: bool,
     time: bool,
     time_reversed: bool,
-) -> for<'a, 'b, 'i> fn(a: &'a Item<'i>, b: &'b Item<'i>) -> Ordering {
+) -> for<'region> fn(
+    a: &'region Item<'region>,
+    b: &'region Item<'region>,
+) -> Ordering {
     struct InlineLst;
     #[allow(non_upper_case_globals)]
     const ci_cmp: fn(a: &Path, b: &Path) -> Ordering =
@@ -823,7 +826,7 @@ fn main() -> Result<()> {
         }
     };
 
-    let sortfn = sort_function(opt.reverse, opt.time, opt.time_reversed);
+    let sortfn = cmp_function(opt.reverse, opt.time, opt.time_reversed);
     {
         probe!("sort_items");
         items.par_sort_by(|a, b| sortfn(a, b));

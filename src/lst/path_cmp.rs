@@ -1,6 +1,6 @@
 use std::{cmp::Ordering, path::Path, str::Chars};
 
-pub fn fast_lowercase_cmp(a: char, b: char) -> Ordering {
+pub fn fast_lowercase_cmp<INLINE>(a: char, b: char) -> Ordering {
     if a.is_ascii() && b.is_ascii() {
         a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase())
     } else {
@@ -8,7 +8,7 @@ pub fn fast_lowercase_cmp(a: char, b: char) -> Ordering {
     }
 }
 
-pub fn ci_cmp(a: &Path, b: &Path) -> Ordering {
+pub fn ci_cmp<INLINE>(a: &Path, b: &Path) -> Ordering {
     if let Some(a) = a.to_str() {
         if let Some(b) = b.to_str() {
             fn filter<'t>(it: Chars<'t>) -> impl Iterator<Item = char> + 't {
@@ -22,7 +22,7 @@ pub fn ci_cmp(a: &Path, b: &Path) -> Ordering {
             loop {
                 if let Some(ac) = achars.next() {
                     if let Some(bc) = bchars.next() {
-                        match fast_lowercase_cmp(ac, bc) {
+                        match fast_lowercase_cmp::<INLINE>(ac, bc) {
                             Ordering::Equal => {
                                 if stricter_ordering == Ordering::Equal {
                                     // ac == bc in lower-case; now

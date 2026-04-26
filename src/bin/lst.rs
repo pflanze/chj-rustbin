@@ -3,7 +3,7 @@ use std::{
     env::set_current_dir,
     io::{stdin, stdout, BufWriter, IoSlice},
     os::unix::prelude::OsStrExt,
-    path::PathBuf,
+    path::{Path, PathBuf},
     str::FromStr,
     time::SystemTime,
 };
@@ -24,7 +24,7 @@ use chj_rustbin::{
     leaked_region::GlobalLeakedRegions,
     lst::{
         get_items::{GetItems, Item},
-        path_cmp::ci_cmp,
+        path_cmp,
     },
     probe,
     text::yattable::{Widths, YatTable},
@@ -502,6 +502,11 @@ fn sort_function<'t: 'v, 'v>(
     time: bool,
     time_reversed: bool,
 ) -> for<'a, 'b, 'i> fn(a: &'a Item<'i>, b: &'b Item<'i>) -> Ordering {
+    struct InlineLst;
+    #[allow(non_upper_case_globals)]
+    const ci_cmp: fn(a: &Path, b: &Path) -> Ordering =
+        path_cmp::ci_cmp::<InlineLst>;
+
     if !time {
         if reverse {
             |b, a| ci_cmp(a.path, b.path)

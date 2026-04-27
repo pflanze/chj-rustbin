@@ -824,41 +824,48 @@ fn main() -> Result<()> {
         }
     }
 
-    probe!("get items");
     if let Some(ref basepath) = opt.ls_dir {
-        set_current_dir(basepath)
-            .with_context(|| anyhow!("changing to directory {basepath:?}"))?;
-        let dir_items = std::fs::read_dir(".")
-            .with_context(|| anyhow!("reading directory {basepath:?}"))?;
-        main_cont(
-            cont_values!(),
+        let res = {
+            probe!("get items");
+            set_current_dir(basepath).with_context(|| {
+                anyhow!("changing to directory {basepath:?}")
+            })?;
+            let dir_items = std::fs::read_dir(".")
+                .with_context(|| anyhow!("reading directory {basepath:?}"))?;
             get_items.get_from_read_buf_stream(
                 ReadDirBufStream::new(dir_items, buf_size),
                 0,
-            ),
-        )
+            )
+        };
+        main_cont(cont_values!(), res)
     } else if let Some(ref basepath) = opt.find_dir {
         if false {
-            let basepath = basepath.clone();
-            main_cont(
-                cont_values!(),
+            let res = {
+                probe!("get items");
+                let basepath = basepath.clone();
                 get_items.get_from_read_buf_stream(
                     FindBufStream::new(buf_size, basepath, true)?.par_bridge(),
                     0,
-                ),
-            )
-        } else {
-            let basepath = {
-                let mut region = global_leaked_regions.get_region();
-                SegmentedPath::new_from_path(&basepath, &mut region)
-                    .ok_or_else(|| anyhow!("path {basepath:?} is not valid"))?
+                )
             };
-            let res = get_items.find(basepath, true, &global_leaked_regions)?;
+            main_cont(cont_values!(), res)
+        } else {
+            let res = {
+                probe!("get items");
+                let basepath = {
+                    let mut region = global_leaked_regions.get_region();
+                    SegmentedPath::new_from_path(&basepath, &mut region)
+                        .ok_or_else(|| {
+                            anyhow!("path {basepath:?} is not valid")
+                        })?
+                };
+                get_items.find(basepath, true, &global_leaked_regions)?
+            };
             main_cont(cont_values!(), res)
         }
     } else {
-        main_cont(
-            cont_values!(),
+        let res = {
+            probe!("get items");
             get_items.get_from_read_buf_stream(
                 ParReadBufStream::from(ReadBufStream::new(
                     stdin().lock(),
@@ -867,8 +874,9 @@ fn main() -> Result<()> {
                 ))
                 .par_bridge(),
                 input_record_separator,
-            ),
-        )
+            )
+        };
+        main_cont(cont_values!(), res)
     }
 }
 

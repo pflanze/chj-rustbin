@@ -40,6 +40,26 @@ impl RawSliceMut {
         from_raw_parts_mut(data, len)
     }
 
+    fn aligned<const ALIGN: usize>(self) -> Option<Self> {
+        const {
+            assert!(ALIGN.count_ones() == 1);
+        }
+        let Self { data, len } = self;
+        let offset = data.align_offset(ALIGN);
+        if offset < len {
+            let data = unsafe {
+                // SAFETY: checked above that it lies within the
+                // allocation. The pointer type is `*mut u8`, hence
+                // offsets are in bytes, as is `ALIGN`.
+                data.add(offset)
+            };
+            let len = len - offset;
+            Some(Self { data, len })
+        } else {
+            None
+        }
+    }
+
     fn split_at_mut(self, pos: usize) -> (RawSliceMut, RawSliceMut) {
         let Self { data, len } = self;
         assert!(pos <= len);
@@ -194,53 +214,86 @@ impl<'g> LeakedRegion<'g> {
         }
     }
 
-    pub fn allocate<'s>(&'s mut self, num_bytes: usize) -> &'g mut [u8]
+    /// `ALIGN` is the value returned by `core::mem::align_of` (how
+    /// many bytes the address must be a multiple of; power of 2, at
+    /// least 1). Only the beginning of the returned slice is
+    /// guaranteed to be aligned, its length is always `num_bytes`.
+    pub fn allocate<'s, const ALIGN: usize>(
+        &'s mut self,
+        num_bytes: usize,
+    ) -> &'g mut [u8]
     where
         'g: 's,
     {
+        const {
+            assert!(ALIGN.count_ones() == 1);
+        }
         let inner_leaked_region =
             self.inner_leaked_region.as_mut().expect("always there");
-        if num_bytes <= inner_leaked_region.current.len {
-            let (res, rest) =
-                inner_leaked_region.current.split_at_mut(num_bytes);
-            // dbg!(res);
-            inner_leaked_region.current = rest;
-            unsafe {
-                // Safe because ownership of the storage is in
-                // GlobalLeakedRegions, and 'g is tied to that. And we
-                // only hand out this slice to the same memory area a
-                // single time.
-                res.to_slice_mut()
+        if let Some(current_aligned) =
+            inner_leaked_region.current.aligned::<ALIGN>()
+        {
+            if num_bytes <= current_aligned.len {
+                let (res, rest) = current_aligned.split_at_mut(num_bytes);
+                // dbg!(res);
+                inner_leaked_region.current = rest;
+                return unsafe {
+                    // Safe because ownership of the storage is in
+                    // GlobalLeakedRegions, and 'g is tied to that. And we
+                    // only hand out this slice to the same memory area a
+                    // single time.
+                    res.to_slice_mut()
+                };
             }
-        } else {
-            // Done with the current region. Create a new one, swap
-            // and let it move itself back in if appropriate. (A bit
-            // less efficient than it could be?)
-            let min_region_size = self.global_leaked_regions.min_region_size;
-            let (bx, inner_leaked_region) =
-                InnerLeakedRegion::new(num_bytes, min_region_size);
-            {
-                let thread_id = std::thread::current().id();
-                let mut boxes_and_regions = self
-                    .global_leaked_regions
-                    .regions
-                    .lock()
-                    .expect("no panics");
-                let boxes_and_regions = boxes_and_regions
-                    .get_mut(&thread_id)
-                    .expect(
+        }
+
+        // Done with the current region. Create a new one, swap
+        // and let it move itself back in if appropriate. (A bit
+        // less efficient than it could be?)
+
+        // Surplus is the largest possible gap at the beginning so
+        // that the alignment is correct
+        let align_surplus = ALIGN - 1;
+        let num_bytes_with_surplus = num_bytes + align_surplus;
+
+        let min_region_size = self.global_leaked_regions.min_region_size;
+        let (bx, inner_leaked_region) =
+            InnerLeakedRegion::new(num_bytes_with_surplus, min_region_size);
+        {
+            let thread_id = std::thread::current().id();
+            let mut boxes_and_regions = self
+                .global_leaked_regions
+                .regions
+                .lock()
+                .expect("no panics");
+            let boxes_and_regions =
+                boxes_and_regions.get_mut(&thread_id).expect(
                     "entry was already made when creating this LeakedRegion",
                 );
-                boxes_and_regions.0.push(bx);
-            }
-            let mut other = Self {
-                _only_on_same_thread: PhantomData,
-                global_leaked_regions: self.global_leaked_regions,
-                inner_leaked_region: Some(inner_leaked_region),
-            };
-            swap(self, &mut other);
-            self.allocate(num_bytes)
+            boxes_and_regions.0.push(bx);
         }
+        let mut other = Self {
+            _only_on_same_thread: PhantomData,
+            global_leaked_regions: self.global_leaked_regions,
+            inner_leaked_region: Some(inner_leaked_region),
+        };
+        swap(self, &mut other);
+        self.allocate::<ALIGN>(num_bytes)
+    }
+
+    /// Return the num_bytes from the end of the last allocation. Safety:
+    /// an allocation on the same `self` must have occurred
+    /// previously; `num_bytes` must be <= `num_bytes` of that last
+    /// allocation; and the last `num_bytes` of that last allocation
+    /// must be unused.
+    pub unsafe fn return_unused(&mut self, num_bytes: usize) {
+        let off: isize = num_bytes
+            .try_into()
+            .expect("expect num_bytes to be small enough to fit in isize");
+        let inner_leaked_region =
+            self.inner_leaked_region.as_mut().expect("always there");
+        let data2 = inner_leaked_region.current.data.offset(off);
+        inner_leaked_region.current.data = data2;
     }
 
     pub fn allocate_path<'s, P: AsRef<Path>>(&'s mut self, path: P) -> &'g Path
@@ -251,7 +304,7 @@ impl<'g> LeakedRegion<'g> {
         // XX as_bytes is Unix-only, right? Not sure
         let bytes = path.as_os_str().as_bytes();
         let len = bytes.len();
-        let sl = self.allocate(len);
+        let sl = self.allocate::<1>(len);
         sl.copy_from_slice(bytes);
         let os_str = OsStr::from_bytes(sl);
         os_str.as_ref()

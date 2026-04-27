@@ -3,7 +3,7 @@ use std::{
     env::set_current_dir,
     io::{stdin, stdout, BufWriter, IoSlice},
     os::unix::prelude::OsStrExt,
-    path::{Path, PathBuf},
+    path::PathBuf,
     str::FromStr,
     time::SystemTime,
 };
@@ -24,7 +24,8 @@ use chj_rustbin::{
     leaked_region::GlobalLeakedRegions,
     lst::{
         get_items::{GetItems, Item},
-        path_cmp,
+        possibly_segmented_path::PossiblySegmentedPath,
+        segmented_path::{tmp_path_buffer, SegmentedPath},
     },
     probe,
     text::yattable::{Widths, YatTable},
@@ -353,7 +354,7 @@ mod tests {
     use chj_rustbin::lst::get_items::EssentialMetadata;
     use rand::{thread_rng, Rng};
     use rayon::{iter::IntoParallelIterator, slice::ParallelSliceMut};
-    use std::{ffi::OsStr, time::Duration};
+    use std::{ffi::OsStr, path::Path, time::Duration};
 
     #[test]
     fn randomt_optimize_processing_commands() {
@@ -374,7 +375,7 @@ mod tests {
 
         // Make items from it
         let now = SystemTime::now();
-        let mut items: Vec<Item> = backing
+        let mut items: Vec<Item<_, _>> = backing
             .split(|c| *c == 0)
             .map(|path| {
                 let path: &OsStr = OsStr::from_bytes(path);
@@ -400,15 +401,17 @@ mod tests {
                         file_kind: None,
                     },
                     link_target: None,
+                    _phantom: std::marker::PhantomData,
                 }
             })
             .collect();
-        let sortfn = cmp_function(
+        let regions = GlobalLeakedRegions::new(1_000_000);
+        let cmp = cmp_function(
             rng.gen_bool(0.5),
             rng.gen_bool(0.5),
             rng.gen_bool(0.5),
         );
-        items.par_sort_by(|a, b| sortfn(a, b));
+        items.par_sort_by(|a, b| cmp(a, b, &regions));
         let items = items;
 
         // Search for invalid optimizations
@@ -494,67 +497,77 @@ mod tests {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct InlineLst;
+
 /// If `time_reversed`, then time sorting is with newest items at the
 /// bottom by default; this also changes to forward alphanumeric
 /// fallback for that sorting.
-fn cmp_function(
+fn cmp_function<
+    'region,
+    P: PossiblySegmentedPath<'region, InlineLst> + Copy,
+>(
     reverse: bool,
     time: bool,
     time_reversed: bool,
-) -> for<'region> fn(
-    a: &'region Item<'region>,
-    b: &'region Item<'region>,
+) -> fn(
+    a: &Item<'region, P, InlineLst>,
+    b: &Item<'region, P, InlineLst>,
+    region: &'region GlobalLeakedRegions,
 ) -> Ordering {
-    struct InlineLst;
-    #[allow(non_upper_case_globals)]
-    const ci_cmp: fn(a: &Path, b: &Path) -> Ordering =
-        path_cmp::ci_cmp::<InlineLst>;
-
     if !time {
         if reverse {
-            |b, a| ci_cmp(a.path, b.path)
+            |b, a, region| a.path.ci_cmp(b.path, region)
         } else {
-            |a, b| ci_cmp(a.path, b.path)
+            |a, b, region| a.path.ci_cmp(b.path, region)
         }
     } else {
         if time_reversed {
             if !reverse {
-                |a, b| {
+                |a, b, region| {
                     a.mtime()
                         .cmp(&b.mtime())
-                        .then_with(|| ci_cmp(a.path, b.path))
+                        .then_with(|| a.path.ci_cmp(b.path, region))
                 }
             } else {
-                |b, a| {
+                |b, a, region| {
                     a.mtime()
                         .cmp(&b.mtime())
-                        .then_with(|| ci_cmp(a.path, b.path))
+                        .then_with(|| a.path.ci_cmp(b.path, region))
                 }
             }
         } else {
             if reverse {
-                |a, b| {
+                |a, b, region| {
                     a.mtime()
                         .cmp(&b.mtime())
-                        .then_with(|| ci_cmp(b.path, a.path))
+                        .then_with(|| b.path.ci_cmp(a.path, region))
                 }
             } else {
-                |b, a| {
+                |b, a, region| {
                     a.mtime()
                         .cmp(&b.mtime())
-                        .then_with(|| ci_cmp(b.path, a.path))
+                        .then_with(|| b.path.ci_cmp(a.path, region))
                 }
             }
         }
     }
 }
 
-fn run_processing_commands<'t: 'u, 'u: 'v, 'v>(
-    items: &'v mut Vec<Item<'t>>,
+/// Mutates `items`. Requires a mutable sequence because sorting
+/// in-place needs to move the slots around. And it needs to be a Vec
+/// since filtering changes the size of it.
+fn run_processing_commands<
+    'region: 'u,
+    'u: 'v,
+    'v,
+    P: PossiblySegmentedPath<'region, InlineLst> + Clone,
+>(
+    items: &'v mut Vec<Item<'region, P, InlineLst>>,
     cmds: &[ProcessingCommand],
     now: SystemTime,
     show_files_from_future: bool,
-) -> &'v [Item<'t>] {
+) -> &'v [Item<'region, P, InlineLst>] {
     probe!("run_processing_commands");
     let mut selected_items = unsafe { hack_static(&mut **items) };
     for cmd in cmds {
@@ -577,7 +590,7 @@ fn run_processing_commands<'t: 'u, 'u: 'v, 'v>(
             }
             ProcessingCommand::Reverse => selected_items.reverse(),
             ProcessingCommand::FilterDays(range) => {
-                let new_items: Vec<Item<'t>> = selected_items
+                let new_items: Vec<Item<_, _>> = selected_items
                     .into_iter()
                     .filter(|item| {
                         let f = |age_days| match range {
@@ -620,13 +633,17 @@ struct TableFromItems {
 }
 
 impl TableFromItems {
-    fn run<'t>(&self, items: &[Item<'t>]) -> YatTable<7> {
+    fn run<'region, P: PossiblySegmentedPath<'region, InlineLst> + Copy>(
+        &self,
+        items: &[Item<'region, P, InlineLst>],
+    ) -> YatTable<7> {
         let Self {
             use_color,
             pw_info_cache,
             gr_info_cache,
         } = self;
         let mut table = YatTable::new();
+        let mut tmp = tmp_path_buffer();
         for item in items {
             let mode = item.metadata.mode;
             let nlink = item.metadata.nlink;
@@ -692,11 +709,13 @@ impl TableFromItems {
                 None
             };
 
+            let path_bytes =
+                item.path.psp_to_path(&mut tmp).as_os_str().as_bytes();
             if let Some(style) = style {
                 row.add_cell_fmt(format_args!("{style}"));
-                row.amend_cell_bytes(item.path.as_os_str().as_bytes());
+                row.amend_cell_bytes(path_bytes);
             } else {
-                row.add_cell_bytes(item.path.as_os_str().as_bytes());
+                row.add_cell_bytes(path_bytes);
             }
             if let Some(style) = style {
                 row.amend_cell_fmt(format_args!("{style:#}"));
@@ -783,37 +802,63 @@ fn main() -> Result<()> {
         ignore,
         long: opt.long,
         use_color,
+        _phantom: std::marker::PhantomData,
     };
 
     let global_leaked_regions = GlobalLeakedRegions::new(8 * 1048576);
 
     // Read the paths as blocks (as `Vec<u8>`) of some number of
-    // null-terminated paths each, in either mode
-    let (mut items, errors): (Vec<Item>, Vec<anyhow::Error>) = {
-        probe!("get items");
-        if let Some(basepath) = opt.ls_dir {
-            set_current_dir(&basepath).with_context(|| {
-                anyhow!("changing to directory {basepath:?}")
-            })?;
+    // null-terminated paths each, in either mode; pass to the
+    // continuation in either of the supported path implementations
+
+    macro_rules! cont_values {
+        {} => {
+            MainContVals {
+                opt,
+                cmds,
+                global_leaked_regions: &global_leaked_regions,
+                now,
+                output_record_separator,
+                use_color,
+            }
+        }
+    }
+
+    probe!("get items");
+    if let Some(ref basepath) = opt.ls_dir {
+        set_current_dir(basepath)
+            .with_context(|| anyhow!("changing to directory {basepath:?}"))?;
+        let dir_items = std::fs::read_dir(".")
+            .with_context(|| anyhow!("reading directory {basepath:?}"))?;
+        main_cont(
+            cont_values!(),
             get_items.get_from_read_buf_stream(
-                ReadDirBufStream::new(
-                    std::fs::read_dir(".").with_context(|| {
-                        anyhow!("reading directory {basepath:?}")
-                    })?,
-                    buf_size,
-                ),
+                ReadDirBufStream::new(dir_items, buf_size),
                 0,
-            )
-        } else if let Some(basepath) = opt.find_dir {
-            if false {
+            ),
+        )
+    } else if let Some(ref basepath) = opt.find_dir {
+        if false {
+            let basepath = basepath.clone();
+            main_cont(
+                cont_values!(),
                 get_items.get_from_read_buf_stream(
                     FindBufStream::new(buf_size, basepath, true)?.par_bridge(),
                     0,
-                )
-            } else {
-                get_items.find(&basepath, true, &global_leaked_regions)?
-            }
+                ),
+            )
         } else {
+            let basepath = {
+                let mut region = global_leaked_regions.get_region();
+                SegmentedPath::new_from_path(&basepath, &mut region)
+                    .ok_or_else(|| anyhow!("path {basepath:?} is not valid"))?
+            };
+            let res = get_items.find(basepath, true, &global_leaked_regions)?;
+            main_cont(cont_values!(), res)
+        }
+    } else {
+        main_cont(
+            cont_values!(),
             get_items.get_from_read_buf_stream(
                 ParReadBufStream::from(ReadBufStream::new(
                     stdin().lock(),
@@ -822,14 +867,38 @@ fn main() -> Result<()> {
                 ))
                 .par_bridge(),
                 input_record_separator,
-            )
-        }
-    };
+            ),
+        )
+    }
+}
 
-    let sortfn = cmp_function(opt.reverse, opt.time, opt.time_reversed);
+struct MainContVals<'region> {
+    opt: Opt,
+    cmds: Vec<ProcessingCommand>,
+    global_leaked_regions: &'region GlobalLeakedRegions,
+    now: SystemTime,
+    output_record_separator: u8,
+    use_color: bool,
+}
+
+fn main_cont<
+    'region,
+    P: PossiblySegmentedPath<'region, InlineLst> + Copy + Sync + Send + 'region,
+>(
+    MainContVals {
+        opt,
+        global_leaked_regions,
+        cmds,
+        now,
+        output_record_separator,
+        use_color,
+    }: MainContVals<'region>,
+    (mut items, errors): (Vec<Item<'region, P, InlineLst>>, Vec<anyhow::Error>),
+) -> Result<()> {
+    let cmp = cmp_function::<P>(opt.reverse, opt.time, opt.time_reversed);
     {
         probe!("sort_items");
-        items.par_sort_by(|a, b| sortfn(a, b));
+        items.par_sort_by(|a, b| cmp(a, b, &global_leaked_regions));
     }
 
     let selected_items = run_processing_commands(
@@ -844,8 +913,10 @@ fn main() -> Result<()> {
         use std::io::Write;
         if !opt.long {
             let mut outp = BufWriter::new(stdout().lock());
+            let mut tmp = tmp_path_buffer();
             for item in selected_items {
-                outp.write_all(item.path.as_os_str().as_bytes())?;
+                let path = item.path.psp_to_path(&mut tmp);
+                outp.write_all(path.as_os_str().as_bytes())?;
                 outp.write_all(&[output_record_separator])?;
             }
             outp.flush()?;
@@ -942,7 +1013,7 @@ fn main() -> Result<()> {
         let mut msgs: Vec<u8> = Vec::new();
         for error in errors {
             use std::io::Write;
-            _ = writeln!(&mut msgs, "{error}");
+            _ = writeln!(&mut msgs, "{error:#}");
         }
         let msgs: &str = std::str::from_utf8(&msgs).expect("already utf8");
         bail!("while generating the above list:\n{msgs}");

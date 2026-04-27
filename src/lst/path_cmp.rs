@@ -1,3 +1,10 @@
+/// Compare two filesystem paths
+///
+/// In about the same way the GNU `ls`
+/// tool does (case-insensitive and ignoring non-alphanumeric
+/// characters).
+///
+/// Note: also see segmented_path.rs and possibly_segmented_path.rs
 use std::{cmp::Ordering, path::Path, str::Chars};
 
 pub fn fast_lowercase_cmp<INLINE>(a: char, b: char) -> Ordering {

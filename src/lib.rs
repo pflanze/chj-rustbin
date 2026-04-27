@@ -18,6 +18,7 @@ pub mod index_map;
 pub mod io;
 pub mod io_utils;
 pub mod is_a_terminal;
+pub mod kitschcell;
 pub mod leaked_region;
 pub mod lst;
 pub mod merge;

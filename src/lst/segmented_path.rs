@@ -265,7 +265,7 @@ impl<'region> SegmentedPath<'region> {
         // fake pointer)?
 
         // XX which Ordering ?
-        let mut p = self.lc_name.load(std::sync::atomic::Ordering::SeqCst);
+        let mut p = self.lc_name.load(std::sync::atomic::Ordering::Relaxed);
         if p.is_null() {
             let orig_name_lossy = self.orig_name().to_string_lossy();
 
@@ -314,7 +314,7 @@ impl<'region> SegmentedPath<'region> {
             }
 
             // XX which Ordering ?
-            self.lc_name.store(p, std::sync::atomic::Ordering::SeqCst);
+            self.lc_name.store(p, std::sync::atomic::Ordering::Relaxed);
         }
 
         unsafe {

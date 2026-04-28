@@ -14,7 +14,7 @@ test: test_intersection test_priorities test_bag
 	cargo test --release
 	git status > /dev/null || true
 
-miri: miri-bag miri-leaked_region miri-lst
+miri: miri-bag miri-leaked_region miri-lst-segmented miri-lst
 
 miri-leaked_region:
 	RUST_LOG=trace MIRIFLAGS='-Zmiri-tree-borrows -Zmiri-disable-isolation' \
@@ -29,7 +29,11 @@ miri-bag:
 # some stuff in it (something like ~2600 entries).
 miri-lst:
 	RUST_LOG=trace MIRIFLAGS='-Zmiri-ignore-leaks -Zmiri-tree-borrows -Zmiri-disable-isolation' \
-           cargo +nightly miri run --bin lst -- -rt --find-dir ~/.mozilla  tail 10
+           cargo +nightly miri run --bin lst -- -rt --find-dir ~/.mozilla tail 10
+
+miri-lst-segmented:
+	RUST_LOG=trace MIRIFLAGS='-Zmiri-ignore-leaks -Zmiri-tree-borrows -Zmiri-disable-isolation' \
+           cargo +nightly miri run --bin lst -- -rt --find-dir ~/.mozilla tail 10 --dev-segmented-path
 
 target/release/%: src/bin/%.rs src/*.rs src/io/*.rs src/parse/*.rs src/text/*.rs src/time/*.rs src/util/*.rs
 	cargo build --release

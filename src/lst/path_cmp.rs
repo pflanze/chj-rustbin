@@ -1,12 +1,14 @@
-/// Compare two filesystem paths
-///
-/// In about the same way the GNU `ls`
-/// tool does (case-insensitive and ignoring non-alphanumeric
-/// characters).
-///
-/// Note: also see segmented_path.rs and possibly_segmented_path.rs
+//! Compare two filesystem paths
+//!
+//! In about the same way the GNU `ls`
+//! tool does (case-insensitive and ignoring non-alphanumeric
+//! characters).
+//!
+//! Note: also see segmented_path.rs and possibly_segmented_path.rs
+
 use std::{cmp::Ordering, path::Path, str::Chars};
 
+/// Bypasses slow unicode comparison if both chars are ASCII.
 pub fn fast_lowercase_cmp<INLINE>(a: char, b: char) -> Ordering {
     if a.is_ascii() && b.is_ascii() {
         a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase())
@@ -15,6 +17,10 @@ pub fn fast_lowercase_cmp<INLINE>(a: char, b: char) -> Ordering {
     }
 }
 
+/// Compare two paths case insensitively (as per unicode), while
+/// ignoring non-alphanumeric characters. Does not allocate, and
+/// optimizes the ASCII case. Warning: if either path is not in
+/// unicode encoding, falls back to Path's default Ord comparison!
 pub fn ci_cmp<INLINE>(a: &Path, b: &Path) -> Ordering {
     if let Some(a) = a.to_str() {
         if let Some(b) = b.to_str() {

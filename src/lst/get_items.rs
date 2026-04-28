@@ -21,7 +21,7 @@ use crate::{
     leaked_region::GlobalLeakedRegions,
     lst::{
         possibly_segmented_path::PossiblySegmentedPath,
-        segmented_path::{tmp_path_buffer, SegmentedPath},
+        segmented_path::tmp_path_buffer,
     },
     path_file_kind::{FileKind, ToFileKind},
     probe,
@@ -573,16 +573,17 @@ impl<INLINE: Sync> GetItems<INLINE> {
 
     /// `(Vec<Item<'static>>, Vec<anyhow::Error>)` is what one dir
     /// level yields. Vec of that since subdirs, too.
-    fn _find<'s, 'region>(
+    fn _find<
+        's,
+        'region,
+        P: PossiblySegmentedPath<'region, INLINE> + Send + Copy,
+    >(
         &'s self,
-        dir: &'region SegmentedPath<'region>,
+        dir: P,
         include_dir: bool,
         metadata: Metadata,
         global_leaked_regions: &'region GlobalLeakedRegions,
-    ) -> (
-        Bag<Item<'region, &'region SegmentedPath<'region>, INLINE>>,
-        Bag<anyhow::Error>,
-    ) {
+    ) -> (Bag<Item<'region, P, INLINE>>, Bag<anyhow::Error>) {
         match (move || -> Result<_> {
             let Self {
                 ignore: _,
@@ -593,11 +594,9 @@ impl<INLINE: Sync> GetItems<INLINE> {
 
             let mut tmp: Vec<u8> = tmp_path_buffer();
 
-            let mut items: Vec<
-                Item<'region, &'region SegmentedPath<'region>, INLINE>,
-            > = Vec::new();
+            let mut items: Vec<Item<'region, P, INLINE>> = Vec::new();
             let items_ref = &mut items;
-            let dir_path = dir.to_path(&mut tmp);
+            let dir_path = dir.psp_to_path(&mut tmp);
             if include_dir {
                 if let Some(item) = Item::from_path_and_metadata(
                     dir, dir_path, *long, *use_color, metadata,
@@ -621,14 +620,14 @@ impl<INLINE: Sync> GetItems<INLINE> {
                     let sub_path = {
                         // XX get from libc instead to avoid allocation
                         let file_name = entry.file_name();
-                        dir.add_segment(&file_name, &mut allocator)
+                        dir.psp_add_segment(&file_name, &mut allocator)
                     };
                     // XX optimize: change ignore feature so it can
                     // work with filenames explicitly, then only work
                     // on path if necessary. Although, need `path`
                     // anyway for readlink? But only if symlink (and
                     // could change to dir-fd based POSIX functions).
-                    let path = sub_path.to_path(&mut tmp);
+                    let path = sub_path.psp_to_path(&mut tmp);
                     if self.ignore_path(&path) {
                         continue;
                     }
@@ -669,17 +668,17 @@ impl<INLINE: Sync> GetItems<INLINE> {
 
     /// Integrated "find", with `read_dir`, path filtering and
     /// `Item::from_path` intertwined for efficiency.
-    pub fn find<'region>(
+    pub fn find<
+        'region,
+        P: PossiblySegmentedPath<'region, INLINE> + Send + Copy,
+    >(
         &self,
-        dir: &'region SegmentedPath<'region>,
+        dir: P,
         include_top: bool,
         global_leaked_regions: &'region GlobalLeakedRegions,
-    ) -> Result<(
-        Vec<Item<'region, &'region SegmentedPath<'region>, INLINE>>,
-        Vec<anyhow::Error>,
-    )> {
+    ) -> Result<(Vec<Item<'region, P, INLINE>>, Vec<anyhow::Error>)> {
         let mut tmp: Vec<u8> = tmp_path_buffer();
-        let dir_path = dir.to_path(&mut tmp);
+        let dir_path = dir.psp_to_path(&mut tmp);
         let metadata = dir_path.symlink_metadata().with_context(|| {
             anyhow!("getting metadata for directory {dir_path:?}")
         })?;

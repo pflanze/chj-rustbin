@@ -84,6 +84,10 @@ impl FromStr for ColorMode {
 /// Sorting should behave like `ls` when `--like-ls` is given.
 #[clap(name = "lst from chj-rustbin")]
 struct Opt {
+    /// Use segmented paths as data structure; default: &Path.
+    #[clap(long)]
+    dev_segmented_path: bool,
+
     /// Say what is done
     #[clap(short, long)]
     verbose: bool,
@@ -850,18 +854,30 @@ fn main() -> Result<()> {
             };
             main_cont(cont_values!(), res)
         } else {
-            let res = {
-                probe!("get items");
-                let basepath = {
-                    let mut region = global_leaked_regions.get_region();
-                    SegmentedPath::new_from_path(&basepath, &mut region)
-                        .ok_or_else(|| {
-                            anyhow!("path {basepath:?} is not valid")
-                        })?
+            if !opt.dev_segmented_path {
+                let res = {
+                    probe!("get items");
+                    let basepath = {
+                        let mut region = global_leaked_regions.get_region();
+                        region.allocate_path(basepath)
+                    };
+                    get_items.find(basepath, true, &global_leaked_regions)?
                 };
-                get_items.find(basepath, true, &global_leaked_regions)?
-            };
-            main_cont(cont_values!(), res)
+                main_cont(cont_values!(), res)
+            } else {
+                let res = {
+                    probe!("get items");
+                    let basepath = {
+                        let mut region = global_leaked_regions.get_region();
+                        SegmentedPath::new_from_path(&basepath, &mut region)
+                            .ok_or_else(|| {
+                                anyhow!("path {basepath:?} is not valid")
+                            })?
+                    };
+                    get_items.find(basepath, true, &global_leaked_regions)?
+                };
+                main_cont(cont_values!(), res)
+            }
         }
     } else {
         let res = {

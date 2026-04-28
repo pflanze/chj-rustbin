@@ -6,6 +6,7 @@ use std::{
 use crate::{
     kitschcell::{KitschCache, KitschCell},
     leaked_region::{GlobalLeakedRegions, LeakedRegion},
+    lst::path_cmp::ci_cmp_ascii,
 };
 
 /// Provide an initial re-usable buffer for path
@@ -52,8 +53,11 @@ pub struct SegmentedPath<'region> {
     /// otherwise it's faster to regenerate on the fly?)
     lc_name: AtomicPtr<LenStr>,
 
-    // XX temporary for debugging to avoid UB when dumping bytes
-    _unused: u32,
+    /// Whether `orig_name` is short and ASCII; `lc_name()` will not
+    /// be used for comparisons if both compared file names are that
+    /// way
+    is_small_ascii: bool,
+
     _pin: PhantomPinned,
 }
 
@@ -139,7 +143,8 @@ impl<'region> SegmentedPath<'region> {
                 .expect("no path segment can be longer than u16::MAX"),
             lc_name: AtomicPtr::default(),
             _pin: PhantomPinned,
-            _unused: 0xcafebabe,
+            // 28 is better whan 25 or 30 on my Ryzen
+            is_small_ascii: orig_name_len <= 28 && orig_name_bytes.is_ascii(),
         };
 
         // MIRI doesn't like us using `_alloc_struct`, thus use `alloc`.
@@ -344,13 +349,21 @@ impl<'region> SegmentedPath<'region> {
     where
         'region: 't,
     {
-        let n1 = self.lc_name(get_leaked_region);
-        let n2 = other.lc_name(get_leaked_region);
-        n1.cmp(n2).then_with(|| {
-            let n1 = self.orig_name();
-            let n2 = other.orig_name();
-            n1.cmp(n2)
-        })
+        if self.is_small_ascii && other.is_small_ascii {
+            struct InlineIntoCmpFileName;
+            ci_cmp_ascii::<InlineIntoCmpFileName>(
+                self.orig_name().as_encoded_bytes(),
+                other.orig_name().as_encoded_bytes(),
+            )
+        } else {
+            let n1 = self.lc_name(get_leaked_region);
+            let n2 = other.lc_name(get_leaked_region);
+            n1.cmp(n2).then_with(|| {
+                let n1 = self.orig_name();
+                let n2 = other.orig_name();
+                n1.cmp(n2)
+            })
+        }
     }
 
     /// From right to left (i.e. in reverse order)

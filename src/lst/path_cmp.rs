@@ -6,7 +6,7 @@
 //!
 //! Note: also see segmented_path.rs and possibly_segmented_path.rs
 
-use std::{cmp::Ordering, path::Path, str::Chars};
+use std::{cmp::Ordering, iter::Copied, path::Path, str::Chars};
 
 /// Bypasses slow unicode comparison if both chars are ASCII.
 pub fn fast_lowercase_cmp<INLINE>(a: char, b: char) -> Ordering {
@@ -64,4 +64,49 @@ pub fn ci_cmp<INLINE>(a: &Path, b: &Path) -> Ordering {
         }
     }
     a.cmp(b)
+}
+
+/// Same as `ci_tmp` but only valid if both parameters are paths in
+/// ASCII.
+pub fn ci_cmp_ascii<INLINE>(a: &[u8], b: &[u8]) -> Ordering {
+    // Big adapted COPY-PASTE
+    fn filter<'t>(
+        it: Copied<std::slice::Iter<'t, u8>>,
+    ) -> impl Iterator<Item = u8> + 't {
+        it.filter(|c| *c == b'/' || char::from(*c).is_alphanumeric())
+    }
+    let mut achars = filter(a.into_iter().copied());
+    let mut bchars = filter(b.into_iter().copied());
+    // What the ordering is case sensitively while still
+    // ignoring non-alphanumeric characters
+    let mut stricter_ordering = Ordering::Equal;
+    loop {
+        if let Some(ac) = achars.next() {
+            if let Some(bc) = bchars.next() {
+                match ac.to_ascii_lowercase().cmp(&bc.to_ascii_lowercase()) {
+                    Ordering::Equal => {
+                        if stricter_ordering == Ordering::Equal {
+                            // ac == bc in lower-case; now
+                            // order lower-case versions
+                            // *before* upper-case ones--the
+                            // whole point of the
+                            // stricter_ordering variable over
+                            // just doing `a.cmp(b)` in the
+                            // end
+                            stricter_ordering = bc.cmp(&ac);
+                        }
+                    }
+                    v => return v,
+                }
+            } else {
+                return Ordering::Greater;
+            }
+        } else if bchars.next().is_some() {
+            return Ordering::Less;
+        } else {
+            // Don't return Equal, still make it
+            // deterministic:
+            return stricter_ordering.then_with(|| a.cmp(b));
+        }
+    }
 }

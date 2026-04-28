@@ -46,10 +46,10 @@ pub struct SegmentedPath<'region> {
     /// the end); data follows immediately after the struct.
     orig_name_len: u16,
 
-    /// Version of the file name for comparison (lower-cased etc.);
-    /// generated on demand, nullptr means not generated yet. (Only
-    /// generated if `orig_name_len` is longer than 8 B or not ascii,
-    /// because otherwise it's faster to regenerate on the fly?)
+    /// Version of the file name for comparison.  Generated on demand,
+    /// nullptr means not generated yet. (Only generated if
+    /// `orig_name_len` is longer than 8 B or not ascii, because
+    /// otherwise it's faster to regenerate on the fly?)
     lc_name: AtomicPtr<LenStr>,
 
     // XX temporary for debugging to avoid UB when dumping bytes
@@ -104,11 +104,7 @@ fn segmented_path_ord<'region>(
 
     _segmented_path_ord(p1s, p2s, &mut get_leaked_region).then_with(|| {
         // Which path ran out?
-        if p1.depth < p2.depth {
-            Ordering::Less
-        } else {
-            Ordering::Greater
-        }
+        p1.depth.cmp(&p2.depth)
     })
 }
 
@@ -254,7 +250,9 @@ impl<'region> SegmentedPath<'region> {
         osstr.as_ref()
     }
 
-    /// Generates `lc_name` and caches it if not generated already
+    /// Version of the file name in unicode lower-case, with
+    /// non-alphanumeric characters removed. Generated and cached on
+    /// first access.
     pub fn lc_name<'t>(
         &self,
         get_leaked_region: &mut impl KitschCache<LeakedRegion<'region>>,
@@ -281,14 +279,16 @@ impl<'region> SegmentedPath<'region> {
 
             let mut i = 0;
             for c in orig_name_lossy.chars() {
-                if c.is_ascii() {
-                    let cl = c.to_ascii_lowercase() as u8;
-                    alloc_data[i] = cl;
-                    i += 1;
-                } else {
-                    for c in c.to_lowercase() {
-                        let encoded = c.encode_utf8(&mut alloc_data[i..]);
-                        i += encoded.len();
+                if c.is_alphanumeric() {
+                    if c.is_ascii() {
+                        let cl = c.to_ascii_lowercase() as u8;
+                        alloc_data[i] = cl;
+                        i += 1;
+                    } else {
+                        for c in c.to_lowercase() {
+                            let encoded = c.encode_utf8(&mut alloc_data[i..]);
+                            i += encoded.len();
+                        }
                     }
                 }
             }
@@ -346,7 +346,11 @@ impl<'region> SegmentedPath<'region> {
     {
         let n1 = self.lc_name(get_leaked_region);
         let n2 = other.lc_name(get_leaked_region);
-        n1.cmp(n2)
+        n1.cmp(n2).then_with(|| {
+            let n1 = self.orig_name();
+            let n2 = other.orig_name();
+            n1.cmp(n2)
+        })
     }
 
     /// From right to left (i.e. in reverse order)
@@ -414,7 +418,11 @@ mod tests {
                 let mut tmp = tmp_path_buffer();
                 let path2: &str =
                     spath.to_path(&mut tmp).to_str().expect("was str");
-                let mut segs = spath.lc_name_segments(&mut get_region);
+                let mut segs: Vec<&str> = spath
+                    .orig_name_segments()
+                    .into_iter()
+                    .map(|s| s.to_str().expect("was str thus still is"))
+                    .collect();
                 segs.reverse();
                 dbg!((path, &segs));
                 assert_eq!(path2, expected_path2);

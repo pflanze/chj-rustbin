@@ -25,7 +25,7 @@ pub fn ci_cmp<INLINE>(a: &Path, b: &Path) -> Ordering {
     if let Some(a) = a.to_str() {
         if let Some(b) = b.to_str() {
             fn filter<'t>(it: Chars<'t>) -> impl Iterator<Item = char> + 't {
-                it.filter(|c| c.is_alphanumeric())
+                it.filter(|c| *c == '/' || c.is_alphanumeric())
             }
             let mut achars = filter(a.chars());
             let mut bchars = filter(b.chars());

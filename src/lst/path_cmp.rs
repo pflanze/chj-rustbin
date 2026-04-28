@@ -22,6 +22,14 @@ pub fn fast_lowercase_cmp<INLINE>(a: char, b: char) -> Ordering {
 /// optimizes the ASCII case. Warning: if either path is not in
 /// unicode encoding, falls back to Path's default Ord comparison!
 pub fn ci_cmp<INLINE>(a: &Path, b: &Path) -> Ordering {
+    {
+        let a = a.as_os_str().as_encoded_bytes();
+        let b = b.as_os_str().as_encoded_bytes();
+        if a.is_ascii() && b.is_ascii() {
+            return ci_cmp_ascii::<INLINE>(a, b);
+        }
+    }
+
     if let Some(a) = a.to_str() {
         if let Some(b) = b.to_str() {
             fn filter<'t>(it: Chars<'t>) -> impl Iterator<Item = char> + 't {

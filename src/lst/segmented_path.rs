@@ -9,6 +9,12 @@ use crate::{
     lst::path_cmp::ci_cmp_ascii,
 };
 
+fn pointer_eq<T>(a: &T, b: &T) -> bool {
+    let a: *const T = a;
+    let b: *const T = b;
+    a == b
+}
+
 /// Provide an initial re-usable buffer for path
 /// construction. Functions push into this vector; clear it beforehand
 /// if necessary.
@@ -81,6 +87,9 @@ fn _segmented_path_ord<'t: 'u, 'u, 'region: 't>(
     p2: &SegmentedPath<'region>,
     get_leaked_region: &mut impl KitschCache<LeakedRegion<'region>>,
 ) -> Ordering {
+    if pointer_eq(p1, p2) {
+        return Ordering::Equal;
+    }
     if let Some(p1p) = p1.parent {
         let p2p = p2
             .parent
@@ -97,6 +106,12 @@ fn segmented_path_ord<'region>(
     p2: &SegmentedPath<'region>,
     regions: &'region GlobalLeakedRegions,
 ) -> Ordering {
+    // XX do we need to check pointers first for optim?
+    if pointer_eq(p1, p2) {
+        unreachable!("we ASSUME that sort never does that?");
+        // return Ordering::Equal;
+    }
+
     let shared_len = p1.depth.min(p2.depth);
     let p1s = p1.take_segments(shared_len).expect("have shared_len");
     let p2s = p2.take_segments(shared_len).expect("have shared_len");
@@ -349,6 +364,11 @@ impl<'region> SegmentedPath<'region> {
     where
         'region: 't,
     {
+        // XX do we need to check pointers first for optim?
+        if pointer_eq(self, other) {
+            unreachable!()
+        }
+
         if self.is_small_ascii && other.is_small_ascii {
             struct InlineIntoCmpFileName;
             ci_cmp_ascii::<InlineIntoCmpFileName>(

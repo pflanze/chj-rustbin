@@ -287,12 +287,9 @@ impl<'g> LeakedRegion<'g> {
     /// allocation; and the last `num_bytes` of that last allocation
     /// must be unused.
     pub unsafe fn return_unused(&mut self, num_bytes: usize) {
-        let off: isize = num_bytes
-            .try_into()
-            .expect("expect num_bytes to be small enough to fit in isize");
         let inner_leaked_region =
             self.inner_leaked_region.as_mut().expect("always there");
-        let data2 = inner_leaked_region.current.data.offset(off);
+        let data2 = inner_leaked_region.current.data.sub(num_bytes);
         inner_leaked_region.current.data = data2;
     }
 

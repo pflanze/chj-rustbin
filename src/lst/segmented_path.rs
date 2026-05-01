@@ -15,6 +15,12 @@ fn pointer_eq<T>(a: &T, b: &T) -> bool {
     a == b
 }
 
+fn pointer_eq_opt<T>(a: Option<&T>, b: Option<&T>) -> bool {
+    let a: *const T = a.map_or(std::ptr::null(), |r| r);
+    let b: *const T = b.map_or(std::ptr::null(), |r| r);
+    a == b
+}
+
 /// Provide an initial re-usable buffer for path
 /// construction. Functions push into this vector; clear it beforehand
 /// if necessary.
@@ -69,10 +75,9 @@ pub struct SegmentedPath<'region> {
 
 impl<'region> PartialEq for SegmentedPath<'region> {
     fn eq(&self, other: &Self) -> bool {
-        self.depth == other.depth
+        pointer_eq_opt(self.parent, other.parent)
             && self.orig_name_len == other.orig_name_len
             && self.orig_name() == other.orig_name()
-            && self.parent == other.parent
     }
 }
 

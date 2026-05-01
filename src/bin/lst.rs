@@ -409,13 +409,12 @@ mod tests {
                 }
             })
             .collect();
-        let regions = GlobalLeakedRegions::new(1_000_000);
         let cmp = cmp_function(
             rng.gen_bool(0.5),
             rng.gen_bool(0.5),
             rng.gen_bool(0.5),
         );
-        items.par_sort_by(|a, b| cmp(a, b, &regions));
+        items.par_sort_by(|a, b| cmp(a, b));
         let items = items;
 
         // Search for invalid optimizations
@@ -517,41 +516,40 @@ fn cmp_function<
 ) -> fn(
     a: &Item<'region, P, InlineLst>,
     b: &Item<'region, P, InlineLst>,
-    region: &'region GlobalLeakedRegions,
 ) -> Ordering {
     if !time {
         if reverse {
-            |b, a, region| a.path.ci_cmp(b.path, region)
+            |b, a| a.path.ci_cmp(b.path)
         } else {
-            |a, b, region| a.path.ci_cmp(b.path, region)
+            |a, b| a.path.ci_cmp(b.path)
         }
     } else {
         if time_reversed {
             if !reverse {
-                |a, b, region| {
+                |a, b| {
                     a.mtime()
                         .cmp(&b.mtime())
-                        .then_with(|| a.path.ci_cmp(b.path, region))
+                        .then_with(|| a.path.ci_cmp(b.path))
                 }
             } else {
-                |b, a, region| {
+                |b, a| {
                     a.mtime()
                         .cmp(&b.mtime())
-                        .then_with(|| a.path.ci_cmp(b.path, region))
+                        .then_with(|| a.path.ci_cmp(b.path))
                 }
             }
         } else {
             if reverse {
-                |a, b, region| {
+                |a, b| {
                     a.mtime()
                         .cmp(&b.mtime())
-                        .then_with(|| b.path.ci_cmp(a.path, region))
+                        .then_with(|| b.path.ci_cmp(a.path))
                 }
             } else {
-                |b, a, region| {
+                |b, a| {
                     a.mtime()
                         .cmp(&b.mtime())
-                        .then_with(|| b.path.ci_cmp(a.path, region))
+                        .then_with(|| b.path.ci_cmp(a.path))
                 }
             }
         }
@@ -820,7 +818,6 @@ fn main() -> Result<()> {
             MainContVals {
                 opt,
                 cmds,
-                global_leaked_regions: &global_leaked_regions,
                 now,
                 output_record_separator,
                 use_color,
@@ -896,10 +893,9 @@ fn main() -> Result<()> {
     }
 }
 
-struct MainContVals<'region> {
+struct MainContVals {
     opt: Opt,
     cmds: Vec<ProcessingCommand>,
-    global_leaked_regions: &'region GlobalLeakedRegions,
     now: SystemTime,
     output_record_separator: u8,
     use_color: bool,
@@ -911,18 +907,17 @@ fn main_cont<
 >(
     MainContVals {
         opt,
-        global_leaked_regions,
         cmds,
         now,
         output_record_separator,
         use_color,
-    }: MainContVals<'region>,
+    }: MainContVals,
     (mut items, errors): (Vec<Item<'region, P, InlineLst>>, Vec<anyhow::Error>),
 ) -> Result<()> {
     let cmp = cmp_function::<P>(opt.reverse, opt.time, opt.time_reversed);
     {
         probe!("sort_items");
-        items.par_sort_by(|a, b| cmp(a, b, &global_leaked_regions));
+        items.par_sort_by(|a, b| cmp(a, b));
     }
 
     let selected_items = run_processing_commands(

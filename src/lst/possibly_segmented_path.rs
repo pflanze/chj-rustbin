@@ -3,16 +3,12 @@
 use std::{cmp::Ordering, ffi::OsStr, fmt::Debug, path::Path};
 
 use crate::{
-    leaked_region::{GlobalLeakedRegions, LeakedRegion},
+    leaked_region::LeakedRegion,
     lst::{path_cmp, segmented_path::SegmentedPath},
 };
 
 pub trait PossiblySegmentedPath<'region, INLINE>: Debug {
-    fn ci_cmp(
-        self,
-        other: Self,
-        regions: &'region GlobalLeakedRegions,
-    ) -> Ordering;
+    fn ci_cmp(self, other: Self) -> Ordering;
 
     fn psp_add_segment(
         self,
@@ -26,11 +22,7 @@ pub trait PossiblySegmentedPath<'region, INLINE>: Debug {
 }
 
 impl<'region, INLINE> PossiblySegmentedPath<'region, INLINE> for &'region Path {
-    fn ci_cmp(
-        self,
-        other: Self,
-        _regions: &'region GlobalLeakedRegions,
-    ) -> Ordering {
+    fn ci_cmp(self, other: Self) -> Ordering {
         path_cmp::ci_cmp::<INLINE>(self, other)
     }
 
@@ -73,12 +65,8 @@ impl<'region, INLINE> PossiblySegmentedPath<'region, INLINE> for &'region Path {
 impl<'region, INLINE> PossiblySegmentedPath<'region, INLINE>
     for &'region SegmentedPath<'region>
 {
-    fn ci_cmp(
-        self,
-        other: Self,
-        regions: &'region GlobalLeakedRegions,
-    ) -> Ordering {
-        self.cmp(other, regions)
+    fn ci_cmp(self, other: Self) -> Ordering {
+        self.cmp(other)
     }
 
     fn psp_add_segment(

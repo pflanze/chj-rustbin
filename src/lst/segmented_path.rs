@@ -1,13 +1,9 @@
 use std::{
     cmp::Ordering, ffi::OsStr, marker::PhantomPinned, path::Path,
-    slice::from_raw_parts, sync::atomic::AtomicPtr,
+    slice::from_raw_parts,
 };
 
-use crate::{
-    kitschcell::{KitschCache, KitschCell},
-    leaked_region::{GlobalLeakedRegions, LeakedRegion},
-    lst::path_cmp::ci_cmp_ascii,
-};
+use crate::leaked_region::LeakedRegion;
 
 fn pointer_eq<T>(a: &T, b: &T) -> bool {
     let a: *const T = a;
@@ -28,47 +24,18 @@ pub fn tmp_path_buffer() -> Vec<u8> {
     Vec::with_capacity(512)
 }
 
-/// A `str` with length provided in the allocation together with the
-/// data following after it
-#[derive(Debug)]
-struct LenStr {
-    len: u32,
-    _pin: PhantomPinned,
-}
-
-impl LenStr {
-    /// Must be non-null, and allocated with the str immediately
-    /// following it.
-    unsafe fn deref<'t>(this: *const Self) -> &'t str {
-        unsafe {
-            let r: &Self = &*this;
-            let this_bytes = this as *const u8;
-            let data = this_bytes.add(size_of::<Self>());
-            let byteslice = from_raw_parts(data, r.len as usize);
-            std::str::from_utf8_unchecked(byteslice)
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct SegmentedPath<'region> {
     parent: Option<&'region SegmentedPath<'region>>,
     depth: u16,
 
+    /// Length of the version of the file name for comparison; data
+    /// follows immediately after the struct.
+    lc_name_len: u32,
+
     /// Length of the original file name (OsStr) as bytes (no \0 at
-    /// the end); data follows immediately after the struct.
+    /// the end); data follows immediately after the `lc_name` data.
     orig_name_len: u16,
-
-    /// Version of the file name for comparison.  Generated on demand,
-    /// nullptr means not generated yet. (Only generated if
-    /// `orig_name_len` is longer than 8 B or not ascii, because
-    /// otherwise it's faster to regenerate on the fly?)
-    lc_name: AtomicPtr<LenStr>,
-
-    /// Whether `orig_name` is short and ASCII; `lc_name()` will not
-    /// be used for comparisons if both compared file names are that
-    /// way
-    is_small_ascii: bool,
 
     _pin: PhantomPinned,
 }
@@ -83,14 +50,10 @@ impl<'region> PartialEq for SegmentedPath<'region> {
 
 impl<'region> Eq for SegmentedPath<'region> {}
 
-// Can't implement PartialOrd / Ord since it needs an allocator, use
-// SegmentedPath::cmp instead.
-
 // Both must be of the same depth !
 fn _segmented_path_ord<'t: 'u, 'u, 'region: 't>(
     p1: &SegmentedPath<'region>,
     p2: &SegmentedPath<'region>,
-    get_leaked_region: &mut impl KitschCache<LeakedRegion<'region>>,
 ) -> Ordering {
     if pointer_eq(p1, p2) {
         return Ordering::Equal;
@@ -99,17 +62,15 @@ fn _segmented_path_ord<'t: 'u, 'u, 'region: 't>(
         let p2p = p2
             .parent
             .expect("expect that both segmented paths are of the same length");
-        _segmented_path_ord(p1p, p2p, get_leaked_region)
-            .then_with(|| p1.cmp_file_name(p2, get_leaked_region))
+        _segmented_path_ord(p1p, p2p).then_with(|| p1.cmp_file_name(p2))
     } else {
-        p1.cmp_file_name(p1, get_leaked_region)
+        p1.cmp_file_name(p1)
     }
 }
 
 fn segmented_path_ord<'region>(
     p1: &SegmentedPath<'region>,
     p2: &SegmentedPath<'region>,
-    regions: &'region GlobalLeakedRegions,
 ) -> Ordering {
     // XX do we need to check pointers first for optim?
     if pointer_eq(p1, p2) {
@@ -121,15 +82,34 @@ fn segmented_path_ord<'region>(
     let p1s = p1.take_segments(shared_len).expect("have shared_len");
     let p2s = p2.take_segments(shared_len).expect("have shared_len");
 
-    let mut get_leaked_region =
-        KitschCell::Uninitialized(|| -> LeakedRegion<'region> {
-            regions.get_region()
-        });
-
-    _segmented_path_ord(p1s, p2s, &mut get_leaked_region).then_with(|| {
+    _segmented_path_ord(p1s, p2s).then_with(|| {
         // Which path ran out?
         p1.depth.cmp(&p2.depth)
     })
+}
+
+/// Store those characters compared via `ci_cmp`. Returns stored
+/// length, and remainder of allocation
+fn store_ci_cmp_chars<'a>(
+    s: &str,
+    alloc: &'a mut [u8],
+) -> (usize, &'a mut [u8]) {
+    let mut i = 0;
+    for c in s.chars() {
+        if c.is_alphanumeric() {
+            if c.is_ascii() {
+                let cl = c.to_ascii_lowercase() as u8;
+                alloc[i] = cl;
+                i += 1;
+            } else {
+                for c in c.to_lowercase() {
+                    let encoded = c.encode_utf8(&mut alloc[i..]);
+                    i += encoded.len();
+                }
+            }
+        }
+    }
+    (i, &mut alloc[i..])
 }
 
 impl<'region> SegmentedPath<'region> {
@@ -142,13 +122,21 @@ impl<'region> SegmentedPath<'region> {
         const STRUCT_ALIGN: usize = align_of::<SegmentedPath>();
 
         let orig_name_bytes = orig_name.as_encoded_bytes();
-        #[allow(unused)]
-        let orig_name = ();
         let orig_name_len = orig_name_bytes.len();
 
-        let alloc_len = STRUCT_SIZE + orig_name_len;
+        let alloc_len = STRUCT_SIZE + orig_name_len * 9; // 1 orig, 2 unicode chars for lc
         let alloc = leaked_region.allocate::<STRUCT_ALIGN>(alloc_len);
-        let (_alloc_struct, alloc_orig) = alloc.split_at_mut(STRUCT_SIZE);
+        let (_alloc_struct, tail) = alloc.split_at_mut(STRUCT_SIZE);
+
+        let (lc_name_len, tail) = {
+            let orig_name_lossy = orig_name.to_string_lossy();
+            store_ci_cmp_chars(&orig_name_lossy, tail)
+        };
+
+        #[allow(unused)]
+        let orig_name = ();
+
+        let (alloc_orig, rest) = tail.split_at_mut(orig_name_len);
         alloc_orig.copy_from_slice(orig_name_bytes);
 
         let depth = match parent {
@@ -158,14 +146,20 @@ impl<'region> SegmentedPath<'region> {
         let slf = Self {
             parent,
             depth,
+            lc_name_len: lc_name_len
+                .try_into()
+                .expect("no path segment, even after UTF-8 lowercasing, can be longer than u32::MAX"),
             orig_name_len: orig_name_len
                 .try_into()
                 .expect("no path segment can be longer than u16::MAX"),
-            lc_name: AtomicPtr::default(),
             _pin: PhantomPinned,
-            // 28 is better whan 25 or 30 on my Ryzen
-            is_small_ascii: orig_name_len <= 28 && orig_name_bytes.is_ascii(),
         };
+
+        let used = STRUCT_SIZE + lc_name_len + orig_name_len;
+        debug_assert_eq!(used + rest.len(), alloc_len);
+        unsafe {
+            leaked_region.return_unused(rest.len());
+        }
 
         // MIRI doesn't like us using `_alloc_struct`, thus use `alloc`.
         let self_ptr = alloc.as_mut_ptr() as *mut Self;
@@ -174,7 +168,7 @@ impl<'region> SegmentedPath<'region> {
             std::ptr::write(self_ptr, slf);
         }
 
-        // dbg!(&alloc);
+        // dbg!(&alloc[0..used]);
 
         unsafe {
             // SAFETY: We just wrote the value. The lifetime is that
@@ -215,7 +209,13 @@ impl<'region> SegmentedPath<'region> {
         p
     }
 
-    pub fn orig_name(&self) -> &'region OsStr {
+    /// Version of the file name in unicode lower-case, with
+    /// non-alphanumeric characters removed.
+    // Follows immediately after the struct
+    pub fn lc_name<'t>(&self) -> &'region str
+    where
+        'region: 't,
+    {
         const STRUCT_SIZE: usize = size_of::<SegmentedPath>();
         let self_ptr: *const Self = self;
         let self_addr = self_ptr as *const u8;
@@ -223,6 +223,25 @@ impl<'region> SegmentedPath<'region> {
             // Safety: `new` allocates the whole thing in one go, and
             // we don't go past it
             self_addr.add(STRUCT_SIZE)
+        };
+        let bytes: &[u8] =
+            unsafe { from_raw_parts(bytes_addr, self.lc_name_len as usize) };
+        unsafe {
+            // Safety: we created the bytes as UTF-8 in `new`
+            std::str::from_utf8_unchecked(bytes)
+        }
+    }
+
+    /// The original file name.
+    // Follows after lc_name
+    pub fn orig_name(&self) -> &'region OsStr {
+        const STRUCT_SIZE: usize = size_of::<SegmentedPath>();
+        let self_ptr: *const Self = self;
+        let self_addr = self_ptr as *const u8;
+        let bytes_addr = unsafe {
+            // Safety: `new` allocates the whole thing in one go, and
+            // we don't go past it
+            self_addr.add(STRUCT_SIZE).add(self.lc_name_len as usize)
         };
         let bytes: &[u8] =
             unsafe { from_raw_parts(bytes_addr, self.orig_name_len as usize) };
@@ -275,97 +294,15 @@ impl<'region> SegmentedPath<'region> {
         osstr.as_ref()
     }
 
-    /// Version of the file name in unicode lower-case, with
-    /// non-alphanumeric characters removed. Generated and cached on
-    /// first access.
-    pub fn lc_name<'t>(
-        &self,
-        get_leaked_region: &mut impl KitschCache<LeakedRegion<'region>>,
-    ) -> &'region str
-    where
-        'region: 't,
-    {
-        // XX optimize?: for lc file name lengths <=
-        // `size_of::<self.lc_name>`, store inline in the atomic (as
-        // fake pointer)?
-
-        // XX which Ordering ?
-        let mut p = self.lc_name.load(std::sync::atomic::Ordering::Relaxed);
-        if p.is_null() {
-            let orig_name_lossy = self.orig_name().to_string_lossy();
-
-            const STRUCT_SIZE: usize = size_of::<LenStr>();
-            const STRUCT_ALIGN: usize = align_of::<LenStr>();
-            let alloc_len = STRUCT_SIZE + orig_name_lossy.len() * 4;
-            let leaked_region = get_leaked_region.get();
-            let alloc = leaked_region.allocate::<STRUCT_ALIGN>(alloc_len);
-
-            let (_alloc_struct, alloc_data) = alloc.split_at_mut(STRUCT_SIZE);
-
-            let mut i = 0;
-            for c in orig_name_lossy.chars() {
-                if c.is_alphanumeric() {
-                    if c.is_ascii() {
-                        let cl = c.to_ascii_lowercase() as u8;
-                        alloc_data[i] = cl;
-                        i += 1;
-                    } else {
-                        for c in c.to_lowercase() {
-                            let encoded = c.encode_utf8(&mut alloc_data[i..]);
-                            i += encoded.len();
-                        }
-                    }
-                }
-            }
-
-            let len: u32 =
-                i.try_into().expect("expect segment name length < u32::MAX");
-
-            // MIRI doesn't like us using `_alloc_struct`, thus use `alloc`.
-            p = alloc.as_mut_ptr() as *mut LenStr;
-            unsafe {
-                // SAFETY: using the space reserved for the struct, of
-                // STRUCT_SIZE length, aligned by STRUCT_ALIGN
-                p.write(LenStr {
-                    len,
-                    _pin: PhantomPinned,
-                });
-            }
-
-            unsafe {
-                // SAFETY: STRUCT_SIZE + i bytes were written without
-                // panic, hence no overflow; the remainder is unused.
-                leaked_region.return_unused(alloc_len - i - STRUCT_SIZE);
-            }
-
-            // XX which Ordering ?
-            self.lc_name.store(p, std::sync::atomic::Ordering::Relaxed);
-        }
-
-        unsafe {
-            // Safety: is not null, and properly initialized from
-            // above
-            LenStr::deref(p)
-        }
-    }
-
-    /// Can't implement PartialOrd / Ord since it needs an allocator,
-    /// hence this method
-    pub fn cmp(
-        &self,
-        other: &Self,
-        regions: &'region GlobalLeakedRegions,
-    ) -> Ordering {
-        segmented_path_ord(self, other, regions)
+    /// In the past needed an allocator, hence didn't implement
+    /// PartialOrd / Ord; XX change now?
+    pub fn cmp(&self, other: &Self) -> Ordering {
+        segmented_path_ord(self, other)
     }
 
     /// Compare the file names, only (lower-cased), completely
     /// ignoring the parents
-    pub fn cmp_file_name<'t>(
-        &self,
-        other: &Self,
-        get_leaked_region: &mut impl KitschCache<LeakedRegion<'region>>,
-    ) -> Ordering
+    pub fn cmp_file_name<'t>(&self, other: &Self) -> Ordering
     where
         'region: 't,
     {
@@ -374,21 +311,13 @@ impl<'region> SegmentedPath<'region> {
             unreachable!()
         }
 
-        if self.is_small_ascii && other.is_small_ascii {
-            struct InlineIntoCmpFileName;
-            ci_cmp_ascii::<InlineIntoCmpFileName>(
-                self.orig_name().as_encoded_bytes(),
-                other.orig_name().as_encoded_bytes(),
-            )
-        } else {
-            let n1 = self.lc_name(get_leaked_region);
-            let n2 = other.lc_name(get_leaked_region);
-            n1.cmp(n2).then_with(|| {
-                let n1 = self.orig_name();
-                let n2 = other.orig_name();
-                n1.cmp(n2)
-            })
-        }
+        let n1 = self.lc_name();
+        let n2 = other.lc_name();
+        n1.cmp(n2).then_with(|| {
+            let n1 = self.orig_name();
+            let n2 = other.orig_name();
+            n1.cmp(n2)
+        })
     }
 
     /// From right to left (i.e. in reverse order)
@@ -406,14 +335,11 @@ impl<'region> SegmentedPath<'region> {
     }
 
     /// From right to left (i.e. in reverse order)
-    pub fn lc_name_segments(
-        &self,
-        get_leaked_region: &mut impl KitschCache<LeakedRegion<'region>>,
-    ) -> Vec<&'region str> {
+    pub fn lc_name_segments(&self) -> Vec<&'region str> {
         let mut v = Vec::new();
         let mut p = self;
         loop {
-            v.push(p.lc_name(get_leaked_region));
+            v.push(p.lc_name());
             if let Some(parent) = p.parent {
                 p = parent;
             } else {
@@ -426,12 +352,17 @@ impl<'region> SegmentedPath<'region> {
 #[test]
 fn t_size() {
     // Should be true even on 32-bit architectures?
-    assert_eq!(size_of::<SegmentedPath>(), 24);
+    assert_eq!(size_of::<SegmentedPath>(), 16);
 }
 
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
+
+    use crate::{
+        kitschcell::{KitschCache, KitschCell},
+        leaked_region::GlobalLeakedRegions,
+    };
 
     use super::*;
 

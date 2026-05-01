@@ -7,7 +7,6 @@ use std::{
     mem::swap,
     os::unix::ffi::OsStrExt,
     path::Path,
-    slice::from_raw_parts_mut,
     sync::Mutex,
     thread::ThreadId,
 };
@@ -15,71 +14,9 @@ use std::{
 use log::trace;
 use memmap2::{MmapMut, MmapOptions};
 
-use crate::unsync_unsend::UnSyncUnSend;
-
-#[derive(Debug, Clone, Copy)]
-struct RawSliceMut {
-    data: *mut u8,
-    len: usize,
-}
-
-impl From<&mut [u8]> for RawSliceMut {
-    fn from(sl: &mut [u8]) -> Self {
-        let data = sl.as_mut_ptr();
-        let len = sl.len();
-        Self { data, len }
-    }
-}
-
-impl RawSliceMut {
-    // Silence clippy: why take &mut when the type is Copy--which is
-    // the whole point of the unsafe.
-    #[allow(clippy::wrong_self_convention)]
-    unsafe fn to_slice_mut<'t>(self) -> &'t mut [u8] {
-        let Self { data, len } = self;
-        from_raw_parts_mut(data, len)
-    }
-
-    fn aligned<const ALIGN: usize>(self) -> Option<Self> {
-        const {
-            assert!(ALIGN.count_ones() == 1);
-        }
-        let Self { data, len } = self;
-        let offset = data.align_offset(ALIGN);
-        if offset < len {
-            let data = unsafe {
-                // SAFETY: checked above that it lies within the
-                // allocation. The pointer type is `*mut u8`, hence
-                // offsets are in bytes, as is `ALIGN`.
-                data.add(offset)
-            };
-            let len = len - offset;
-            Some(Self { data, len })
-        } else {
-            None
-        }
-    }
-
-    fn split_at_mut(self, pos: usize) -> (RawSliceMut, RawSliceMut) {
-        let Self { data, len } = self;
-        assert!(pos <= len);
-        // unnecessary check?, as data+len must be within usize and
-        // thus data+pos, too.
-        assert!(pos <= isize::MAX as usize);
-        let head = RawSliceMut { data, len: pos };
-        let rest = RawSliceMut {
-            data: unsafe {
-                // Assuming that `self` is valid, this is safe because
-                // pos is within len as checked above, and it is
-                // within isize as checked above or as implied by
-                // `self` being valid.
-                data.add(pos)
-            },
-            len: len - pos,
-        };
-        (head, rest)
-    }
-}
+use crate::{
+    unsafe_util::raw_slice_mut::RawSliceMut, unsync_unsend::UnSyncUnSend,
+};
 
 /// A holder for all `LeakedRegion`s across the program, to cache them
 /// for each thread.
@@ -151,7 +88,7 @@ impl<'g> Drop for LeakedRegion<'g> {
         if let Some(inner_leaked_region) = self.inner_leaked_region.take() {
             let cutoff = 1.max(self.global_leaked_regions.min_region_size / 2);
             let InnerLeakedRegion { current } = inner_leaked_region;
-            let do_put_back = current.len > cutoff;
+            let do_put_back = current.len() > cutoff;
             trace!(
                 "LeakedRegion::drop(current = {current:?}): cutoff={cutoff}, \
                  do_put_back={do_put_back}"
@@ -233,7 +170,7 @@ impl<'g> LeakedRegion<'g> {
         if let Some(current_aligned) =
             inner_leaked_region.current.aligned::<ALIGN>()
         {
-            if num_bytes <= current_aligned.len {
+            if num_bytes <= current_aligned.len() {
                 let (res, rest) = current_aligned.split_at_mut(num_bytes);
                 // dbg!(res);
                 inner_leaked_region.current = rest;
@@ -289,8 +226,8 @@ impl<'g> LeakedRegion<'g> {
     pub unsafe fn return_unused(&mut self, num_bytes: usize) {
         let inner_leaked_region =
             self.inner_leaked_region.as_mut().expect("always there");
-        let data2 = inner_leaked_region.current.data.sub(num_bytes);
-        inner_leaked_region.current.data = data2;
+        inner_leaked_region.current =
+            inner_leaked_region.current.start_sub(num_bytes);
     }
 
     pub fn allocate_path<'s, P: AsRef<Path>>(&'s mut self, path: P) -> &'g Path

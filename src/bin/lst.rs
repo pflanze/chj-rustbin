@@ -84,9 +84,9 @@ impl FromStr for ColorMode {
 /// Sorting should behave like `ls` when `--like-ls` is given.
 #[clap(name = "lst from chj-rustbin")]
 struct Opt {
-    /// Use segmented paths as data structure; default: &Path.
+    /// Use &Path to store paths; default: segmented paths.
     #[clap(long)]
-    dev_segmented_path: bool,
+    dev_old_path: bool,
 
     /// Say what is done
     #[clap(short, long)]
@@ -851,7 +851,7 @@ fn main() -> Result<()> {
             };
             main_cont(cont_values!(), res)
         } else {
-            if !opt.dev_segmented_path {
+            if opt.dev_old_path {
                 let res = {
                     probe!("get items");
                     let basepath = {

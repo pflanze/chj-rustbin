@@ -29,11 +29,11 @@ miri-bag:
 # some stuff in it (something like ~2600 entries).
 miri-lst:
 	RUST_LOG=trace MIRIFLAGS='-Zmiri-ignore-leaks -Zmiri-tree-borrows -Zmiri-disable-isolation' \
-           cargo +nightly miri run --bin lst -- -rt --find-dir ~/.mozilla tail 10
+           cargo +nightly miri run --bin lst -- -rt --find-dir ~/.mozilla tail 10 --dev-old-path
 
 miri-lst-segmented:
 	RUST_LOG=trace MIRIFLAGS='-Zmiri-ignore-leaks -Zmiri-tree-borrows -Zmiri-disable-isolation' \
-           cargo +nightly miri run --bin lst -- -rt --find-dir ~/.mozilla tail 10 --dev-segmented-path
+           cargo +nightly miri run --bin lst -- -rt --find-dir ~/.mozilla tail 10
 
 target/release/%: src/bin/%.rs src/*.rs src/io/*.rs src/parse/*.rs src/text/*.rs src/time/*.rs src/util/*.rs
 	cargo build --release

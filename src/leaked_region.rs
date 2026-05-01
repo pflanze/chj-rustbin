@@ -1,4 +1,22 @@
-//! Allocate byte slices in thread-local region allocators
+//! Allocate byte slices in shared thread-local region allocators
+//!
+//! Short-lived tasks, e.g. from Rayon, working on a shared job, may
+//! want to efficiently allocate memory for that job, i.e. from a
+//! region that lives as long as the job's temporary data or
+//! result. Each underlying thread should allocate from the same
+//! sub-region for efficiency, while keeping that sub-region around
+//! for the next task working on the same job in the same thread.
+//!
+//! This is what this module tries to achieve: a single
+//! `GlobalLeakedRegions` is instantiated for the whole job. It is
+//! shared to each spawned task, which calls `get_region`, which gets
+//! back the previously allocated region for the current thread in a
+//! reasonably efficient way[1] (and if there is none yet, a new
+//! region is allocated transparently). The life time of the allocated
+//! memory is the one of the `GlobalLeakedRegions` instance.
+//!
+//! [1]: Currently a mutex is locked for a short time to get it, once
+//! again to drop it; there's potential to improve that more.
 
 use std::{
     collections::{hash_map::Entry, HashMap},

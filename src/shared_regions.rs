@@ -8,12 +8,12 @@
 //! for the next task working on the same job in the same thread.
 //!
 //! This is what this module tries to achieve: a single
-//! `GlobalLeakedRegions` is instantiated for the whole job. It is
+//! `SharedRegions` is instantiated for the whole job. It is
 //! shared to each spawned task, which calls `get_region`, which gets
 //! back the previously allocated region for the current thread in a
 //! reasonably efficient way[1] (and if there is none yet, a new
 //! region is allocated transparently). The life time of the allocated
-//! memory is the one of the `GlobalLeakedRegions` instance.
+//! memory is the one of the `SharedRegions` instance.
 //!
 //! [1]: Currently a mutex is locked for a short time to get it, once
 //! again to drop it; there's potential to improve that more.
@@ -36,14 +36,14 @@ use crate::{
     unsafe_util::raw_slice_mut::RawSliceMut, unsync_unsend::UnSyncUnSend,
 };
 
-/// A holder for all `LeakedRegion`s across the program, to cache them
+/// A holder for all `SharedRegion`s across the program, to cache them
 /// for each thread.
-pub struct GlobalLeakedRegions {
+pub struct SharedRegions {
     /// How many bytes to allocate unless the requested size was larger
     min_region_size: usize,
 
     // (XX update docs) Store the regions here so that the last one
-    // can be retrieved again via LeakedRegion::new (which must remove
+    // can be retrieved again via SharedRegion::new (which must remove
     // the entry here to avoid risking double use of the mut
     // reference), but also to perhaps iterate through all of it in
     // the future. Only store leaked memory here, though, since
@@ -51,17 +51,17 @@ pub struct GlobalLeakedRegions {
     // stores back the mostly-used-up-slice, not the whole region,
     // back here, so won't be useful for reading!
     #[allow(clippy::type_complexity)]
-    regions: Mutex<HashMap<ThreadId, (Vec<MmapMut>, Vec<InnerLeakedRegion>)>>,
+    regions: Mutex<HashMap<ThreadId, (Vec<MmapMut>, Vec<InnerSharedRegion>)>>,
 }
 
 // SAFETY: It's OK to send it or its reference around as `regions` is
-// private and InnerLeakedRegion is only ever accessed by the same
+// private and InnerSharedRegion is only ever accessed by the same
 // thread that created it, which shields it from the outer Send and
 // Sync.
-unsafe impl Send for GlobalLeakedRegions {}
-unsafe impl Sync for GlobalLeakedRegions {}
+unsafe impl Send for SharedRegions {}
+unsafe impl Sync for SharedRegions {}
 
-impl GlobalLeakedRegions {
+impl SharedRegions {
     pub fn new(min_region_size: usize) -> Self {
         Self {
             min_region_size,
@@ -69,16 +69,16 @@ impl GlobalLeakedRegions {
         }
     }
 
-    pub fn get_region(&self) -> LeakedRegion<'_> {
-        LeakedRegion::new(self)
+    pub fn get_region(&self) -> SharedRegion<'_> {
+        SharedRegion::new(self)
     }
 }
 
-struct InnerLeakedRegion {
+struct InnerSharedRegion {
     current: RawSliceMut,
 }
 
-impl InnerLeakedRegion {
+impl InnerSharedRegion {
     fn new(num_bytes: usize, min_region_size: usize) -> (MmapMut, Self) {
         let region_size = min_region_size.max(num_bytes);
         let mut _storage =
@@ -86,7 +86,7 @@ impl InnerLeakedRegion {
             MmapOptions::new().len(region_size).map_anon().expect("succeeds unless out of memory");
         let current = (&mut *_storage).into();
         trace!(
-            "InnerLeakedRegion::new({num_bytes}, {min_region_size}), \
+            "InnerSharedRegion::new({num_bytes}, {min_region_size}), \
              current={current:?}"
         );
         (_storage, Self { current })
@@ -95,36 +95,33 @@ impl InnerLeakedRegion {
 
 /// A fast allocator for byte slices for the current thread (!Sync,
 /// !Send).
-pub struct LeakedRegion<'g> {
+pub struct SharedRegion<'g> {
     _only_on_same_thread: PhantomData<UnSyncUnSend>,
-    global_leaked_regions: &'g GlobalLeakedRegions,
-    inner_leaked_region: Option<InnerLeakedRegion>,
+    shared_regions: &'g SharedRegions,
+    inner_shared_region: Option<InnerSharedRegion>,
 }
 
-impl<'g> Drop for LeakedRegion<'g> {
+impl<'g> Drop for SharedRegion<'g> {
     fn drop(&mut self) {
-        if let Some(inner_leaked_region) = self.inner_leaked_region.take() {
-            let cutoff = 1.max(self.global_leaked_regions.min_region_size / 2);
-            let InnerLeakedRegion { current } = inner_leaked_region;
+        if let Some(inner_shared_region) = self.inner_shared_region.take() {
+            let cutoff = 1.max(self.shared_regions.min_region_size / 2);
+            let InnerSharedRegion { current } = inner_shared_region;
             let do_put_back = current.len() > cutoff;
             trace!(
-                "LeakedRegion::drop(current = {current:?}): cutoff={cutoff}, \
+                "SharedRegion::drop(current = {current:?}): cutoff={cutoff}, \
                  do_put_back={do_put_back}"
             );
             if do_put_back {
                 let thread_id = std::thread::current().id();
-                let mut regions = self
-                    .global_leaked_regions
-                    .regions
-                    .lock()
-                    .expect("no panics");
+                let mut regions =
+                    self.shared_regions.regions.lock().expect("no panics");
                 match regions.entry(thread_id) {
                     Entry::Occupied(occupied_entry) => {
                         let boxes_and_regions = occupied_entry.into_mut();
-                        boxes_and_regions.1.push(inner_leaked_region);
+                        boxes_and_regions.1.push(inner_shared_region);
                     }
                     Entry::Vacant(_) => {
-                        unreachable!("entry for thread was made when creating the LeakedRegion")
+                        unreachable!("entry for thread was made when creating the SharedRegion")
                     }
                 }
             }
@@ -132,20 +129,20 @@ impl<'g> Drop for LeakedRegion<'g> {
     }
 }
 
-impl<'g> LeakedRegion<'g> {
-    fn new(global_leaked_regions: &'g GlobalLeakedRegions) -> Self {
-        let inner_leaked_region = {
+impl<'g> SharedRegion<'g> {
+    fn new(shared_regions: &'g SharedRegions) -> Self {
+        let inner_shared_region = {
             let thread_id = std::thread::current().id();
             let mut boxes_and_regions =
-                global_leaked_regions.regions.lock().expect("no panics");
+                shared_regions.regions.lock().expect("no panics");
             let boxes = match boxes_and_regions.entry(thread_id) {
                 Entry::Occupied(occupied_entry) => {
                     let (boxes, regions) = occupied_entry.into_mut();
-                    if let Some(inner_leaked_region) = regions.pop() {
+                    if let Some(inner_shared_region) = regions.pop() {
                         return Self {
                             _only_on_same_thread: PhantomData,
-                            global_leaked_regions,
-                            inner_leaked_region: Some(inner_leaked_region),
+                            shared_regions,
+                            inner_shared_region: Some(inner_shared_region),
                         };
                     }
                     boxes
@@ -154,18 +151,18 @@ impl<'g> LeakedRegion<'g> {
                     &mut vacant_entry.insert((Vec::new(), Vec::new())).0
                 }
             };
-            let min_region_size = global_leaked_regions.min_region_size;
+            let min_region_size = shared_regions.min_region_size;
 
             // Pass 0 as minimal size, we have no hint about what's needed
-            let (bx, inner_leaked_region) =
-                InnerLeakedRegion::new(0, min_region_size);
+            let (bx, inner_shared_region) =
+                InnerSharedRegion::new(0, min_region_size);
             boxes.push(bx);
-            inner_leaked_region
+            inner_shared_region
         };
         Self {
             _only_on_same_thread: PhantomData,
-            global_leaked_regions,
-            inner_leaked_region: Some(inner_leaked_region),
+            shared_regions,
+            inner_shared_region: Some(inner_shared_region),
         }
     }
 
@@ -183,18 +180,18 @@ impl<'g> LeakedRegion<'g> {
         const {
             assert!(ALIGN.count_ones() == 1);
         }
-        let inner_leaked_region =
-            self.inner_leaked_region.as_mut().expect("always there");
+        let inner_shared_region =
+            self.inner_shared_region.as_mut().expect("always there");
         if let Some(current_aligned) =
-            inner_leaked_region.current.aligned::<ALIGN>()
+            inner_shared_region.current.aligned::<ALIGN>()
         {
             if num_bytes <= current_aligned.len() {
                 let (res, rest) = current_aligned.split_at_mut(num_bytes);
                 // dbg!(res);
-                inner_leaked_region.current = rest;
+                inner_shared_region.current = rest;
                 return unsafe {
                     // Safe because ownership of the storage is in
-                    // GlobalLeakedRegions, and 'g is tied to that. And we
+                    // SharedRegions, and 'g is tied to that. And we
                     // only hand out this slice to the same memory area a
                     // single time.
                     res.to_slice_mut()
@@ -211,26 +208,23 @@ impl<'g> LeakedRegion<'g> {
         let align_surplus = ALIGN - 1;
         let num_bytes_with_surplus = num_bytes + align_surplus;
 
-        let min_region_size = self.global_leaked_regions.min_region_size;
-        let (bx, inner_leaked_region) =
-            InnerLeakedRegion::new(num_bytes_with_surplus, min_region_size);
+        let min_region_size = self.shared_regions.min_region_size;
+        let (bx, inner_shared_region) =
+            InnerSharedRegion::new(num_bytes_with_surplus, min_region_size);
         {
             let thread_id = std::thread::current().id();
-            let mut boxes_and_regions = self
-                .global_leaked_regions
-                .regions
-                .lock()
-                .expect("no panics");
+            let mut boxes_and_regions =
+                self.shared_regions.regions.lock().expect("no panics");
             let boxes_and_regions =
                 boxes_and_regions.get_mut(&thread_id).expect(
-                    "entry was already made when creating this LeakedRegion",
+                    "entry was already made when creating this SharedRegion",
                 );
             boxes_and_regions.0.push(bx);
         }
         let mut other = Self {
             _only_on_same_thread: PhantomData,
-            global_leaked_regions: self.global_leaked_regions,
-            inner_leaked_region: Some(inner_leaked_region),
+            shared_regions: self.shared_regions,
+            inner_shared_region: Some(inner_shared_region),
         };
         swap(self, &mut other);
         self.allocate::<ALIGN>(num_bytes)
@@ -242,10 +236,10 @@ impl<'g> LeakedRegion<'g> {
     /// allocation; and the last `num_bytes` of that last allocation
     /// must be unused.
     pub unsafe fn return_unused(&mut self, num_bytes: usize) {
-        let inner_leaked_region =
-            self.inner_leaked_region.as_mut().expect("always there");
-        inner_leaked_region.current =
-            inner_leaked_region.current.start_sub(num_bytes);
+        let inner_shared_region =
+            self.inner_shared_region.as_mut().expect("always there");
+        inner_shared_region.current =
+            inner_shared_region.current.start_sub(num_bytes);
     }
 
     pub fn allocate_path<'s, P: AsRef<Path>>(&'s mut self, path: P) -> &'g Path

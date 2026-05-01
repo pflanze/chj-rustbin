@@ -3,7 +3,7 @@ use std::{
     slice::from_raw_parts,
 };
 
-use crate::leaked_region::LeakedRegion;
+use crate::shared_regions::SharedRegion;
 
 fn pointer_eq<T>(a: &T, b: &T) -> bool {
     let a: *const T = a;
@@ -116,7 +116,7 @@ impl<'region> SegmentedPath<'region> {
     fn new(
         parent: Option<&'region SegmentedPath<'region>>,
         orig_name: &OsStr,
-        leaked_region: &mut LeakedRegion<'region>,
+        shared_region: &mut SharedRegion<'region>,
     ) -> &'region Self {
         const STRUCT_SIZE: usize = size_of::<SegmentedPath>();
         const STRUCT_ALIGN: usize = align_of::<SegmentedPath>();
@@ -125,7 +125,7 @@ impl<'region> SegmentedPath<'region> {
         let orig_name_len = orig_name_bytes.len();
 
         let alloc_len = STRUCT_SIZE + orig_name_len * 9; // 1 orig, 2 unicode chars for lc
-        let alloc = leaked_region.allocate::<STRUCT_ALIGN>(alloc_len);
+        let alloc = shared_region.allocate::<STRUCT_ALIGN>(alloc_len);
         let (_alloc_struct, tail) = alloc.split_at_mut(STRUCT_SIZE);
 
         let (lc_name_len, tail) = {
@@ -158,7 +158,7 @@ impl<'region> SegmentedPath<'region> {
         let used = STRUCT_SIZE + lc_name_len + orig_name_len;
         debug_assert_eq!(used + rest.len(), alloc_len);
         unsafe {
-            leaked_region.return_unused(rest.len());
+            shared_region.return_unused(rest.len());
         }
 
         // MIRI doesn't like us using `_alloc_struct`, thus use `alloc`.
@@ -182,15 +182,15 @@ impl<'region> SegmentedPath<'region> {
     pub fn add_segment(
         self: &'region Self,
         orig_name: &OsStr,
-        leaked_region: &mut LeakedRegion<'region>,
+        shared_region: &mut SharedRegion<'region>,
     ) -> &'region Self {
-        Self::new(Some(self), orig_name, leaked_region)
+        Self::new(Some(self), orig_name, shared_region)
     }
 
     /// Returns None for the path ""
     pub fn new_from_path(
         path: &Path,
-        leaked_region: &mut LeakedRegion<'region>,
+        shared_region: &mut SharedRegion<'region>,
     ) -> Option<&'region Self> {
         let mut p = None;
         for segment in path {
@@ -204,7 +204,7 @@ impl<'region> SegmentedPath<'region> {
                 // SAFETY: back from what we had, or empty, is OK?
                 OsStr::from_encoded_bytes_unchecked(use_segment)
             };
-            p = Some(SegmentedPath::new(p, use_segment_osstr, leaked_region));
+            p = Some(SegmentedPath::new(p, use_segment_osstr, shared_region));
         }
         p
     }
@@ -361,24 +361,24 @@ mod tests {
 
     use crate::{
         kitschcell::{KitschCache, KitschCell},
-        leaked_region::GlobalLeakedRegions,
+        shared_regions::SharedRegions,
     };
 
     use super::*;
 
     fn p<'region>(
         path: &str,
-        region: &mut LeakedRegion<'region>,
+        region: &mut SharedRegion<'region>,
     ) -> Option<&'region SegmentedPath<'region>> {
         SegmentedPath::new_from_path(path.as_ref(), region)
     }
 
     #[test]
     fn t_() -> Result<()> {
-        let regions = GlobalLeakedRegions::new(1_000_000);
+        let regions = SharedRegions::new(1_000_000);
         let mut ps = {
             let mut get_region =
-                KitschCell::Uninitialized(|| -> LeakedRegion {
+                KitschCell::Uninitialized(|| -> SharedRegion {
                     regions.get_region()
                 });
             move |path: &str, expected_path2: &str| -> Option<Vec<&str>> {

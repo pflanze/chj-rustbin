@@ -3,8 +3,8 @@
 use std::{cmp::Ordering, ffi::OsStr, fmt::Debug, path::Path};
 
 use crate::{
-    leaked_region::LeakedRegion,
     lst::{path_cmp, segmented_path::SegmentedPath},
+    shared_regions::SharedRegion,
 };
 
 pub trait PossiblySegmentedPath<'region, INLINE>: Debug {
@@ -13,7 +13,7 @@ pub trait PossiblySegmentedPath<'region, INLINE>: Debug {
     fn psp_add_segment(
         self,
         file_name: &OsStr,
-        region: &mut LeakedRegion<'region>,
+        region: &mut SharedRegion<'region>,
     ) -> Self;
 
     fn psp_to_path<'tmp>(self, tmp: &'tmp mut Vec<u8>) -> &'tmp Path
@@ -29,7 +29,7 @@ impl<'region, INLINE> PossiblySegmentedPath<'region, INLINE> for &'region Path {
     fn psp_add_segment(
         self,
         file_name: &OsStr,
-        region: &mut LeakedRegion<'region>,
+        region: &mut SharedRegion<'region>,
     ) -> Self {
         if false {
             let mut p = self.to_owned();
@@ -72,7 +72,7 @@ impl<'region, INLINE> PossiblySegmentedPath<'region, INLINE>
     fn psp_add_segment(
         self,
         file_name: &OsStr,
-        region: &mut LeakedRegion<'region>,
+        region: &mut SharedRegion<'region>,
     ) -> Self {
         self.add_segment(file_name, region)
     }

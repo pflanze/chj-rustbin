@@ -21,13 +21,13 @@ use chj_rustbin::{
         read_find_bufs::FindBufStream,
     },
     is_a_terminal::is_a_terminal,
-    leaked_region::GlobalLeakedRegions,
     lst::{
         get_items::{GetItems, Item},
         possibly_segmented_path::PossiblySegmentedPath,
         segmented_path::{tmp_path_buffer, SegmentedPath},
     },
     probe,
+    shared_regions::SharedRegions,
     text::yattable::{Widths, YatTable},
     time::age_at::AgeAt,
 };
@@ -807,7 +807,7 @@ fn main() -> Result<()> {
         _phantom: std::marker::PhantomData,
     };
 
-    let global_leaked_regions = GlobalLeakedRegions::new(8 * 1048576);
+    let shared_regions = SharedRegions::new(8 * 1048576);
 
     // Read the paths as blocks (as `Vec<u8>`) of some number of
     // null-terminated paths each, in either mode; pass to the
@@ -855,23 +855,23 @@ fn main() -> Result<()> {
                 let res = {
                     probe!("get items");
                     let basepath = {
-                        let mut region = global_leaked_regions.get_region();
+                        let mut region = shared_regions.get_region();
                         region.allocate_path(basepath)
                     };
-                    get_items.find(basepath, true, &global_leaked_regions)?
+                    get_items.find(basepath, true, &shared_regions)?
                 };
                 main_cont(cont_values!(), res)
             } else {
                 let res = {
                     probe!("get items");
                     let basepath = {
-                        let mut region = global_leaked_regions.get_region();
+                        let mut region = shared_regions.get_region();
                         SegmentedPath::new_from_path(&basepath, &mut region)
                             .ok_or_else(|| {
                                 anyhow!("path {basepath:?} is not valid")
                             })?
                     };
-                    get_items.find(basepath, true, &global_leaked_regions)?
+                    get_items.find(basepath, true, &shared_regions)?
                 };
                 main_cont(cont_values!(), res)
             }

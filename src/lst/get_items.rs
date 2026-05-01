@@ -18,13 +18,13 @@ use crate::{
     efficient_regex::EfficientRegex,
     io::{unix_gr::Gid, unix_pw::Uid},
     io_utils::read_buf::ReadBufStreamError,
-    leaked_region::GlobalLeakedRegions,
     lst::{
         possibly_segmented_path::PossiblySegmentedPath,
         segmented_path::tmp_path_buffer,
     },
     path_file_kind::{FileKind, ToFileKind},
     probe,
+    shared_regions::SharedRegions,
     time::age_at::AgeAt,
 };
 
@@ -582,7 +582,7 @@ impl<INLINE: Sync> GetItems<INLINE> {
         dir: P,
         include_dir: bool,
         metadata: Metadata,
-        global_leaked_regions: &'region GlobalLeakedRegions,
+        shared_regions: &'region SharedRegions,
     ) -> (Bag<Item<'region, P, INLINE>>, Bag<anyhow::Error>) {
         match (move || -> Result<_> {
             let Self {
@@ -613,7 +613,7 @@ impl<INLINE: Sync> GetItems<INLINE> {
                 Mutex::new((Bag::new(), Bag::new()));
             let subdir_items_rf = &subdir_items;
             rayon::scope(move |scope| -> Result<()> {
-                let mut allocator = global_leaked_regions.get_region();
+                let mut allocator = shared_regions.get_region();
                 for entry in input {
                     let entry: std::fs::DirEntry = entry?;
                     let metadata = entry.metadata()?;
@@ -637,7 +637,7 @@ impl<INLINE: Sync> GetItems<INLINE> {
                                 sub_path,
                                 true,
                                 metadata,
-                                global_leaked_regions,
+                                shared_regions,
                             );
                             let mut lock =
                                 subdir_items_rf.lock().expect("no panics");
@@ -675,7 +675,7 @@ impl<INLINE: Sync> GetItems<INLINE> {
         &self,
         dir: P,
         include_top: bool,
-        global_leaked_regions: &'region GlobalLeakedRegions,
+        shared_regions: &'region SharedRegions,
     ) -> Result<(Vec<Item<'region, P, INLINE>>, Vec<anyhow::Error>)> {
         let mut tmp: Vec<u8> = tmp_path_buffer();
         let dir_path = dir.psp_to_path(&mut tmp);
@@ -683,7 +683,7 @@ impl<INLINE: Sync> GetItems<INLINE> {
             anyhow!("getting metadata for directory {dir_path:?}")
         })?;
         let (items, errors) =
-            self._find(dir, include_top, metadata, global_leaked_regions);
+            self._find(dir, include_top, metadata, shared_regions);
         probe!("flattening");
         let items = items.par_flatten(MIN_OUT_SLICE_LEN);
         let errors = errors.par_flatten(MIN_OUT_SLICE_LEN);

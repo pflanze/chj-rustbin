@@ -8,7 +8,7 @@ use std::ffi::CStr;
 
 #[derive(N, Eq, PartialEq, Debug)]
 #[repr(u8)]
-pub enum FileType {
+pub enum UnixFileType {
     // XX are these Linux-specific, use C constants?
     Pipe = 1,
     CharDevice = 2,
@@ -20,12 +20,12 @@ pub enum FileType {
 }
 
 pub trait EasyFileStat {
-    fn filetype(&self) -> FileType;
+    fn filetype(&self) -> UnixFileType;
 }
 
 impl EasyFileStat for FileStat {
-    fn filetype(&self) -> FileType {
-        FileType::n(stat_filetype(self))
+    fn filetype(&self) -> UnixFileType {
+        UnixFileType::n(stat_filetype(self))
             .expect("OS using one of the known constants")
     }
 }
@@ -39,7 +39,7 @@ fn stat_filetype(st: &FileStat) -> u8 {
 /// result is simply `false`.
 pub fn path_is_type(
     path: &CStr,
-    ftypes: &[FileType],
+    ftypes: &[UnixFileType],
     follow_links: bool,
 ) -> bool {
     let statfunction: fn(&CStr) -> _ = if follow_links {
@@ -54,29 +54,29 @@ pub fn path_is_type(
 }
 
 pub fn path_is_file(path: &CStr) -> bool {
-    path_is_type(path, &[FileType::File], false)
+    path_is_type(path, &[UnixFileType::File], false)
 }
 pub fn path_is_dir(path: &CStr) -> bool {
-    path_is_type(path, &[FileType::Dir], false)
+    path_is_type(path, &[UnixFileType::Dir], false)
 }
 pub fn path_is_link(path: &CStr) -> bool {
-    path_is_type(path, &[FileType::Link], false)
+    path_is_type(path, &[UnixFileType::Link], false)
 }
 pub fn path_is_blockdevice(path: &CStr) -> bool {
-    path_is_type(path, &[FileType::BlockDevice], false)
+    path_is_type(path, &[UnixFileType::BlockDevice], false)
 }
 pub fn path_is_pipe(path: &CStr) -> bool {
-    path_is_type(path, &[FileType::Pipe], false)
+    path_is_type(path, &[UnixFileType::Pipe], false)
 }
 pub fn path_is_socket(path: &CStr) -> bool {
-    path_is_type(path, &[FileType::Socket], false)
+    path_is_type(path, &[UnixFileType::Socket], false)
 }
 pub fn path_is_chardevice(path: &CStr) -> bool {
-    path_is_type(path, &[FileType::CharDevice], false)
+    path_is_type(path, &[UnixFileType::CharDevice], false)
 }
 
 pub fn path_is_normal_file(path: &CStr) -> bool {
-    path_is_type(path, &[FileType::File, FileType::Dir], true)
+    path_is_type(path, &[UnixFileType::File, UnixFileType::Dir], true)
 }
 
 #[cfg(test)]

@@ -687,7 +687,7 @@ impl TableFromItems {
             ));
 
             let is_broken_link = *use_color
-                && item.metadata.mode.filetype().is_link()
+                && item.metadata.mode.file_type().is_link()
                 && !item
                     .link_target
                     .as_ref()

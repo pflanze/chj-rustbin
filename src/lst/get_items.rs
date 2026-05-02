@@ -163,7 +163,8 @@ impl Mode {
     pub fn all_w(self) -> bool {
         self.u().w() && self.g().w() && self.o().w()
     }
-    pub fn filetype(self) -> UnixFileType {
+    #[inline]
+    pub fn file_type(self) -> UnixFileType {
         (((self.0 & 0o170000) >> 12) as u8)
             .try_into()
             .expect("OS gives valid values")
@@ -178,7 +179,7 @@ impl From<u32> for Mode {
 
 impl Display for Mode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let t = self.filetype();
+        let t = self.file_type();
         let d = t.type_char();
         write!(f, "{d}{}{}{}", self.u(), self.g(), self.o())
     }
@@ -222,7 +223,7 @@ impl EssentialMetadata {
         file_kind: Option<FileKind>,
     ) -> Result<Self> {
         let mode: Mode = s.mode().into();
-        let device = if mode.filetype().has_device_info() {
+        let device = if mode.file_type().has_device_info() {
             Some(s.rdev().into())
         } else {
             None
@@ -241,7 +242,7 @@ impl EssentialMetadata {
 
     pub fn style(&self) -> Option<Style> {
         let mode = self.mode;
-        match mode.filetype() {
+        match mode.file_type() {
             UnixFileType::None => None,
             UnixFileType::File => {
                 if mode.u().s_or_t() {
@@ -314,6 +315,11 @@ impl EssentialMetadata {
             ),
         }
     }
+
+    #[inline]
+    pub fn file_type(&self) -> UnixFileType {
+        self.mode.file_type()
+    }
 }
 
 // Need PartialEq, Eq for tests
@@ -359,7 +365,7 @@ impl<'region, P: PossiblySegmentedPath<'region, INLINE>, INLINE>
             &metadata,
             _path.to_file_kind(),
         )?;
-        let link_target = if read_link && metadata.mode.filetype().is_link() {
+        let link_target = if read_link && metadata.mode.file_type().is_link() {
             match _path.read_link() {
                 Ok(t) => {
                     let metadata2 = if stat_link_target {

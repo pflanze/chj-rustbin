@@ -2,22 +2,10 @@
 
 //! Why not use std ones? Because those expect Path, and CString is not representable as Path.
 
-use enumn::N;
 use nix::sys::stat::FileStat;
 use std::ffi::CStr;
 
-#[derive(N, Eq, PartialEq, Debug)]
-#[repr(u8)]
-pub enum UnixFileType {
-    // XX are these Linux-specific, use C constants?
-    Pipe = 1,
-    CharDevice = 2,
-    Dir = 4,
-    BlockDevice = 6,
-    File = 8,
-    Link = 10,
-    Socket = 12,
-}
+use crate::io::unix::unix_file_type::UnixFileType;
 
 pub trait EasyFileStat {
     fn filetype(&self) -> UnixFileType;

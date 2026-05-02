@@ -2,6 +2,7 @@ pub mod excludes;
 pub mod file_path_type;
 pub mod rawfdreader;
 pub mod readwithcontext;
+pub mod unix;
 pub mod unix_fs;
 pub mod unix_gr;
 pub mod unix_pw;

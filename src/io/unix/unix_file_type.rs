@@ -61,6 +61,23 @@ impl UnixFileType {
             UnixFileType::None => 'N',
         }
     }
+
+    /// Convert `type_char` back into a UnixFileType; also accepts 'f'
+    /// as alias for '-' (normal file).
+    pub fn from_type_char(c: char) -> Option<Self> {
+        match c {
+            '-' | 'f' => Some(UnixFileType::File),
+            'd' => Some(UnixFileType::Dir),
+            'l' => Some(UnixFileType::Link),
+            's' => Some(UnixFileType::Socket),
+            'c' => Some(UnixFileType::CharDevice),
+            'b' => Some(UnixFileType::BlockDevice),
+            'p' => Some(UnixFileType::Pipe),
+            'N' => Some(UnixFileType::None),
+            _ => None,
+        }
+    }
+
     pub fn has_device_info(self) -> bool {
         match self {
             UnixFileType::File

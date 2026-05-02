@@ -13,10 +13,9 @@ use std::{
 use anstyle::{AnsiColor, Color, Style};
 use anyhow::{anyhow, bail, Context, Result};
 use chj_rustbin::{
-    bag::Bag,
     cpu_probe,
     efficient_regex::EfficientRegex,
-    hack_static::hack_static,
+    filtered::{Filtered, FilteredSlice},
     io::{
         unix::unix_file_type::UnixFileTypeMask, unix_gr::GrInfoCache,
         unix_pw::PwInfoCache,
@@ -470,7 +469,7 @@ mod tests {
             rng.gen_bool(0.5),
         );
         items.par_sort_by(|a, b| cmp(a, b));
-        let items: Vec<_> = items.iter().collect();
+        let items = items;
 
         // Search for invalid optimizations
         let num_runs = match std::env::var_os("LST_NUM_TEST_RUNS") {
@@ -627,77 +626,64 @@ fn run_processing_commands<
     'v,
     P: PossiblySegmentedPath<'region, InlineLst> + Clone,
 >(
-    items: &'v mut Vec<&'v Item<'region, P, InlineLst>>,
+    items: &'v mut Vec<Item<'region, P, InlineLst>>,
     cmds: &[ProcessingCommand],
     now: SystemTime,
     show_files_from_future: bool,
-) -> &'v [&'v Item<'region, P, InlineLst>] {
+) -> Filtered<'v, Item<'region, P, InlineLst>> {
     probe!("run_processing_commands");
-    let mut selected_items = unsafe { hack_static(&mut **items) };
+    let mut selected_items = Filtered::RefOwned(items);
     for cmd in cmds {
         match cmd {
             ProcessingCommand::Skip(n) => {
                 let n = selected_items.len().min(*n);
-                selected_items = &mut selected_items[n..]
+                selected_items = selected_items.slice_from(n..);
             }
             ProcessingCommand::SkipTail(n) => {
                 let n = selected_items.len() - selected_items.len().min(*n);
-                selected_items = &mut selected_items[..n]
+                selected_items = selected_items.slice(0..n);
             }
             ProcessingCommand::Head(n) => {
                 let n = selected_items.len().min(*n);
-                selected_items = &mut selected_items[..n]
+                selected_items = selected_items.slice(0..n);
             }
             ProcessingCommand::Tail(n) => {
                 let n = selected_items.len().saturating_sub(*n);
-                selected_items = &mut selected_items[n..]
+                selected_items = selected_items.slice_from(n..);
             }
             ProcessingCommand::Reverse => selected_items.reverse(),
             ProcessingCommand::FilterDays(range) => {
-                let new_items: Vec<&Item<_, _>> = (&*selected_items)
-                    .into_iter()
-                    .filter(|item| {
-                        let f = |age_days| match range {
-                            IntRange::At(n) => u64::from(*n) == age_days,
-                            IntRange::RangeFrom(n) => age_days >= u64::from(*n),
-                            IntRange::RangeTo(n) => age_days <= u64::from(*n),
-                            IntRange::RangeInclusive(from, to) => {
-                                age_days >= u64::from(*from)
-                                    && age_days <= u64::from(*to)
-                            }
-                        };
-                        match item.age_days_at(now) {
-                            Ok(age_days) => f(age_days),
-                            Err(_e) => {
-                                if show_files_from_future {
-                                    true
-                                } else {
-                                    match now.age_days_at(item.mtime()) {
-                                        Ok(0) => f(0),
-                                        _ => false,
-                                    }
+                selected_items = selected_items.filter(|item| {
+                    let f = |age_days| match range {
+                        IntRange::At(n) => u64::from(*n) == age_days,
+                        IntRange::RangeFrom(n) => age_days >= u64::from(*n),
+                        IntRange::RangeTo(n) => age_days <= u64::from(*n),
+                        IntRange::RangeInclusive(from, to) => {
+                            age_days >= u64::from(*from)
+                                && age_days <= u64::from(*to)
+                        }
+                    };
+                    match item.age_days_at(now) {
+                        Ok(age_days) => f(age_days),
+                        Err(_e) => {
+                            if show_files_from_future {
+                                true
+                            } else {
+                                match now.age_days_at(item.mtime()) {
+                                    Ok(0) => f(0),
+                                    _ => false,
                                 }
                             }
                         }
-                    })
-                    .map(|r| *r)
-                    .collect();
-                *items = new_items;
-                selected_items = unsafe { hack_static(&mut **items) };
+                    }
+                });
             }
             ProcessingCommand::Filter { invert, file_types } => {
-                let new_items: Vec<&Item<_, _>> = (&*selected_items)
-                    .into_iter()
-                    .filter(|item| {
-                        invert.bitxor(
-                            (item.metadata.file_type().as_mask() & file_types)
-                                != 0,
-                        )
-                    })
-                    .map(|r| *r)
-                    .collect();
-                *items = new_items;
-                selected_items = unsafe { hack_static(&mut **items) };
+                selected_items = selected_items.filter(|item| {
+                    invert.bitxor(
+                        (item.metadata.file_type().as_mask() & file_types) != 0,
+                    )
+                });
             }
         }
     }
@@ -989,12 +975,8 @@ fn main_cont<
         output_record_separator,
         use_color,
     }: MainContVals,
-    (items_bag, errors): (Bag<Item<'region, P, InlineLst>>, Vec<anyhow::Error>),
+    (mut items, errors): (Vec<Item<'region, P, InlineLst>>, Vec<anyhow::Error>),
 ) -> Result<()> {
-    let mut items = {
-        probe!("flatten_refs");
-        items_bag.flatten_refs()
-    };
     let cmp = cmp_function::<P>(opt.reverse, opt.time, opt.time_reversed);
     {
         probe!("sort_items");
@@ -1011,9 +993,23 @@ fn main_cont<
     probe!("writing to stdout");
     (|| -> Result<()> {
         if !opt.long {
-            print_paths(filtered_items, output_record_separator)?
+            match filtered_items.as_slice() {
+                FilteredSlice::Owned(items) => {
+                    print_paths(items, output_record_separator)?
+                }
+                FilteredSlice::Refs(items) => {
+                    print_paths(items, output_record_separator)?
+                }
+            }
         } else {
-            print_listing(filtered_items, output_record_separator, use_color)?
+            match filtered_items.as_slice() {
+                FilteredSlice::Owned(items) => {
+                    print_listing(items, output_record_separator, use_color)?
+                }
+                FilteredSlice::Refs(items) => {
+                    print_listing(items, output_record_separator, use_color)?
+                }
+            }
         }
         Ok(())
     })()

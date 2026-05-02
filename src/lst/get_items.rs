@@ -453,7 +453,7 @@ impl<INLINE: Sync> GetItems<INLINE> {
         input: impl ParallelIterator<Item = Result<Vec<u8>, ReadBufStreamError>>,
         input_record_separator: u8,
     ) -> (
-        Bag<Item<'static, &'static Path, INLINE>>,
+        Vec<Item<'static, &'static Path, INLINE>>,
         Vec<anyhow::Error>,
     ) {
         // To avoid appending individual items multiple times (in
@@ -461,49 +461,54 @@ impl<INLINE: Sync> GetItems<INLINE> {
         // flatten them in one go at the end. Also, collect errors
         // from all chunks together, too, don't stop early except per
         // chunk.
-        let (itemss, errors): (Bag<Item<_, _>>, Vec<anyhow::Error>) = input
-            .map(|chunk| -> (Bag<Item<_, _>>, Vec<anyhow::Error>) {
-                match (|| -> Result<Vec<Item<_, _>>> {
-                    let mut chunk = chunk?;
-                    chomp(&mut chunk, input_record_separator);
-                    // XX hack for now, OK for single-shot program
-                    let chunk = chunk.leak();
-                    let paths = chunk.split(|c| *c == input_record_separator);
+        let (itemss, errors): (Vec<Vec<Item<_, _>>>, Vec<anyhow::Error>) =
+            input
+                .map(|chunk| -> (Vec<Vec<Item<_, _>>>, Vec<anyhow::Error>) {
+                    match (|| -> Result<Vec<Item<_, _>>> {
+                        let mut chunk = chunk?;
+                        chomp(&mut chunk, input_record_separator);
+                        // XX hack for now, OK for single-shot program
+                        let chunk = chunk.leak();
+                        let paths =
+                            chunk.split(|c| *c == input_record_separator);
 
-                    paths
-                        .map(|path| {
-                            let path: &OsStr = OsStr::from_bytes(path);
-                            let path: &Path = path.as_ref();
-                            path
-                        })
-                        .filter(|path: &&Path| -> bool {
-                            !self.ignore_path(path)
-                        })
-                        .map(|path| -> Result<Option<Item<_, _>>> {
-                            // Only stat linked files if used for
-                            // coloring, and only in long format anyway.
-                            Item::from_path(
-                                path,
-                                path,
-                                self.long,
-                                self.use_color,
-                            )
-                        })
-                        .filter_map(|r| r.transpose())
-                        .collect::<Result<Vec<_>>>()
-                })() {
-                    Ok(v) => (Bag::LeafVec(v), vec![]),
-                    Err(e) => (Bag::Empty, vec![e]),
-                }
-            })
-            .reduce(
-                || (Bag::Empty, Vec::new()),
-                |(itemss_a, mut errors_a), (itemss_b, mut errors_b)| {
-                    errors_a.append(&mut errors_b);
-                    (itemss_a.add_bag(itemss_b), errors_a)
-                },
-            );
-        (itemss, errors)
+                        paths
+                            .map(|path| {
+                                let path: &OsStr = OsStr::from_bytes(path);
+                                let path: &Path = path.as_ref();
+                                path
+                            })
+                            .filter(|path: &&Path| -> bool {
+                                !self.ignore_path(path)
+                            })
+                            .map(|path| -> Result<Option<Item<_, _>>> {
+                                // Only stat linked files if used for
+                                // coloring, and only in long format anyway.
+                                Item::from_path(
+                                    path,
+                                    path,
+                                    self.long,
+                                    self.use_color,
+                                )
+                            })
+                            .filter_map(|r| r.transpose())
+                            .collect::<Result<Vec<_>>>()
+                    })() {
+                        Ok(v) => (vec![v], vec![]),
+                        Err(e) => (vec![], vec![e]),
+                    }
+                })
+                .reduce(
+                    || (Vec::new(), Vec::new()),
+                    |(mut itemss_a, mut errors_a),
+                     (mut itemss_b, mut errors_b)| {
+                        itemss_a.append(&mut itemss_b);
+                        errors_a.append(&mut errors_b);
+                        (itemss_a, errors_a)
+                    },
+                );
+        // `into_par_iter` would be a large slow down here!
+        (itemss.into_iter().flatten().collect(), errors)
     }
 
     /// `(Vec<Item<'static>>, Vec<anyhow::Error>)` is what one dir
@@ -611,7 +616,7 @@ impl<INLINE: Sync> GetItems<INLINE> {
         dir: P,
         include_top: bool,
         shared_regions: &'region SharedRegions,
-    ) -> Result<(Bag<Item<'region, P, INLINE>>, Vec<anyhow::Error>)> {
+    ) -> Result<(Vec<Item<'region, P, INLINE>>, Vec<anyhow::Error>)> {
         let mut tmp: Vec<u8> = tmp_path_buffer();
         let dir_path = dir.psp_to_path(&mut tmp);
         let metadata = dir_path.symlink_metadata().with_context(|| {
@@ -620,6 +625,7 @@ impl<INLINE: Sync> GetItems<INLINE> {
         let (items, errors) =
             self._find(dir, include_top, metadata, shared_regions);
         probe!("flattening");
+        let items = items.par_flatten(MIN_OUT_SLICE_LEN);
         let errors = errors.par_flatten(MIN_OUT_SLICE_LEN);
         Ok((items, errors))
     }

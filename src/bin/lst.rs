@@ -1,4 +1,5 @@
 use std::{
+    borrow::Borrow,
     cmp::Ordering,
     env::set_current_dir,
     io::{stdin, stdout, BufWriter, IoSlice},
@@ -14,7 +15,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use chj_rustbin::{
     cpu_probe,
     efficient_regex::EfficientRegex,
-    hack_static::hack_static,
+    filtered::{Filtered, FilteredSlice},
     io::{
         unix::unix_file_type::UnixFileTypeMask, unix_gr::GrInfoCache,
         unix_pw::PwInfoCache,
@@ -621,8 +622,7 @@ fn cmp_function<
 /// in-place needs to move the slots around. And it needs to be a Vec
 /// since filtering changes the size of it.
 fn run_processing_commands<
-    'region: 'u,
-    'u: 'v,
+    'region: 'v,
     'v,
     P: PossiblySegmentedPath<'region, InlineLst> + Clone,
 >(
@@ -630,73 +630,60 @@ fn run_processing_commands<
     cmds: &[ProcessingCommand],
     now: SystemTime,
     show_files_from_future: bool,
-) -> &'v [Item<'region, P, InlineLst>] {
+) -> Filtered<'v, Item<'region, P, InlineLst>> {
     probe!("run_processing_commands");
-    let mut selected_items = unsafe { hack_static(&mut **items) };
+    let mut selected_items = Filtered::RefOwned(items);
     for cmd in cmds {
         match cmd {
             ProcessingCommand::Skip(n) => {
                 let n = selected_items.len().min(*n);
-                selected_items = &mut selected_items[n..]
+                selected_items = selected_items.slice_from(n..);
             }
             ProcessingCommand::SkipTail(n) => {
                 let n = selected_items.len() - selected_items.len().min(*n);
-                selected_items = &mut selected_items[..n]
+                selected_items = selected_items.slice(0..n);
             }
             ProcessingCommand::Head(n) => {
                 let n = selected_items.len().min(*n);
-                selected_items = &mut selected_items[..n]
+                selected_items = selected_items.slice(0..n);
             }
             ProcessingCommand::Tail(n) => {
                 let n = selected_items.len().saturating_sub(*n);
-                selected_items = &mut selected_items[n..]
+                selected_items = selected_items.slice_from(n..);
             }
             ProcessingCommand::Reverse => selected_items.reverse(),
             ProcessingCommand::FilterDays(range) => {
-                let new_items: Vec<Item<_, _>> = (&*selected_items)
-                    .into_iter()
-                    .filter(|item| {
-                        let f = |age_days| match range {
-                            IntRange::At(n) => u64::from(*n) == age_days,
-                            IntRange::RangeFrom(n) => age_days >= u64::from(*n),
-                            IntRange::RangeTo(n) => age_days <= u64::from(*n),
-                            IntRange::RangeInclusive(from, to) => {
-                                age_days >= u64::from(*from)
-                                    && age_days <= u64::from(*to)
-                            }
-                        };
-                        match item.age_days_at(now) {
-                            Ok(age_days) => f(age_days),
-                            Err(_e) => {
-                                if show_files_from_future {
-                                    true
-                                } else {
-                                    match now.age_days_at(item.mtime()) {
-                                        Ok(0) => f(0),
-                                        _ => false,
-                                    }
+                selected_items = selected_items.filter(|item| {
+                    let f = |age_days| match range {
+                        IntRange::At(n) => u64::from(*n) == age_days,
+                        IntRange::RangeFrom(n) => age_days >= u64::from(*n),
+                        IntRange::RangeTo(n) => age_days <= u64::from(*n),
+                        IntRange::RangeInclusive(from, to) => {
+                            age_days >= u64::from(*from)
+                                && age_days <= u64::from(*to)
+                        }
+                    };
+                    match item.age_days_at(now) {
+                        Ok(age_days) => f(age_days),
+                        Err(_e) => {
+                            if show_files_from_future {
+                                true
+                            } else {
+                                match now.age_days_at(item.mtime()) {
+                                    Ok(0) => f(0),
+                                    _ => false,
                                 }
                             }
                         }
-                    })
-                    .cloned()
-                    .collect();
-                *items = new_items;
-                selected_items = unsafe { hack_static(&mut **items) };
+                    }
+                });
             }
             ProcessingCommand::Filter { invert, file_types } => {
-                let new_items: Vec<Item<_, _>> = (&*selected_items)
-                    .into_iter()
-                    .filter(|item| {
-                        invert.bitxor(
-                            (item.metadata.file_type().as_mask() & file_types)
-                                != 0,
-                        )
-                    })
-                    .cloned()
-                    .collect();
-                *items = new_items;
-                selected_items = unsafe { hack_static(&mut **items) };
+                selected_items = selected_items.filter(|item| {
+                    invert.bitxor(
+                        (item.metadata.file_type().as_mask() & file_types) != 0,
+                    )
+                });
             }
         }
     }
@@ -712,7 +699,7 @@ struct TableFromItems {
 impl TableFromItems {
     fn run<'region, P: PossiblySegmentedPath<'region, InlineLst> + Copy>(
         &self,
-        items: &[Item<'region, P, InlineLst>],
+        items: &[impl Borrow<Item<'region, P, InlineLst>>],
     ) -> YatTable<7> {
         let Self {
             use_color,
@@ -722,6 +709,7 @@ impl TableFromItems {
         let mut table = YatTable::new();
         let mut tmp = tmp_path_buffer();
         for item in items {
+            let item = item.borrow();
             let mode = item.metadata.mode;
             let nlink = item.metadata.nlink;
             let size = item.metadata.size;
@@ -995,7 +983,7 @@ fn main_cont<
         items.par_sort_by(|a, b| cmp(a, b));
     }
 
-    let selected_items = run_processing_commands(
+    let filtered_items = run_processing_commands(
         &mut items,
         &cmds,
         now,
@@ -1006,97 +994,134 @@ fn main_cont<
     (|| -> Result<()> {
         use std::io::Write;
         if !opt.long {
-            let mut outp = BufWriter::new(stdout().lock());
-            let mut tmp = tmp_path_buffer();
-            for item in selected_items {
-                let path = item.path.psp_to_path(&mut tmp);
-                outp.write_all(path.as_os_str().as_bytes())?;
-                outp.write_all(&[output_record_separator])?;
-            }
-            outp.flush()?;
-        } else {
-            let table_from_items = {
-                probe!("resolve pw+gr info");
-                let mut pw_info_cache = PwInfoCache::new();
-                let mut gr_info_cache = GrInfoCache::new();
-                if let Some(item) = selected_items.first() {
-                    let (uid, gid) = (item.metadata.uid, item.metadata.gid);
-                    pw_info_cache.lookup_by_uid(uid);
-                    gr_info_cache.lookup_by_gid(gid);
-                    let (mut last_uid, mut last_gid) = (uid, gid);
-                    for item in selected_items {
-                        let (uid, gid) = (item.metadata.uid, item.metadata.gid);
-                        if uid != last_uid {
-                            pw_info_cache.lookup_by_uid(uid);
-                        }
-                        if gid != last_gid {
-                            gr_info_cache.lookup_by_gid(gid);
-                        }
-                        (last_uid, last_gid) = (uid, gid)
-                    }
-                }
-                TableFromItems {
-                    use_color,
-                    pw_info_cache,
-                    gr_info_cache,
-                }
-            };
-
-            let subtables: Vec<YatTable<7>> = {
-                probe!("subtables");
-                selected_items
-                    .par_chunks(2000)
-                    .map(|items| table_from_items.run(items))
-                    .collect()
-            };
-
-            let max_widths = {
-                probe!("max_widths");
-                let mut max_widths = Widths::default();
-                for table in &subtables {
-                    max_widths.update_max(table.max_widths());
-                }
-                max_widths
-            };
-
-            let alignments = &[false, true, false, false, true, false, false];
-
-            let output_chunks: Vec<Vec<u8>> = {
-                probe!("output_chunks");
-                subtables
-                    .into_par_iter()
-                    .map(|mut table| {
-                        table.set_max_widths(max_widths.clone());
-                        let mut outp = Vec::new();
-                        table
-                            .write_out(
-                                alignments,
-                                output_record_separator,
-                                &mut outp,
-                            )
-                            .expect("writing to mem doesn't fail");
-                        outp
-                    })
-                    .collect()
-            };
-
-            {
-                probe!("write out");
-                let mut outp = stdout().lock();
-                let mut output_ioslices = Vec::new();
-                let mut tot_size = 0;
-                for v in &output_chunks {
-                    output_ioslices.push(IoSlice::new(v));
-                    tot_size += v.len();
-                }
-                let written = outp.write_vectored(&output_ioslices)?;
-                if written != tot_size {
-                    bail!(
-                        "could only write {written} out of {tot_size} bytes; \
-                         todo: change to `write_all_vectored` once stable"
-                    )
+            fn cont<
+                'region,
+                P: PossiblySegmentedPath<'region, InlineLst>
+                    + Copy
+                    + Sync
+                    + Send
+                    + 'region,
+            >(
+                selected_items: &[impl Borrow<Item<'region, P, InlineLst>>],
+                output_record_separator: u8
+            ) -> Result<()> {
+                let mut outp = BufWriter::new(stdout().lock());
+                let mut tmp = tmp_path_buffer();
+                for item in selected_items {
+                    let path = item.borrow().path.psp_to_path(&mut tmp);
+                    outp.write_all(path.as_os_str().as_bytes())?;
+                    outp.write_all(&[output_record_separator])?;
                 }
                 outp.flush()?;
+                Ok(())
+            }
+            match filtered_items.as_slice() {
+                FilteredSlice::Owned(items) => cont(items, output_record_separator)?,
+                FilteredSlice::Refs(items) => cont(items, output_record_separator)?,
+            }
+        } else {
+            fn cont<
+                'region,
+                P: PossiblySegmentedPath<'region, InlineLst>
+                    + Copy
+                    + Sync
+                    + Send
+                    + 'region,
+            >(
+                selected_items: &[impl Borrow<Item<'region, P, InlineLst>> + Sync],
+                output_record_separator: u8,
+                use_color: bool,
+            ) -> Result<()> {
+                let table_from_items = {
+                    probe!("resolve pw+gr info");
+                    let mut pw_info_cache = PwInfoCache::new();
+                    let mut gr_info_cache = GrInfoCache::new();
+                    if let Some(item) = selected_items.first() {
+                        let item = item.borrow();
+                        let (uid, gid) = (item.metadata.uid, item.metadata.gid);
+                        pw_info_cache.lookup_by_uid(uid);
+                        gr_info_cache.lookup_by_gid(gid);
+                        let (mut last_uid, mut last_gid) = (uid, gid);
+                        for item in selected_items {
+                            let item = item.borrow();
+                            let (uid, gid) = (item.metadata.uid, item.metadata.gid);
+                            if uid != last_uid {
+                                pw_info_cache.lookup_by_uid(uid);
+                            }
+                            if gid != last_gid {
+                                gr_info_cache.lookup_by_gid(gid);
+                            }
+                            (last_uid, last_gid) = (uid, gid)
+                        }
+                    }
+                    TableFromItems {
+                        use_color,
+                        pw_info_cache,
+                        gr_info_cache,
+                    }
+                };
+
+                let subtables: Vec<YatTable<7>> = {
+                    probe!("subtables");
+                    selected_items
+                        .par_chunks(2000)
+                        .map(|items| table_from_items.run(items))
+                        .collect()
+                };
+
+                let max_widths = {
+                    probe!("max_widths");
+                    let mut max_widths = Widths::default();
+                    for table in &subtables {
+                        max_widths.update_max(table.max_widths());
+                    }
+                    max_widths
+                };
+
+                let alignments = &[false, true, false, false, true, false, false];
+
+                let output_chunks: Vec<Vec<u8>> = {
+                    probe!("output_chunks");
+                    subtables
+                        .into_par_iter()
+                        .map(|mut table| {
+                            table.set_max_widths(max_widths.clone());
+                            let mut outp = Vec::new();
+                            table
+                                .write_out(
+                                    alignments,
+                                    output_record_separator,
+                                    &mut outp,
+                                )
+                                .expect("writing to mem doesn't fail");
+                            outp
+                        })
+                        .collect()
+                };
+
+                {
+                    probe!("write out");
+                    let mut outp = stdout().lock();
+                    let mut output_ioslices = Vec::new();
+                    let mut tot_size = 0;
+                    for v in &output_chunks {
+                        output_ioslices.push(IoSlice::new(v));
+                        tot_size += v.len();
+                    }
+                    let written = outp.write_vectored(&output_ioslices)?;
+                    if written != tot_size {
+                        bail!(
+                            "could only write {written} out of {tot_size} bytes; \
+                             todo: change to `write_all_vectored` once stable"
+                        )
+                    }
+                    outp.flush()?;
+                }
+                Ok(())
+            }
+            match filtered_items.as_slice() {
+                FilteredSlice::Owned(items) => cont(items, output_record_separator, use_color)?,
+                FilteredSlice::Refs(items) => cont(items, output_record_separator, use_color)?,
             }
         }
         Ok(())

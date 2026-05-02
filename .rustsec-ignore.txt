@@ -14,3 +14,6 @@ RUSTSEC-2021-0139
 
 # proc-macro-error 1.0.4 affected by RUSTSEC-2024-0370 (unmaintained)
 RUSTSEC-2024-0370
+
+# rand 0.8.5 affected by RUSTSEC-2026-0097 (unsound)
+RUSTSEC-2026-0097

@@ -17,7 +17,27 @@ pub enum UnixFileType {
     None = 0,
 }
 
+pub type UnixFileTypeMask = u8;
+
 impl UnixFileType {
+    /// As an integer where exactly one bit is set, to use standard
+    /// bit operators on.
+    #[inline]
+    pub fn as_mask(self) -> UnixFileTypeMask {
+        let m: UnixFileTypeMask = match self {
+            UnixFileType::Pipe => 1,
+            UnixFileType::CharDevice => 2,
+            UnixFileType::Dir => 4,
+            UnixFileType::BlockDevice => 8,
+            UnixFileType::File => 16,
+            UnixFileType::Link => 32,
+            UnixFileType::Socket => 64,
+            UnixFileType::None => 128,
+        };
+        debug_assert_eq!(m.count_ones(), 1);
+        m
+    }
+
     pub fn is_dir(self) -> bool {
         self == UnixFileType::Dir
     }
@@ -27,6 +47,7 @@ impl UnixFileType {
     pub fn is_link(self) -> bool {
         self == UnixFileType::Link
     }
+
     /// Char as used by the `ls` command with `-l`
     pub fn type_char(self) -> char {
         match self {
@@ -67,5 +88,32 @@ impl TryFrom<u8> for UnixFileType {
             0 => Ok(UnixFileType::None),
             _ => bail!("invalid file type number {m}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn t_mask() {
+        // Those are *not* related to the position in the mask!
+        assert_eq!(UnixFileType::Pipe as u8, 1);
+        assert_eq!(UnixFileType::Dir as u8, 4);
+
+        assert_eq!(UnixFileType::Pipe.as_mask(), 1);
+        assert_eq!(UnixFileType::Dir.as_mask(), 4);
+        assert_eq!(UnixFileType::File.as_mask(), 16);
+        assert_eq!(UnixFileType::None.as_mask(), 128);
+
+        let mut count = 0;
+        for i in 0..=255 {
+            if let Some(t) = UnixFileType::n(i) {
+                count += 1;
+                // just force the debug_assert inside it:
+                t.as_mask();
+            }
+        }
+        assert_eq!(count, 8);
     }
 }

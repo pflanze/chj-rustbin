@@ -2,6 +2,7 @@ use std::{
     cmp::Ordering,
     env::set_current_dir,
     io::{stdin, stdout, BufWriter, IoSlice},
+    ops::BitXor,
     os::unix::prelude::OsStrExt,
     path::PathBuf,
     str::FromStr,
@@ -14,7 +15,10 @@ use chj_rustbin::{
     cpu_probe,
     efficient_regex::EfficientRegex,
     hack_static::hack_static,
-    io::{unix_gr::GrInfoCache, unix_pw::PwInfoCache},
+    io::{
+        unix::unix_file_type::UnixFileTypeMask, unix_gr::GrInfoCache,
+        unix_pw::PwInfoCache,
+    },
     io_utils::{
         read_buf::{ParReadBufStream, ReadBufStream},
         read_dir_bufs::ReadDirBufStream,
@@ -22,7 +26,7 @@ use chj_rustbin::{
     },
     is_a_terminal::is_a_terminal,
     lst::{
-        get_items::{GetItems, Item},
+        get_items::{GetItems, Item, UnixFileType},
         possibly_segmented_path::PossiblySegmentedPath,
         segmented_path::{tmp_path_buffer, SegmentedPath},
     },
@@ -223,6 +227,10 @@ enum ProcessingCommand {
     SkipTail(usize),
     Head(usize),
     Tail(usize),
+    Filter {
+        invert: bool,
+        file_types: UnixFileTypeMask,
+    },
     FilterDays(IntRange),
     Reverse,
 }
@@ -237,9 +245,11 @@ impl ProcessingCommand {
             ProcessingCommand::Head(n) => ProcessingCommand::Tail(*n),
             ProcessingCommand::Tail(n) => ProcessingCommand::Head(*n),
             // No change
-            ProcessingCommand::FilterDays(v) => {
-                ProcessingCommand::FilterDays(v.clone())
-            }
+            ProcessingCommand::FilterDays(_)
+            | ProcessingCommand::Filter {
+                invert: _,
+                file_types: _,
+            } => self.clone(),
             // Weird one, should not be encountered because we already
             // take spans without Reverse
             ProcessingCommand::Reverse => ProcessingCommand::Reverse,
@@ -277,18 +287,61 @@ fn parse_processing_commands(
                 bail!("missing number argument after processing command {cmd_str:?}")
             }
         };
+        let parse_filter = |i: &mut usize| -> Result<ProcessingCommand> {
+            let help_allowed = "f|d|l|s|c|b|p (or '-' as alias for 'f'), \
+                                multiple allowed (with optional '|'), optionally prefixed with '!'";
+            let help = || {
+                format!(
+                    "file type filtering argument ({help_allowed}) \
+                     after processing command"
+                )
+            };
+            if *i < processing_commands.len() {
+                let arg_str: &str = processing_commands[*i].as_ref();
+                *i += 1;
+                let all_chars = arg_str.trim().chars();
+                let mut chars = all_chars.clone();
+                let mut invert = false;
+                if chars.next() == Some('!') {
+                    invert = true;
+                } else {
+                    chars = all_chars;
+                }
+                let mut file_types = 0;
+                for c in chars {
+                    match c {
+                        '|' | ' ' => (),
+                        _ => {
+                            if let Some(ft) = UnixFileType::from_type_char(c) {
+                                file_types |= ft.as_mask();
+                            } else {
+                                bail!(
+                                    "invalid file type character {c:?} in argument {arg_str:?} \
+                                     of processing command {cmd_str:?}, allowed: {help_allowed}"
+                                )
+                            }
+                        }
+                    }
+                }
+                Ok(ProcessingCommand::Filter { invert, file_types })
+            } else {
+                bail!("missing {} {cmd_str:?}", help())
+            }
+        };
+
         let cmd = match cmd_str {
             "skip" => ProcessingCommand::Skip(parse_usize(&mut i)?),
             "skip-tail" => ProcessingCommand::SkipTail(parse_usize(&mut i)?),
             "head" => ProcessingCommand::Head(parse_usize(&mut i)?),
             "tail" => ProcessingCommand::Tail(parse_usize(&mut i)?),
             "reverse" => ProcessingCommand::Reverse,
+            "filter" => parse_filter(&mut i)?,
             "filter-days" => {
                 ProcessingCommand::FilterDays(parse_range(&mut i)?)
             }
             _ => bail!(
                 "unknown processing command {cmd_str:?} -- \
-                 valid are skip, head, tail, reverse, filter-days"
+                 valid are skip, head, tail, reverse, filter, filter-days"
             ),
         };
         cmds.push(cmd);
@@ -445,8 +498,12 @@ mod tests {
                             ProcessingCommand::Tail(_) => (),
                             ProcessingCommand::FilterDays(_) => (),
                             ProcessingCommand::Reverse => (),
+                            ProcessingCommand::Filter {
+                                invert: _,
+                                file_types: _,
+                            } => (),
                         }
-                        match rng.gen_range::<u8, _>(0..6) {
+                        match rng.gen_range::<u8, _>(0..7) {
                             0 => ProcessingCommand::Skip(
                                 rng.gen_range(0..APPROX_NUM_PATHS.into()),
                             ),
@@ -463,6 +520,10 @@ mod tests {
                                 IntRange::random(&mut rng),
                             ),
                             5 => ProcessingCommand::Reverse,
+                            6 => ProcessingCommand::Filter {
+                                invert: rng.gen_bool(0.5),
+                                file_types: rng.gen(),
+                            },
                             _ => unreachable!(),
                         }
                     })
@@ -592,7 +653,7 @@ fn run_processing_commands<
             }
             ProcessingCommand::Reverse => selected_items.reverse(),
             ProcessingCommand::FilterDays(range) => {
-                let new_items: Vec<Item<_, _>> = selected_items
+                let new_items: Vec<Item<_, _>> = (&*selected_items)
                     .into_iter()
                     .filter(|item| {
                         let f = |age_days| match range {
@@ -618,7 +679,21 @@ fn run_processing_commands<
                             }
                         }
                     })
-                    .map(|item| (*item).clone())
+                    .cloned()
+                    .collect();
+                *items = new_items;
+                selected_items = unsafe { hack_static(&mut **items) };
+            }
+            ProcessingCommand::Filter { invert, file_types } => {
+                let new_items: Vec<Item<_, _>> = (&*selected_items)
+                    .into_iter()
+                    .filter(|item| {
+                        invert.bitxor(
+                            (item.metadata.file_type().as_mask() & file_types)
+                                != 0,
+                        )
+                    })
+                    .cloned()
                     .collect();
                 *items = new_items;
                 selected_items = unsafe { hack_static(&mut **items) };

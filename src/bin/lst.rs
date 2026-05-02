@@ -992,136 +992,23 @@ fn main_cont<
 
     probe!("writing to stdout");
     (|| -> Result<()> {
-        use std::io::Write;
         if !opt.long {
-            fn cont<
-                'region,
-                P: PossiblySegmentedPath<'region, InlineLst>
-                    + Copy
-                    + Sync
-                    + Send
-                    + 'region,
-            >(
-                selected_items: &[impl Borrow<Item<'region, P, InlineLst>>],
-                output_record_separator: u8
-            ) -> Result<()> {
-                let mut outp = BufWriter::new(stdout().lock());
-                let mut tmp = tmp_path_buffer();
-                for item in selected_items {
-                    let path = item.borrow().path.psp_to_path(&mut tmp);
-                    outp.write_all(path.as_os_str().as_bytes())?;
-                    outp.write_all(&[output_record_separator])?;
-                }
-                outp.flush()?;
-                Ok(())
-            }
             match filtered_items.as_slice() {
-                FilteredSlice::Owned(items) => cont(items, output_record_separator)?,
-                FilteredSlice::Refs(items) => cont(items, output_record_separator)?,
+                FilteredSlice::Owned(items) => {
+                    print_paths(items, output_record_separator)?
+                }
+                FilteredSlice::Refs(items) => {
+                    print_paths(items, output_record_separator)?
+                }
             }
         } else {
-            fn cont<
-                'region,
-                P: PossiblySegmentedPath<'region, InlineLst>
-                    + Copy
-                    + Sync
-                    + Send
-                    + 'region,
-            >(
-                selected_items: &[impl Borrow<Item<'region, P, InlineLst>> + Sync],
-                output_record_separator: u8,
-                use_color: bool,
-            ) -> Result<()> {
-                let table_from_items = {
-                    probe!("resolve pw+gr info");
-                    let mut pw_info_cache = PwInfoCache::new();
-                    let mut gr_info_cache = GrInfoCache::new();
-                    if let Some(item) = selected_items.first() {
-                        let item = item.borrow();
-                        let (uid, gid) = (item.metadata.uid, item.metadata.gid);
-                        pw_info_cache.lookup_by_uid(uid);
-                        gr_info_cache.lookup_by_gid(gid);
-                        let (mut last_uid, mut last_gid) = (uid, gid);
-                        for item in selected_items {
-                            let item = item.borrow();
-                            let (uid, gid) = (item.metadata.uid, item.metadata.gid);
-                            if uid != last_uid {
-                                pw_info_cache.lookup_by_uid(uid);
-                            }
-                            if gid != last_gid {
-                                gr_info_cache.lookup_by_gid(gid);
-                            }
-                            (last_uid, last_gid) = (uid, gid)
-                        }
-                    }
-                    TableFromItems {
-                        use_color,
-                        pw_info_cache,
-                        gr_info_cache,
-                    }
-                };
-
-                let subtables: Vec<YatTable<7>> = {
-                    probe!("subtables");
-                    selected_items
-                        .par_chunks(2000)
-                        .map(|items| table_from_items.run(items))
-                        .collect()
-                };
-
-                let max_widths = {
-                    probe!("max_widths");
-                    let mut max_widths = Widths::default();
-                    for table in &subtables {
-                        max_widths.update_max(table.max_widths());
-                    }
-                    max_widths
-                };
-
-                let alignments = &[false, true, false, false, true, false, false];
-
-                let output_chunks: Vec<Vec<u8>> = {
-                    probe!("output_chunks");
-                    subtables
-                        .into_par_iter()
-                        .map(|mut table| {
-                            table.set_max_widths(max_widths.clone());
-                            let mut outp = Vec::new();
-                            table
-                                .write_out(
-                                    alignments,
-                                    output_record_separator,
-                                    &mut outp,
-                                )
-                                .expect("writing to mem doesn't fail");
-                            outp
-                        })
-                        .collect()
-                };
-
-                {
-                    probe!("write out");
-                    let mut outp = stdout().lock();
-                    let mut output_ioslices = Vec::new();
-                    let mut tot_size = 0;
-                    for v in &output_chunks {
-                        output_ioslices.push(IoSlice::new(v));
-                        tot_size += v.len();
-                    }
-                    let written = outp.write_vectored(&output_ioslices)?;
-                    if written != tot_size {
-                        bail!(
-                            "could only write {written} out of {tot_size} bytes; \
-                             todo: change to `write_all_vectored` once stable"
-                        )
-                    }
-                    outp.flush()?;
-                }
-                Ok(())
-            }
             match filtered_items.as_slice() {
-                FilteredSlice::Owned(items) => cont(items, output_record_separator, use_color)?,
-                FilteredSlice::Refs(items) => cont(items, output_record_separator, use_color)?,
+                FilteredSlice::Owned(items) => {
+                    print_listing(items, output_record_separator, use_color)?
+                }
+                FilteredSlice::Refs(items) => {
+                    print_listing(items, output_record_separator, use_color)?
+                }
             }
         }
         Ok(())
@@ -1138,5 +1025,118 @@ fn main_cont<
         bail!("while generating the above list:\n{msgs}");
     }
 
+    Ok(())
+}
+
+fn print_paths<
+    'region,
+    P: PossiblySegmentedPath<'region, InlineLst> + Copy + Sync + Send + 'region,
+>(
+    selected_items: &[impl Borrow<Item<'region, P, InlineLst>>],
+    output_record_separator: u8,
+) -> Result<()> {
+    use std::io::Write;
+    let mut outp = BufWriter::new(stdout().lock());
+    let mut tmp = tmp_path_buffer();
+    for item in selected_items {
+        let path = item.borrow().path.psp_to_path(&mut tmp);
+        outp.write_all(path.as_os_str().as_bytes())?;
+        outp.write_all(&[output_record_separator])?;
+    }
+    outp.flush()?;
+    Ok(())
+}
+
+fn print_listing<
+    'region,
+    P: PossiblySegmentedPath<'region, InlineLst> + Copy + Sync + Send + 'region,
+>(
+    selected_items: &[impl Borrow<Item<'region, P, InlineLst>> + Sync],
+    output_record_separator: u8,
+    use_color: bool,
+) -> Result<()> {
+    use std::io::Write;
+
+    let table_from_items = {
+        probe!("resolve pw+gr info");
+        let mut pw_info_cache = PwInfoCache::new();
+        let mut gr_info_cache = GrInfoCache::new();
+        if let Some(item) = selected_items.first() {
+            let item = item.borrow();
+            let (uid, gid) = (item.metadata.uid, item.metadata.gid);
+            pw_info_cache.lookup_by_uid(uid);
+            gr_info_cache.lookup_by_gid(gid);
+            let (mut last_uid, mut last_gid) = (uid, gid);
+            for item in selected_items {
+                let item = item.borrow();
+                let (uid, gid) = (item.metadata.uid, item.metadata.gid);
+                if uid != last_uid {
+                    pw_info_cache.lookup_by_uid(uid);
+                }
+                if gid != last_gid {
+                    gr_info_cache.lookup_by_gid(gid);
+                }
+                (last_uid, last_gid) = (uid, gid)
+            }
+        }
+        TableFromItems {
+            use_color,
+            pw_info_cache,
+            gr_info_cache,
+        }
+    };
+
+    let subtables: Vec<YatTable<7>> = {
+        probe!("subtables");
+        selected_items
+            .par_chunks(2000)
+            .map(|items| table_from_items.run(items))
+            .collect()
+    };
+
+    let max_widths = {
+        probe!("max_widths");
+        let mut max_widths = Widths::default();
+        for table in &subtables {
+            max_widths.update_max(table.max_widths());
+        }
+        max_widths
+    };
+
+    let alignments = &[false, true, false, false, true, false, false];
+
+    let output_chunks: Vec<Vec<u8>> = {
+        probe!("output_chunks");
+        subtables
+            .into_par_iter()
+            .map(|mut table| {
+                table.set_max_widths(max_widths.clone());
+                let mut outp = Vec::new();
+                table
+                    .write_out(alignments, output_record_separator, &mut outp)
+                    .expect("writing to mem doesn't fail");
+                outp
+            })
+            .collect()
+    };
+
+    {
+        probe!("write out");
+        let mut outp = stdout().lock();
+        let mut output_ioslices = Vec::new();
+        let mut tot_size = 0;
+        for v in &output_chunks {
+            output_ioslices.push(IoSlice::new(v));
+            tot_size += v.len();
+        }
+        let written = outp.write_vectored(&output_ioslices)?;
+        if written != tot_size {
+            bail!(
+                "could only write {written} out of {tot_size} bytes; \
+                             todo: change to `write_all_vectored` once stable"
+            )
+        }
+        outp.flush()?;
+    }
     Ok(())
 }

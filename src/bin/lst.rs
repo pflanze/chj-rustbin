@@ -104,12 +104,12 @@ struct Opt {
     /// stdin: list the file names in the given directory (1 level
     /// deep)
     #[clap(long)]
-    ls_dir: Option<PathBuf>,
+    ls: Option<PathBuf>,
 
     /// Get the path listing internally instead of reading it from
     /// stdin: list the file tree in the given directory (all depths)
     #[clap(long)]
-    find_dir: Option<PathBuf>,
+    find: Option<PathBuf>,
 
     /// Ignore paths matching the given regex (not glob pattern!)
     #[clap(short, long)]
@@ -834,7 +834,7 @@ fn main() -> Result<()> {
 
     let opt = Opt::parse();
 
-    if opt.ls_dir.is_some() && opt.find_dir.is_some() {
+    if opt.ls.is_some() && opt.find.is_some() {
         bail!("please only give one of the --ls-dir or --find-dir options")
     }
 
@@ -900,7 +900,7 @@ fn main() -> Result<()> {
         }
     }
 
-    if let Some(ref basepath) = opt.ls_dir {
+    if let Some(ref basepath) = opt.ls {
         let res = {
             probe!("get items");
             set_current_dir(basepath).with_context(|| {
@@ -914,7 +914,7 @@ fn main() -> Result<()> {
             )
         };
         main_cont(cont_values!(), res)
-    } else if let Some(ref basepath) = opt.find_dir {
+    } else if let Some(ref basepath) = opt.find {
         if false {
             let res = {
                 probe!("get items");

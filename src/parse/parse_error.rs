@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::rc::Rc;
 use std::{fmt::Write, sync::Arc};
 
@@ -182,9 +183,9 @@ pub struct FileLocation {
     pub column: u32,
 }
 
-impl FileLocation {
-    pub fn to_string(&self) -> String {
-        format!("{}:{}:{}", self.file, self.line, self.column)
+impl Display for FileLocation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}:{}", self.file, self.line, self.column)
     }
 }
 

@@ -381,6 +381,7 @@ mod tests {
     use anyhow::Result;
 
     use crate::{
+        file_location,
         kitschcell::{KitschCache, KitschCell},
         shared_regions::SharedRegions,
     };
@@ -396,7 +397,7 @@ mod tests {
 
     #[test]
     fn t_() -> Result<()> {
-        let regions = SharedRegions::new(1_000_000);
+        let regions = SharedRegions::new(1_000_000, file_location!(), false);
         let mut ps = {
             let mut get_region =
                 KitschCell::Uninitialized(|| -> SharedRegion {

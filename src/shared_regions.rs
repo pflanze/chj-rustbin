@@ -21,6 +21,7 @@
 use std::{
     collections::{hash_map::Entry, HashMap},
     ffi::OsStr,
+    io::stderr,
     marker::PhantomData,
     mem::swap,
     os::unix::ffi::OsStrExt,
@@ -33,12 +34,20 @@ use log::trace;
 use memmap2::{MmapMut, MmapOptions};
 
 use crate::{
-    unsafe_util::raw_slice_mut::RawSliceMut, unsync_unsend::UnSyncUnSend,
+    parse::parse_error::FileLocation, unsafe_util::raw_slice_mut::RawSliceMut,
+    unsync_unsend::UnSyncUnSend,
 };
 
 /// A holder for all `SharedRegion`s across the program, to cache them
 /// for each thread.
 pub struct SharedRegions {
+    /// Where this was allocated, for debugging. Use `file_location!`
+    /// macro to get it.
+    allocation_context: &'static FileLocation,
+
+    /// Whether to try to print memory stats to stderr when dropped
+    print_stats_on_drop: bool,
+
     /// How many bytes to allocate unless the requested size was larger
     min_region_size: usize,
 
@@ -54,6 +63,14 @@ pub struct SharedRegions {
     regions: Mutex<HashMap<ThreadId, (Vec<MmapMut>, Vec<InnerSharedRegion>)>>,
 }
 
+impl Drop for SharedRegions {
+    fn drop(&mut self) {
+        if self.print_stats_on_drop {
+            _ = self.eprint_stats();
+        }
+    }
+}
+
 // SAFETY: It's OK to send it or its reference around as `regions` is
 // private and InnerSharedRegion is only ever accessed by the same
 // thread that created it, which shields it from the outer Send and
@@ -62,8 +79,14 @@ unsafe impl Send for SharedRegions {}
 unsafe impl Sync for SharedRegions {}
 
 impl SharedRegions {
-    pub fn new(min_region_size: usize) -> Self {
+    pub fn new(
+        min_region_size: usize,
+        allocation_context: &'static FileLocation,
+        print_stats_on_drop: bool,
+    ) -> Self {
         Self {
+            allocation_context,
+            print_stats_on_drop,
             min_region_size,
             regions: Default::default(),
         }
@@ -72,9 +95,36 @@ impl SharedRegions {
     pub fn get_region(&self) -> SharedRegion<'_> {
         SharedRegion::new(self)
     }
+
+    /// Total of all allocations of all threads, except for the
+    /// regions in current use by threads. Careful, blocks
+    /// `get_region` and `SharedRegion::drop` while calculating.
+    pub fn total_bytes_allocated(&self) -> usize {
+        let regions = self.regions.lock().expect("no panics");
+        regions
+            .values()
+            .map(|(_, inners)| -> usize {
+                inners.iter().map(|inner| inner.bytes_allocated()).sum()
+            })
+            .sum()
+    }
+
+    /// Print number of bytes allocated, together with the location
+    /// where this instance was allocated. See caveat for
+    /// `total_bytes_allocated`.
+    pub fn eprint_stats(&self) -> Result<(), std::io::Error> {
+        let n = self.total_bytes_allocated();
+        use std::io::Write;
+        writeln!(
+            &mut stderr(),
+            "{n} bytes allocated in SharedRegions from {}",
+            self.allocation_context
+        )
+    }
 }
 
 struct InnerSharedRegion {
+    orig_start: *mut u8,
     current: RawSliceMut,
 }
 
@@ -84,12 +134,26 @@ impl InnerSharedRegion {
         let mut _storage =
             // XX OK to panic for out of memory?
             MmapOptions::new().len(region_size).map_anon().expect("succeeds unless out of memory");
-        let current = (&mut *_storage).into();
+        let current: RawSliceMut = (&mut *_storage).into();
         trace!(
             "InnerSharedRegion::new({num_bytes}, {min_region_size}), \
              current={current:?}"
         );
-        (_storage, Self { current })
+        (
+            _storage,
+            Self {
+                orig_start: current.data(),
+                current,
+            },
+        )
+    }
+
+    fn bytes_allocated(&self) -> usize {
+        let Self {
+            orig_start,
+            current,
+        } = self;
+        unsafe { current.data().offset_from_unsigned(*orig_start) }
     }
 }
 
@@ -105,7 +169,10 @@ impl<'g> Drop for SharedRegion<'g> {
     fn drop(&mut self) {
         if let Some(inner_shared_region) = self.inner_shared_region.take() {
             let cutoff = 1.max(self.shared_regions.min_region_size / 2);
-            let InnerSharedRegion { current } = inner_shared_region;
+            let InnerSharedRegion {
+                current,
+                orig_start: _,
+            } = inner_shared_region;
             let do_put_back = current.len() > cutoff;
             trace!(
                 "SharedRegion::drop(current = {current:?}): cutoff={cutoff}, \

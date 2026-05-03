@@ -15,6 +15,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use chj_rustbin::{
     cpu_probe,
     efficient_regex::EfficientRegex,
+    file_location,
     filtered::{Filtered, FilteredSlice},
     io::{
         unix::unix_file_type::UnixFileTypeMask, unix_gr::GrInfoCache,
@@ -870,7 +871,11 @@ fn main() -> Result<()> {
         _phantom: std::marker::PhantomData,
     };
 
-    let shared_regions = SharedRegions::new(8 * 1048576);
+    let shared_regions = SharedRegions::new(
+        8 * 1048576,
+        file_location!(),
+        opt.verbose || opt.debug,
+    );
 
     // Read the paths as blocks (as `Vec<u8>`) of some number of
     // null-terminated paths each, in either mode; pass to the

@@ -1,14 +1,14 @@
 use std::{path::Path, sync::Mutex, thread};
 
 use anyhow::Result;
-use chj_rustbin::shared_regions::SharedRegions;
+use chj_rustbin::{file_location, shared_regions::SharedRegions};
 
 fn main() -> Result<()> {
     // Apparently miri removes this env var! Hack it back in.
     std::env::set_var("RUST_LOG", "trace");
     env_logger::init();
 
-    let regions = &SharedRegions::new(1000);
+    let regions = &SharedRegions::new(1000, file_location!(), false);
     let pss = Mutex::new(Vec::new());
     {
         let pss = &pss;

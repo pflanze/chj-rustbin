@@ -399,10 +399,9 @@ mod tests {
     fn t_() -> Result<()> {
         let regions = SharedRegions::new(1_000_000, file_location!(), false);
         let mut ps = {
-            let mut get_region =
-                KitschCell::Uninitialized(|| -> SharedRegion {
-                    regions.get_region()
-                });
+            let mut get_region = KitschCell::Unevaluated(|| -> SharedRegion {
+                regions.get_region()
+            });
             move |path: &str, expected_path2: &str| -> Option<Vec<&str>> {
                 let mut region = get_region.get();
                 let spath = p(path, &mut region)?;

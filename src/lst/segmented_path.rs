@@ -3,6 +3,8 @@ use std::{
     slice::from_raw_parts,
 };
 
+use num::Zero;
+
 use crate::shared_regions::SharedRegion;
 
 fn pointer_eq<T>(a: &T, b: &T) -> bool {
@@ -34,7 +36,9 @@ pub struct SegmentedPath<'region> {
     lc_name_len: u32,
 
     /// Length of the original file name (OsStr) as bytes (no \0 at
-    /// the end); data follows immediately after the `lc_name` data.
+    /// the end); data follows immediately after the `lc_name`
+    /// data. If identical to `lc_name`, the original file name is not
+    /// stored and `orig_name_len` is set to 0.
     orig_name_len: u16,
 
     _pin: PhantomPinned,
@@ -43,7 +47,6 @@ pub struct SegmentedPath<'region> {
 impl<'region> PartialEq for SegmentedPath<'region> {
     fn eq(&self, other: &Self) -> bool {
         pointer_eq_opt(self.parent, other.parent)
-            && self.orig_name_len == other.orig_name_len
             && self.orig_name() == other.orig_name()
     }
 }
@@ -88,12 +91,12 @@ fn segmented_path_ord<'region>(
     })
 }
 
-/// Store those characters compared via `ci_cmp`. Returns stored
-/// length, and remainder of allocation
+/// Store those characters compared via `ci_cmp`. Returns a reference
+/// to the stored data, and the remainder of `alloc`.
 fn store_ci_cmp_chars<'a>(
     s: &str,
     alloc: &'a mut [u8],
-) -> (usize, &'a mut [u8]) {
+) -> (&'a mut [u8], &'a mut [u8]) {
     let mut i = 0;
     for c in s.chars() {
         if c.is_alphanumeric() {
@@ -109,7 +112,7 @@ fn store_ci_cmp_chars<'a>(
             }
         }
     }
-    (i, &mut alloc[i..])
+    alloc.split_at_mut(i)
 }
 
 impl<'region> SegmentedPath<'region> {
@@ -124,11 +127,12 @@ impl<'region> SegmentedPath<'region> {
         let orig_name_bytes = orig_name.as_encoded_bytes();
         let orig_name_len = orig_name_bytes.len();
 
+        // The largest possible allocation that we need
         let alloc_len = STRUCT_SIZE + orig_name_len * 9; // 1 orig, 2 unicode chars for lc
         let alloc = shared_region.allocate::<STRUCT_ALIGN>(alloc_len);
         let (_alloc_struct, tail) = alloc.split_at_mut(STRUCT_SIZE);
 
-        let (lc_name_len, tail) = {
+        let (lc_name, tail) = {
             let orig_name_lossy = orig_name.to_string_lossy();
             store_ci_cmp_chars(&orig_name_lossy, tail)
         };
@@ -136,26 +140,39 @@ impl<'region> SegmentedPath<'region> {
         #[allow(unused)]
         let orig_name = ();
 
-        let (alloc_orig, rest) = tail.split_at_mut(orig_name_len);
-        alloc_orig.copy_from_slice(orig_name_bytes);
+        let (orig_name_len, rest) = if lc_name == orig_name_bytes {
+            // The two file name versions are identical; do not store
+            // `orig_name` as a second copy.
+            (0, tail)
+        } else {
+            let (alloc_orig, rest) = tail.split_at_mut(orig_name_len);
+            alloc_orig.copy_from_slice(orig_name_bytes);
+            (
+                orig_name_len
+                    .try_into()
+                    .expect("no path segment can be longer than u16::MAX"),
+                rest,
+            )
+        };
 
         let depth = match parent {
             Some(d) => d.depth + 1,
             None => 0,
         };
+
+        let lc_name_len = lc_name.len();
+
         let slf = Self {
             parent,
             depth,
             lc_name_len: lc_name_len
                 .try_into()
                 .expect("no path segment, even after UTF-8 lowercasing, can be longer than u32::MAX"),
-            orig_name_len: orig_name_len
-                .try_into()
-                .expect("no path segment can be longer than u16::MAX"),
+            orig_name_len,
             _pin: PhantomPinned,
         };
 
-        let used = STRUCT_SIZE + lc_name_len + orig_name_len;
+        let used = STRUCT_SIZE + lc_name_len + usize::from(orig_name_len);
         debug_assert_eq!(used + rest.len(), alloc_len);
         unsafe {
             shared_region.return_unused(rest.len());
@@ -235,6 +252,10 @@ impl<'region> SegmentedPath<'region> {
     /// The original file name.
     // Follows after lc_name
     pub fn orig_name(&self) -> &'region OsStr {
+        if self.orig_name_len.is_zero() {
+            return self.lc_name().as_ref();
+        }
+
         const STRUCT_SIZE: usize = size_of::<SegmentedPath>();
         let self_ptr: *const Self = self;
         let self_addr = self_ptr as *const u8;

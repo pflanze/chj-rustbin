@@ -153,7 +153,9 @@ impl InnerSharedRegion {
             orig_start,
             current,
         } = self;
-        unsafe { current.data().offset_from_unsigned(*orig_start) }
+        unsafe { current.data().offset_from(*orig_start) }
+            .try_into()
+            .expect("always fits half the address space")
     }
 }
 

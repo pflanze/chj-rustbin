@@ -112,7 +112,7 @@ impl<B: Backing> ParseContext for StringParseContext<B> {
 pub struct ParseError<C: ParseContext> {
     pub message: String,
     pub context: C,
-    pub backtrace: Vec<FileLocation>,
+    pub backtrace: Vec<&'static FileLocation>,
 }
 
 impl<'t, B: Backing> IntoOwningBacking<B::Owned>
@@ -191,7 +191,7 @@ impl FileLocation {
 #[macro_export]
 macro_rules! file_location {
     {} => {
-        $crate::parse::parse_error::FileLocation {
+        &$crate::parse::parse_error::FileLocation {
             file: file!(),
             line: line!(),
             column: column!(),

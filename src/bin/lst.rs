@@ -7,6 +7,7 @@ use std::{
     os::unix::prelude::OsStrExt,
     path::PathBuf,
     str::FromStr,
+    sync::Mutex,
     time::SystemTime,
 };
 
@@ -33,6 +34,7 @@ use chj_rustbin::{
         possibly_segmented_path::PossiblySegmentedPath,
         segmented_path::{tmp_path_buffer, SegmentedPath},
     },
+    merge_trait::Merge,
     probe,
     shared_regions::SharedRegions,
     text::yattable::{Widths, YatTable},
@@ -1092,6 +1094,36 @@ fn print_paths<
     Ok(())
 }
 
+fn get_pw_gr_info<
+    'region: 'i,
+    'i,
+    P: PossiblySegmentedPath<'region, InlineLst> + Copy + Sync + Send + 'region,
+>(
+    items: &[impl Borrow<MiniItem<'i, 'region, P>> + Sync],
+) -> (PwInfoCache, GrInfoCache) {
+    let mut pw_info_cache = PwInfoCache::new();
+    let mut gr_info_cache = GrInfoCache::new();
+    if let Some(item) = items.first() {
+        let item = item.borrow();
+        let (uid, gid) = (item.item.metadata.uid, item.item.metadata.gid);
+        pw_info_cache.lookup_by_uid(uid);
+        gr_info_cache.lookup_by_gid(gid);
+        let (mut last_uid, mut last_gid) = (uid, gid);
+        for item in items {
+            let item: &MiniItem<_> = item.borrow();
+            let (uid, gid) = (item.item.metadata.uid, item.item.metadata.gid);
+            if uid != last_uid {
+                pw_info_cache.lookup_by_uid(uid);
+            }
+            if gid != last_gid {
+                gr_info_cache.lookup_by_gid(gid);
+            }
+            (last_uid, last_gid) = (uid, gid)
+        }
+    }
+    (pw_info_cache, gr_info_cache)
+}
+
 fn print_listing<
     'region: 'i,
     'i,
@@ -1105,27 +1137,36 @@ fn print_listing<
 
     let table_from_items = {
         probe!("resolve pw+gr info");
+
+        let chunk_size = 100000;
+        let num_tasks = selected_items.len().div_ceil(chunk_size);
+        let mut results: Vec<Mutex<Option<(PwInfoCache, GrInfoCache)>>> =
+            Vec::new();
+        results.resize_with(num_tasks, Default::default);
+        rayon::scope(|scope| {
+            let mut remainder = selected_items;
+            let mut i = 0;
+            while !remainder.is_empty() {
+                let head;
+                (head, remainder) =
+                    remainder.split_at(chunk_size.min(remainder.len()));
+                let result = &results[i];
+                scope.spawn(move |_| {
+                    let r = get_pw_gr_info(head);
+                    *result.lock().expect("not locked before") = Some(r);
+                });
+                i += 1;
+            }
+        });
         let mut pw_info_cache = PwInfoCache::new();
         let mut gr_info_cache = GrInfoCache::new();
-        if let Some(item) = selected_items.first() {
-            let item = item.borrow();
-            let (uid, gid) = (item.item.metadata.uid, item.item.metadata.gid);
-            pw_info_cache.lookup_by_uid(uid);
-            gr_info_cache.lookup_by_gid(gid);
-            let (mut last_uid, mut last_gid) = (uid, gid);
-            for item in selected_items {
-                let item: &MiniItem<_> = item.borrow();
-                let (uid, gid) =
-                    (item.item.metadata.uid, item.item.metadata.gid);
-                if uid != last_uid {
-                    pw_info_cache.lookup_by_uid(uid);
-                }
-                if gid != last_gid {
-                    gr_info_cache.lookup_by_gid(gid);
-                }
-                (last_uid, last_gid) = (uid, gid)
-            }
+        for result in results {
+            let (pw, gr) =
+                result.into_inner().expect("no panic").expect("was set");
+            pw_info_cache.mut_merge(pw);
+            gr_info_cache.mut_merge(gr);
         }
+
         TableFromItems {
             use_color,
             pw_info_cache,

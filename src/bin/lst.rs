@@ -2,6 +2,7 @@ use std::{
     borrow::Borrow,
     cmp::Ordering,
     env::set_current_dir,
+    ffi::OsString,
     io::{stdin, stdout, BufWriter, IoSlice},
     ops::BitXor,
     os::unix::prelude::OsStrExt,
@@ -117,8 +118,18 @@ struct Opt {
     find: Option<PathBuf>,
 
     /// Ignore paths matching the given regex (not glob pattern!)
-    #[clap(short, long)]
+    #[clap(long)]
     ignore_path_regex: Vec<Regex>,
+
+    /// Ignore items matching the given file name (not a regex or glob
+    /// pattern, and must not contain slashes)
+    #[clap(long)]
+    ignore_item_name: Vec<OsString>,
+
+    /// Ignore items for which the file name matches the given regex
+    /// (not glob pattern!)
+    #[clap(long)]
+    ignore_item_regex: Vec<Regex>,
 
     /// Print entries as "long" listing, like `ls -l`
     #[clap(short, long)]
@@ -876,8 +887,16 @@ fn main() -> Result<()> {
         Some(EfficientRegex::new_either_from(&opt.ignore_path_regex))
     };
 
+    let ignore_item_regex = if opt.ignore_item_regex.is_empty() {
+        None
+    } else {
+        Some(EfficientRegex::new_either_from(&opt.ignore_item_regex))
+    };
+
     let get_items = GetItems {
         ignore_path_regex,
+        ignore_item_names: opt.ignore_item_name.clone(),
+        ignore_item_regex,
         long: opt.long,
         use_color,
         _phantom: std::marker::PhantomData,

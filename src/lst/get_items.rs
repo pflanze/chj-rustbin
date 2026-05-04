@@ -1,5 +1,5 @@
 use std::{
-    ffi::OsStr,
+    ffi::{OsStr, OsString},
     fmt::{Debug, Display},
     fs::Metadata,
     marker::PhantomData,
@@ -19,6 +19,7 @@ use crate::{
     efficient_regex::EfficientRegex,
     io::{unix_gr::Gid, unix_pw::Uid},
     io_utils::read_buf::ReadBufStreamError,
+    kitschcell::{KitschCache, KitschCell, KitschValue},
     lst::{
         possibly_segmented_path::PossiblySegmentedPath,
         segmented_path::tmp_path_buffer,
@@ -354,10 +355,10 @@ fn t_sizes() {
 impl<'region, P: PossiblySegmentedPath<'region, INLINE>, INLINE>
     Item<'region, P, INLINE>
 {
-    // If `metadata.is_link()`, `_path` must be given! Otherwise panics
-    fn from_path_and_metadata<'t>(
+    // `get_path` is only evaluated when `metadata.is_link()`
+    fn from_path_and_metadata<'t, 'p, 'tmp: 'p>(
         path: P,
-        _path: Option<&'t Path>,
+        get_path: &'p mut impl KitschCache<&'tmp Path>,
         file_kind: Option<FileKind>,
         read_link: bool,
         stat_link_target: bool,
@@ -366,8 +367,7 @@ impl<'region, P: PossiblySegmentedPath<'region, INLINE>, INLINE>
         let metadata =
             EssentialMetadata::from_symlink_metadata(&metadata, file_kind)?;
         let link_target = if read_link && metadata.mode.file_type().is_link() {
-            let _path =
-                _path.expect("`_path` must be given if file type is link");
+            let _path = get_path.get();
             match _path.read_link() {
                 Ok(t) => {
                     let metadata2 = if stat_link_target {
@@ -406,14 +406,17 @@ impl<'region, P: PossiblySegmentedPath<'region, INLINE>, INLINE>
         stat_link_target: bool,
     ) -> Result<Option<Self>> {
         match _path.symlink_metadata() {
-            Ok(metadata) => Self::from_path_and_metadata(
-                path,
-                Some(_path),
-                _path.to_file_kind(),
-                read_link,
-                stat_link_target,
-                metadata,
-            ),
+            Ok(metadata) => {
+                let mut get_path = KitschValue(_path);
+                Self::from_path_and_metadata(
+                    path,
+                    &mut get_path,
+                    _path.to_file_kind(),
+                    read_link,
+                    stat_link_target,
+                    metadata,
+                )
+            }
             Err(e) => match e.kind() {
                 std::io::ErrorKind::NotFound => Ok(None),
                 _ => bail!("getting metadata for {path:?}: {e:#}"),
@@ -436,18 +439,53 @@ impl<'region, P: PossiblySegmentedPath<'region, INLINE>, INLINE>
 
 pub struct GetItems<INLINE> {
     pub ignore_path_regex: Option<EfficientRegex>,
+    pub ignore_item_names: Vec<OsString>,
+    pub ignore_item_regex: Option<EfficientRegex>,
     pub long: bool,
     pub use_color: bool,
     pub _phantom: PhantomData<INLINE>,
 }
 
 impl<INLINE: Sync> GetItems<INLINE> {
-    fn ignore_path(&self, path: &Path) -> bool {
-        if let Some(ignore) = &self.ignore_path_regex {
-            ignore.is_match_path(path)
+    fn ignore_path<'s, 'p, 'tmp: 'p, 'o>(
+        &'s self,
+        file_name: Option<&'o OsStr>,
+        get_path: &'p mut impl KitschCache<&'tmp Path>,
+    ) -> bool {
+        let Self {
+            ignore_path_regex,
+            ignore_item_names,
+            ignore_item_regex,
+            long: _,
+            use_color: _,
+            _phantom: _,
+        } = self;
+
+        if let Some(file_name) = file_name {
+            for ignore_item_name in ignore_item_names {
+                if ignore_item_name == &file_name {
+                    return true;
+                }
+            }
+
+            if let Some(ignore) = ignore_item_regex {
+                if ignore.is_match_file_name(&file_name) {
+                    return true;
+                }
+            }
         } else {
-            false
+            // XX ? should only happen for "" paths anyway, right?
+            return true;
         }
+
+        if let Some(ignore) = ignore_path_regex {
+            let path = get_path.get();
+            if ignore.is_match_path(path) {
+                return true;
+            }
+        }
+
+        false
     }
 
     /// Leaks the backing memory for Item for now for simplicity
@@ -480,7 +518,8 @@ impl<INLINE: Sync> GetItems<INLINE> {
                             path
                         })
                         .filter(|path: &&Path| -> bool {
-                            !self.ignore_path(path)
+                            let mut get_path = KitschValue(*path);
+                            !self.ignore_path(path.file_name(), &mut get_path)
                         })
                         .map(|path| -> Result<Option<Item<_, _>>> {
                             // Only stat linked files if used for
@@ -525,6 +564,8 @@ impl<INLINE: Sync> GetItems<INLINE> {
         match (move || -> Result<_> {
             let Self {
                 ignore_path_regex: _,
+                ignore_item_names: _,
+                ignore_item_regex: _,
                 long,
                 use_color,
                 _phantom: _,
@@ -536,9 +577,10 @@ impl<INLINE: Sync> GetItems<INLINE> {
             let items_ref = &mut items;
             let dir_path = dir.psp_to_path(&mut tmp);
             if include_dir {
+                let mut get_dir_path = KitschValue(dir_path);
                 if let Some(item) = Item::from_path_and_metadata(
                     dir,
-                    Some(dir_path),
+                    &mut get_dir_path,
                     dir_path.to_file_kind(),
                     *long,
                     *use_color,
@@ -557,38 +599,30 @@ impl<INLINE: Sync> GetItems<INLINE> {
             let subdir_items_rf = &subdir_items;
             rayon::scope(move |scope| -> Result<()> {
                 let mut allocator = shared_regions.get_region();
-                for entry in input {
+                'entry: for entry in input {
                     let entry: std::fs::DirEntry = entry?;
                     let metadata = entry.metadata()?;
-                    let (file_kind, sub_path) = {
-                        // XX get from libc instead to avoid allocation
-                        let file_name = entry.file_name();
-                        (
-                            (&*file_name).to_file_kind(),
-                            dir.psp_add_segment(&file_name, &mut allocator),
-                        )
-                    };
+
+                    // XX get from libc instead to avoid allocation
+                    let file_name = entry.file_name();
+
+                    let sub_path =
+                        dir.psp_add_segment(&file_name, &mut allocator);
 
                     // Only need &Path if a path regex was given or
                     // the item is a symlink (in that latter case,
                     // could also change to dir-fd based POSIX
                     // functions).
-                    let opt_path = if self.ignore_path_regex.is_some()
-                        || metadata.is_symlink()
-                    {
-                        Some(sub_path.psp_to_path(&mut tmp))
-                    } else {
-                        None
-                    };
+                    let mut opt_path = KitschCell::Unevaluated({
+                        || sub_path.psp_to_path(&mut tmp)
+                    });
 
-                    if self.ignore_path_regex.is_some() {
-                        let path = opt_path.expect("set above");
-                        if self.ignore_path(&path) {
-                            continue;
-                        }
+                    if self.ignore_path(Some(&file_name), &mut opt_path) {
+                        continue 'entry;
                     }
 
                     if metadata.is_dir() {
+                        drop(file_name);
                         scope.spawn(move |_| {
                             let (items, errors) = self._find(
                                 sub_path,
@@ -603,7 +637,11 @@ impl<INLINE: Sync> GetItems<INLINE> {
                         });
                     } else {
                         if let Some(item) = Item::from_path_and_metadata(
-                            sub_path, opt_path, file_kind, *long, *use_color,
+                            sub_path,
+                            &mut opt_path,
+                            (&*file_name).to_file_kind(),
+                            *long,
+                            *use_color,
                             metadata,
                         )? {
                             items_ref.push(item);

@@ -1,7 +1,9 @@
 //! Use more efficient byte based regex matching as long as the given
 //! regular expression allows it
 
-use std::{collections::BTreeSet, os::unix::ffi::OsStrExt, path::Path};
+use std::{
+    collections::BTreeSet, ffi::OsStr, os::unix::ffi::OsStrExt, path::Path,
+};
 
 use log::{debug, info};
 use regex::{bytes, Regex, RegexBuilder};
@@ -22,19 +24,19 @@ pub enum FastMatch {
 }
 
 impl FastMatch {
-    pub fn is_match_path(self, path: &Path) -> bool {
+    pub fn is_match_os_str(self, s: &OsStr) -> bool {
         match self {
             FastMatch::BackupOrCommon => {
-                let path_bytes = path.as_os_str().as_bytes();
+                let path_bytes = s.as_bytes();
                 fast_match_emacs_backup(path_bytes)
                     || fast_match_common(path_bytes)
             }
             FastMatch::Backup => {
-                let path_bytes = path.as_os_str().as_bytes();
+                let path_bytes = s.as_bytes();
                 fast_match_emacs_backup(path_bytes)
             }
             FastMatch::Common => {
-                let path_bytes = path.as_os_str().as_bytes();
+                let path_bytes = s.as_bytes();
                 fast_match_common(path_bytes)
             }
         }
@@ -145,7 +147,7 @@ impl EfficientRegex {
         }
     }
 
-    pub fn is_match_path(&self, path: &Path) -> bool {
+    pub fn is_match_file_name(&self, path: &OsStr) -> bool {
         match self {
             EfficientRegex::RegexForStrings(regex) => {
                 // Would it be better security wise to
@@ -154,20 +156,24 @@ impl EfficientRegex {
                 regex.is_match(&path_str)
             }
             EfficientRegex::RegexForBytes(regex) => {
-                let path_bytes = path.as_os_str().as_bytes();
+                let path_bytes = path.as_bytes();
                 regex.is_match(path_bytes)
             }
             EfficientRegex::FastMatch(fast_match) => {
-                fast_match.is_match_path(path)
+                fast_match.is_match_os_str(path)
             }
             EfficientRegex::FastMatches(fast_matchs) => {
                 for fast_match in fast_matchs {
-                    if fast_match.is_match_path(path) {
+                    if fast_match.is_match_os_str(path) {
                         return true;
                     }
                 }
                 false
             }
         }
+    }
+
+    pub fn is_match_path(&self, path: &Path) -> bool {
+        self.is_match_file_name(path.as_os_str())
     }
 }

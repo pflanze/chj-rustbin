@@ -51,14 +51,11 @@ pub struct SharedRegions {
     /// How many bytes to allocate unless the requested size was larger
     min_region_size: usize,
 
-    // (XX update docs) Store the regions here so that the last one
-    // can be retrieved again via SharedRegion::new (which must remove
-    // the entry here to avoid risking double use of the mut
-    // reference), but also to perhaps iterate through all of it in
-    // the future. Only store leaked memory here, though, since
-    // threads exiting must not deallocate the memory!--XX ah, now
-    // stores back the mostly-used-up-slice, not the whole region,
-    // back here, so won't be useful for reading!
+    /// All regions not in current use by threads. The last one is
+    /// retrieved again via SharedRegion::new (which must remove the
+    /// entry here to avoid risking double use of the mut reference),
+    /// and drop puts it back. For ownership, and to iterate over for
+    /// stats.
     #[allow(clippy::type_complexity)]
     regions: Mutex<HashMap<ThreadId, (Vec<MmapMut>, Vec<InnerSharedRegion>)>>,
 }

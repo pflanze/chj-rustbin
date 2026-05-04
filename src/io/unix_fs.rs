@@ -69,13 +69,16 @@ pub fn path_is_normal_file(path: &CStr) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::CString;
+    use std::{ffi::CString, fs::read_dir};
+
+    use anyhow::Result;
 
     use super::*;
 
     #[test]
-    fn t_filetype() {
+    fn t_filetype() -> Result<()> {
         fn t(f: fn(&CStr) -> bool, s: &str, expected: bool) {
+            eprintln!("{f:?} {s:} {expected:?}");
             assert_eq!(f(&CString::new(s).unwrap()), expected);
         }
         t(path_is_dir, ".", true);
@@ -87,11 +90,26 @@ mod tests {
         t(path_is_file, "/etc/fstab", true);
         t(path_is_chardevice, "/dev/null", true);
         t(path_is_chardevice, "/dev/loop0", false);
-        t(path_is_blockdevice, "/dev/sda", true);
-        t(path_is_normal_file, "/dev/sda", false);
+
+        {
+            let mut dir = read_dir("/dev/block/")?;
+            let path = dir
+                .next()
+                .expect("expect at least 1 entry in /dev/block/")?
+                .path();
+            let path = path.canonicalize()?;
+            let path_str = path
+                .to_str()
+                .expect("expect system files to be unicode paths");
+            t(path_is_blockdevice, path_str, true);
+            t(path_is_normal_file, path_str, false);
+        }
+
         t(path_is_normal_file, "8hbrr2kz8kmztb4dqh4", false);
         t(path_is_normal_file, "/etc/fstab", true);
         t(path_is_link, "/etc/localtime", true);
         t(path_is_normal_file, "/etc/localtime", true);
+
+        Ok(())
     }
 }

@@ -676,9 +676,7 @@ fn run_processing_commands<
                     .into_iter()
                     .filter(|mini_item| {
                         invert.bitxor(
-                            (mini_item.item.metadata.file_type().as_mask()
-                                & file_types)
-                                != 0,
+                            (mini_item.file_type_mask & file_types) != 0,
                         )
                     })
                     .map(|r| *r)
@@ -989,6 +987,7 @@ struct MiniItem<
     P: PossiblySegmentedPath<'region, InlineLst> + Copy + Sync + Send + 'region,
 > {
     mtime: SystemTime,
+    file_type_mask: UnixFileTypeMask,
     path: P,
     item: &'i Item<'region, P, InlineLst>,
 }
@@ -1006,6 +1005,7 @@ impl<
     fn from(item: &'i Item<'region, P, InlineLst>) -> Self {
         MiniItem {
             mtime: item.mtime(),
+            file_type_mask: item.metadata.file_type().as_mask(),
             path: item.path,
             item,
         }
@@ -1014,7 +1014,8 @@ impl<
 
 #[test]
 fn t_sizeof_mini_item() {
-    assert_eq!(size_of::<MiniItem<&SegmentedPath>>(), 32);
+    assert_eq!(size_of::<MiniItem<&SegmentedPath>>(), 40);
+    assert_eq!(size_of::<[MiniItem<&SegmentedPath>; 10]>(), 400);
 }
 
 fn main_cont<

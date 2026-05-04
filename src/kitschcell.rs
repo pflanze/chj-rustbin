@@ -37,3 +37,12 @@ impl<T, F: FnOnce() -> T> KitschCache<T> for KitschCell<T, F> {
         }
     }
 }
+
+pub struct KitschValue<T>(pub T);
+
+impl<T> KitschCache<T> for KitschValue<T> {
+    #[inline]
+    fn get(&mut self) -> &mut T {
+        &mut self.0
+    }
+}

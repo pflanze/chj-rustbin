@@ -435,7 +435,7 @@ mod tests {
 
         // Make items from it
         let now = SystemTime::now();
-        let mut items: Vec<Item<_, _>> = backing
+        let items: Vec<Item<_, _>> = backing
             .split(|c| *c == 0)
             .map(|path| {
                 let path: &OsStr = OsStr::from_bytes(path);
@@ -465,13 +465,13 @@ mod tests {
                 }
             })
             .collect();
+        let mut mini_items: Vec<_> = items.iter().map(MiniItem::from).collect();
         let cmp = cmp_function(
             rng.gen_bool(0.5),
             rng.gen_bool(0.5),
             rng.gen_bool(0.5),
         );
-        items.par_sort_by(|a, b| cmp(a, b));
-        let items: Vec<_> = items.iter().collect();
+        mini_items.par_sort_by(|a, b| cmp(a, b));
 
         // Search for invalid optimizations
         let num_runs = match std::env::var_os("LST_NUM_TEST_RUNS") {
@@ -534,14 +534,14 @@ mod tests {
                 let cmds_optimized =
                     optimize_processing_commands(&cmds_original);
 
-                let mut items1 = items.clone();
+                let mut items1 = mini_items.clone();
                 let results_original = run_processing_commands(
                     &mut items1,
                     &cmds_original,
                     now,
                     false,
                 );
-                let mut items2 = items.clone();
+                let mut items2 = mini_items.clone();
                 let results_optimized = run_processing_commands(
                     &mut items2,
                     &cmds_optimized,
@@ -551,7 +551,7 @@ mod tests {
                 if results_original != results_optimized {
                     panic!(
                         "optimizer failure (thread/i={thread_i}/{i}):\n\
-                         items={items:#?}\n\
+                         items={mini_items:#?}\n\
                          results_original={results_original:#?}\n\
                          results_optimized={results_optimized:#?}\n\
                          cmds_original={cmds_original:#?}\n\
@@ -572,14 +572,14 @@ struct InlineLst;
 /// fallback for that sorting.
 fn cmp_function<
     'region,
-    P: PossiblySegmentedPath<'region, InlineLst> + Copy,
+    P: PossiblySegmentedPath<'region, InlineLst> + Copy + Sync + Send + 'region,
 >(
     reverse: bool,
     time: bool,
     time_reversed: bool,
-) -> fn(
-    a: &Item<'region, P, InlineLst>,
-    b: &Item<'region, P, InlineLst>,
+) -> for<'i> fn(
+    a: &MiniItem<'i, 'region, P>,
+    b: &MiniItem<'i, 'region, P>,
 ) -> Ordering {
     if !time {
         if reverse {
@@ -590,31 +590,15 @@ fn cmp_function<
     } else {
         if time_reversed {
             if !reverse {
-                |a, b| {
-                    a.mtime()
-                        .cmp(&b.mtime())
-                        .then_with(|| a.path.ci_cmp(b.path))
-                }
+                |a, b| a.mtime.cmp(&b.mtime).then_with(|| a.path.ci_cmp(b.path))
             } else {
-                |b, a| {
-                    a.mtime()
-                        .cmp(&b.mtime())
-                        .then_with(|| a.path.ci_cmp(b.path))
-                }
+                |b, a| a.mtime.cmp(&b.mtime).then_with(|| a.path.ci_cmp(b.path))
             }
         } else {
             if reverse {
-                |a, b| {
-                    a.mtime()
-                        .cmp(&b.mtime())
-                        .then_with(|| b.path.ci_cmp(a.path))
-                }
+                |a, b| a.mtime.cmp(&b.mtime).then_with(|| b.path.ci_cmp(a.path))
             } else {
-                |b, a| {
-                    a.mtime()
-                        .cmp(&b.mtime())
-                        .then_with(|| b.path.ci_cmp(a.path))
-                }
+                |b, a| a.mtime.cmp(&b.mtime).then_with(|| b.path.ci_cmp(a.path))
             }
         }
     }
@@ -624,15 +608,16 @@ fn cmp_function<
 /// in-place needs to move the slots around. And it needs to be a Vec
 /// since filtering changes the size of it.
 fn run_processing_commands<
-    'region: 'v,
+    'region: 'v + 'i,
     'v,
-    P: PossiblySegmentedPath<'region, InlineLst> + Clone,
+    'i,
+    P: PossiblySegmentedPath<'region, InlineLst> + Copy + Sync + Send + 'region,
 >(
-    items: &'v mut Vec<&'v Item<'region, P, InlineLst>>,
+    items: &'v mut Vec<MiniItem<'i, 'region, P>>,
     cmds: &[ProcessingCommand],
     now: SystemTime,
     show_files_from_future: bool,
-) -> &'v [&'v Item<'region, P, InlineLst>] {
+) -> &'v [MiniItem<'i, 'region, P>] {
     probe!("run_processing_commands");
     let mut selected_items = unsafe { hack_static(&mut **items) };
     for cmd in cmds {
@@ -655,7 +640,7 @@ fn run_processing_commands<
             }
             ProcessingCommand::Reverse => selected_items.reverse(),
             ProcessingCommand::FilterDays(range) => {
-                let new_items: Vec<&Item<_, _>> = (&*selected_items)
+                let new_items: Vec<MiniItem<_>> = (&*selected_items)
                     .into_iter()
                     .filter(|item| {
                         let f = |age_days| match range {
@@ -667,13 +652,13 @@ fn run_processing_commands<
                                     && age_days <= u64::from(*to)
                             }
                         };
-                        match item.age_days_at(now) {
+                        match item.item.age_days_at(now) {
                             Ok(age_days) => f(age_days),
                             Err(_e) => {
                                 if show_files_from_future {
                                     true
                                 } else {
-                                    match now.age_days_at(item.mtime()) {
+                                    match now.age_days_at(item.mtime) {
                                         Ok(0) => f(0),
                                         _ => false,
                                     }
@@ -687,11 +672,12 @@ fn run_processing_commands<
                 selected_items = unsafe { hack_static(&mut **items) };
             }
             ProcessingCommand::Filter { invert, file_types } => {
-                let new_items: Vec<&Item<_, _>> = (&*selected_items)
+                let new_items: Vec<MiniItem<_>> = (&*selected_items)
                     .into_iter()
-                    .filter(|item| {
+                    .filter(|mini_item| {
                         invert.bitxor(
-                            (item.metadata.file_type().as_mask() & file_types)
+                            (mini_item.item.metadata.file_type().as_mask()
+                                & file_types)
                                 != 0,
                         )
                     })
@@ -712,9 +698,17 @@ struct TableFromItems {
 }
 
 impl TableFromItems {
-    fn run<'region, P: PossiblySegmentedPath<'region, InlineLst> + Copy>(
+    fn run<
+        'region: 'i,
+        'i,
+        P: PossiblySegmentedPath<'region, InlineLst>
+            + Copy
+            + Sync
+            + Send
+            + 'region,
+    >(
         &self,
-        items: &[impl Borrow<Item<'region, P, InlineLst>>],
+        mini_items: &[impl Borrow<MiniItem<'i, 'region, P>>],
     ) -> YatTable<7> {
         let Self {
             use_color,
@@ -723,13 +717,14 @@ impl TableFromItems {
         } = self;
         let mut table = YatTable::new();
         let mut tmp = tmp_path_buffer();
-        for item in items {
-            let item = item.borrow();
-            let mode = item.metadata.mode;
-            let nlink = item.metadata.nlink;
-            let size = item.metadata.size;
-            let uid = item.metadata.uid;
-            let gid = item.metadata.gid;
+        for mini_item in mini_items {
+            let mini_item: &MiniItem<'i, 'region, P> = mini_item.borrow();
+            let metadata = &mini_item.item.metadata;
+            let mode = metadata.mode;
+            let nlink = metadata.nlink;
+            let size = metadata.size;
+            let uid = metadata.uid;
+            let gid = metadata.gid;
 
             let mut row = table.new_row();
             row.add_cell_fmt(format_args!("{mode}"));
@@ -748,7 +743,7 @@ impl TableFromItems {
                     .unwrap_or("<unknown>");
                 row.add_cell_fmt(format_args!("{groupname}"));
             }
-            if let Some(rdev) = item.metadata.device {
+            if let Some(rdev) = metadata.device {
                 row.add_cell_fmt(format_args!(
                     "{}, {}",
                     rdev.major(),
@@ -757,7 +752,7 @@ impl TableFromItems {
             } else {
                 row.add_cell_fmt(format_args!("{size}"));
             }
-            let t: DateTime<Local> = item.metadata.mtime.into();
+            let t: DateTime<Local> = metadata.mtime.into();
             let (year, month, day, hour, minute) =
                 (t.year(), t.month(), t.day(), t.hour(), t.minute());
             row.add_cell_fmt(format_args!(
@@ -765,8 +760,9 @@ impl TableFromItems {
             ));
 
             let is_broken_link = *use_color
-                && item.metadata.mode.file_type().is_link()
-                && !item
+                && metadata.mode.file_type().is_link()
+                && !mini_item
+                    .item
                     .link_target
                     .as_ref()
                     .map(|(_, m)| m.is_some())
@@ -783,14 +779,14 @@ impl TableFromItems {
                 } else {
                     // Otherwise (not a link, or not broken) what
                     // the metadata dictates
-                    item.metadata.style()
+                    metadata.style()
                 }
             } else {
                 None
             };
 
             let path_bytes =
-                item.path.psp_to_path(&mut tmp).as_os_str().as_bytes();
+                mini_item.path.psp_to_path(&mut tmp).as_os_str().as_bytes();
             if let Some(style) = style {
                 row.add_cell_fmt(format_args!("{style}"));
                 row.amend_cell_bytes(path_bytes);
@@ -801,7 +797,9 @@ impl TableFromItems {
                 row.amend_cell_fmt(format_args!("{style:#}"));
             }
 
-            if let Some((target_path, target_metadata)) = &item.link_target {
+            if let Some((target_path, target_metadata)) =
+                &mini_item.item.link_target
+            {
                 row.amend_cell_bytes(b" -> ");
 
                 let target_style = if *use_color {
@@ -983,6 +981,42 @@ struct MainContVals {
     use_color: bool,
 }
 
+/// Flattened Item for more performant sorting
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+struct MiniItem<
+    'i,
+    'region: 'i,
+    P: PossiblySegmentedPath<'region, InlineLst> + Copy + Sync + Send + 'region,
+> {
+    mtime: SystemTime,
+    path: P,
+    item: &'i Item<'region, P, InlineLst>,
+}
+
+impl<
+        'i,
+        'region: 'i,
+        P: PossiblySegmentedPath<'region, InlineLst>
+            + Copy
+            + Sync
+            + Send
+            + 'region,
+    > From<&'i Item<'region, P, InlineLst>> for MiniItem<'i, 'region, P>
+{
+    fn from(item: &'i Item<'region, P, InlineLst>) -> Self {
+        MiniItem {
+            mtime: item.mtime(),
+            path: item.path,
+            item,
+        }
+    }
+}
+
+#[test]
+fn t_sizeof_mini_item() {
+    assert_eq!(size_of::<MiniItem<&SegmentedPath>>(), 32);
+}
+
 fn main_cont<
     'region,
     P: PossiblySegmentedPath<'region, InlineLst> + Copy + Sync + Send + 'region,
@@ -996,18 +1030,18 @@ fn main_cont<
     }: MainContVals,
     (items_bag, errors): (Bag<Item<'region, P, InlineLst>>, Vec<anyhow::Error>),
 ) -> Result<()> {
-    let mut items = {
-        probe!("flatten_refs");
-        items_bag.flatten_refs()
+    let mut mini_items: Vec<MiniItem<'_, 'region, P>> = {
+        probe!("map_flatten_refs");
+        items_bag.map_flatten_refs(MiniItem::from)
     };
     let cmp = cmp_function::<P>(opt.reverse, opt.time, opt.time_reversed);
     {
         probe!("sort_items");
-        items.par_sort_by(|a, b| cmp(a, b));
+        mini_items.par_sort_by(|a, b| cmp(a, b));
     }
 
     let filtered_items = run_processing_commands(
-        &mut items,
+        &mut mini_items,
         &cmds,
         now,
         opt.show_files_from_future,
@@ -1038,10 +1072,11 @@ fn main_cont<
 }
 
 fn print_paths<
-    'region,
+    'region: 'i,
+    'i,
     P: PossiblySegmentedPath<'region, InlineLst> + Copy + Sync + Send + 'region,
 >(
-    selected_items: &[impl Borrow<Item<'region, P, InlineLst>>],
+    selected_items: &[impl Borrow<MiniItem<'i, 'region, P>>],
     output_record_separator: u8,
 ) -> Result<()> {
     use std::io::Write;
@@ -1057,10 +1092,11 @@ fn print_paths<
 }
 
 fn print_listing<
-    'region,
+    'region: 'i,
+    'i,
     P: PossiblySegmentedPath<'region, InlineLst> + Copy + Sync + Send + 'region,
 >(
-    selected_items: &[impl Borrow<Item<'region, P, InlineLst>> + Sync],
+    selected_items: &[impl Borrow<MiniItem<'i, 'region, P>> + Sync],
     output_record_separator: u8,
     use_color: bool,
 ) -> Result<()> {
@@ -1072,13 +1108,14 @@ fn print_listing<
         let mut gr_info_cache = GrInfoCache::new();
         if let Some(item) = selected_items.first() {
             let item = item.borrow();
-            let (uid, gid) = (item.metadata.uid, item.metadata.gid);
+            let (uid, gid) = (item.item.metadata.uid, item.item.metadata.gid);
             pw_info_cache.lookup_by_uid(uid);
             gr_info_cache.lookup_by_gid(gid);
             let (mut last_uid, mut last_gid) = (uid, gid);
             for item in selected_items {
                 let item = item.borrow();
-                let (uid, gid) = (item.metadata.uid, item.metadata.gid);
+                let (uid, gid) =
+                    (item.item.metadata.uid, item.item.metadata.gid);
                 if uid != last_uid {
                     pw_info_cache.lookup_by_uid(uid);
                 }

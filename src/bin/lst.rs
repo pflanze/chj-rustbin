@@ -1114,7 +1114,7 @@ fn print_listing<
             gr_info_cache.lookup_by_gid(gid);
             let (mut last_uid, mut last_gid) = (uid, gid);
             for item in selected_items {
-                let item = item.borrow();
+                let item: &MiniItem<_> = item.borrow();
                 let (uid, gid) =
                     (item.item.metadata.uid, item.item.metadata.gid);
                 if uid != last_uid {

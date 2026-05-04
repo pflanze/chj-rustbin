@@ -21,7 +21,9 @@ use crate::{
     io_utils::read_buf::ReadBufStreamError,
     kitschcell::{KitschCache, KitschCell, KitschValue},
     lst::{
-        possibly_segmented_path::PossiblySegmentedPath,
+        possibly_segmented_path::{
+            PossiblySegmentedPath, PossiblySegmentedPathParent,
+        },
         segmented_path::tmp_path_buffer,
     },
     path_file_kind::{FileKind, ToFileKind},
@@ -576,7 +578,8 @@ impl<INLINE: Sync> GetItems<INLINE> {
             let mut items: Vec<Item<'region, P, INLINE>> = Vec::new();
             let items_ref = &mut items;
             let dir_path = dir.psp_to_path(&mut tmp);
-            if include_dir {
+
+            let dir = if include_dir {
                 let mut get_dir_path = KitschValue(dir_path);
                 if let Some(item) = Item::from_path_and_metadata(
                     dir,
@@ -588,9 +591,13 @@ impl<INLINE: Sync> GetItems<INLINE> {
                 )? {
                     items_ref.push(item);
                 }
-                // else will run into open error anyway--XX hmm
+                // ^ else will run into open error anyway--XX hmm
                 // actually should accept not found then, there?
-            }
+
+                dir.keep_as_parent()
+            } else {
+                dir.drop_as_parent()
+            };
 
             let input = std::fs::read_dir(dir_path)
                 .with_context(|| anyhow!("reading directory {dir_path:?}"))?;
@@ -626,7 +633,7 @@ impl<INLINE: Sync> GetItems<INLINE> {
                         scope.spawn(move |_| {
                             let (items, errors) = self._find(
                                 sub_path,
-                                true,
+                                true, // include_dir
                                 metadata,
                                 shared_regions,
                             );

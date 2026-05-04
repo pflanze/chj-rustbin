@@ -26,9 +26,26 @@ pub fn tmp_path_buffer() -> Vec<u8> {
     Vec::with_capacity(512)
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct SegmentedPathParent<'region>(
+    pub Option<&'region SegmentedPath<'region>>,
+);
+
+impl<'region> SegmentedPathParent<'region> {
+    /// Push another segment at the right (dir item), like
+    /// PathBuf::push but functional. Shallow wrapper around `new`.
+    pub fn add_segment(
+        self,
+        orig_name: &OsStr,
+        shared_region: &mut SharedRegion<'region>,
+    ) -> &'region SegmentedPath<'region> {
+        SegmentedPath::new(self, orig_name, shared_region)
+    }
+}
+
 #[derive(Debug)]
 pub struct SegmentedPath<'region> {
-    parent: Option<&'region SegmentedPath<'region>>,
+    parent: SegmentedPathParent<'region>,
     depth: u16,
 
     /// Length of the version of the file name for comparison; data
@@ -46,7 +63,7 @@ pub struct SegmentedPath<'region> {
 
 impl<'region> PartialEq for SegmentedPath<'region> {
     fn eq(&self, other: &Self) -> bool {
-        pointer_eq_opt(self.parent, other.parent)
+        pointer_eq_opt(self.parent.0, other.parent.0)
             && self.orig_name() == other.orig_name()
     }
 }
@@ -61,9 +78,10 @@ fn _segmented_path_ord<'t: 'u, 'u, 'region: 't>(
     if pointer_eq(p1, p2) {
         return Ordering::Equal;
     }
-    if let Some(p1p) = p1.parent {
+    if let Some(p1p) = p1.parent.0 {
         let p2p = p2
             .parent
+            .0
             .expect("expect that both segmented paths are of the same length");
         _segmented_path_ord(p1p, p2p).then_with(|| p1.cmp_file_name(p2))
     } else {
@@ -117,7 +135,7 @@ fn store_ci_cmp_chars<'a>(
 
 impl<'region> SegmentedPath<'region> {
     fn new(
-        parent: Option<&'region SegmentedPath<'region>>,
+        parent: SegmentedPathParent<'region>,
         orig_name: &OsStr,
         shared_region: &mut SharedRegion<'region>,
     ) -> &'region Self {
@@ -155,7 +173,7 @@ impl<'region> SegmentedPath<'region> {
             )
         };
 
-        let depth = match parent {
+        let depth = match parent.0 {
             Some(d) => d.depth + 1,
             None => 0,
         };
@@ -201,7 +219,7 @@ impl<'region> SegmentedPath<'region> {
         orig_name: &OsStr,
         shared_region: &mut SharedRegion<'region>,
     ) -> &'region Self {
-        Self::new(Some(self), orig_name, shared_region)
+        Self::new(SegmentedPathParent(Some(self)), orig_name, shared_region)
     }
 
     /// Returns None for the path ""
@@ -221,7 +239,11 @@ impl<'region> SegmentedPath<'region> {
                 // SAFETY: back from what we had, or empty, is OK?
                 OsStr::from_encoded_bytes_unchecked(use_segment)
             };
-            p = Some(SegmentedPath::new(p, use_segment_osstr, shared_region));
+            p = Some(SegmentedPath::new(
+                SegmentedPathParent(p),
+                use_segment_osstr,
+                shared_region,
+            ));
         }
         p
     }
@@ -282,7 +304,7 @@ impl<'region> SegmentedPath<'region> {
             let dropn = self.depth - n;
             let mut p = self;
             for _ in 0..dropn {
-                p = p.parent.expect("checked");
+                p = p.parent.0.expect("checked");
             }
             Some(p)
         }
@@ -290,7 +312,7 @@ impl<'region> SegmentedPath<'region> {
 
     /// Appends a '/', always (drop it afterwards).
     fn _to_path(&self, out: &mut Vec<u8>) {
-        if let Some(parent) = self.parent {
+        if let Some(parent) = self.parent.0 {
             parent._to_path(out)
         }
         // XX is encoded_bytes the right format for Path?
@@ -323,9 +345,11 @@ impl<'region> SegmentedPath<'region> {
     where
         'region: 't,
     {
-        // XX do we need to check pointers first for optim?
+        // Do we need to check pointers first for optim?
         if pointer_eq(self, other) {
-            unreachable!()
+            // Interestingly, since the Parent path types, this does
+            // happen. XX why?
+            return Ordering::Equal;
         }
 
         let n1 = self.lc_name();
@@ -343,7 +367,7 @@ impl<'region> SegmentedPath<'region> {
         let mut p = self;
         loop {
             v.push(p.orig_name());
-            if let Some(parent) = p.parent {
+            if let Some(parent) = p.parent.0 {
                 p = parent;
             } else {
                 return v;
@@ -357,7 +381,7 @@ impl<'region> SegmentedPath<'region> {
         let mut p = self;
         loop {
             v.push(p.lc_name());
-            if let Some(parent) = p.parent {
+            if let Some(parent) = p.parent.0 {
                 p = parent;
             } else {
                 return v;

@@ -117,6 +117,10 @@ struct Opt {
     #[clap(long)]
     find: Option<PathBuf>,
 
+    /// When using `--find`, include the toplevel "./" in paths
+    #[clap(long)]
+    include_top: bool,
+
     /// Ignore paths matching the given regex (not glob pattern!)
     #[clap(long)]
     ignore_path_regex: Vec<Regex>,
@@ -957,7 +961,11 @@ fn main() -> Result<()> {
                         let mut region = shared_regions.get_region();
                         region.allocate_path(basepath)
                     };
-                    get_items.find(basepath, true, &shared_regions)?
+                    get_items.find(
+                        basepath,
+                        opt.include_top,
+                        &shared_regions,
+                    )?
                 };
                 main_cont(cont_values!(), res)
             } else {
@@ -970,7 +978,11 @@ fn main() -> Result<()> {
                                 anyhow!("path {basepath:?} is not valid")
                             })?
                     };
-                    get_items.find(basepath, true, &shared_regions)?
+                    get_items.find(
+                        basepath,
+                        opt.include_top,
+                        &shared_regions,
+                    )?
                 };
                 main_cont(cont_values!(), res)
             }

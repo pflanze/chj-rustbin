@@ -225,6 +225,33 @@ impl<T> Bag<T> {
         out
     }
 
+    fn _map_flatten_refs<'s, U: 's, F: FnMut(&'s T) -> U>(
+        &'s self,
+        f: &mut F,
+        out: &mut Vec<U>,
+    ) {
+        match self {
+            Bag::Empty => (),
+            Bag::Leaf(item) => out.push(f(item)),
+            Bag::LeafVec(items) => out.extend(items.iter().map(|x| f(x))),
+            Bag::Branching(_, bags) => {
+                for bag in bags {
+                    bag._map_flatten_refs(f, out);
+                }
+            }
+        }
+    }
+
+    pub fn map_flatten_refs<'s, U: 's, F: FnMut(&'s T) -> U>(
+        &'s self,
+        mut f: F,
+    ) -> Vec<U> {
+        let len = self.len();
+        let mut out = Vec::with_capacity(len);
+        self._map_flatten_refs(&mut f, &mut out);
+        out
+    }
+
     pub fn par_flatten(self, min_out_slice_len: usize) -> Vec<T>
     where
         T: Send,

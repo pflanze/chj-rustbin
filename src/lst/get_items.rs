@@ -571,7 +571,7 @@ impl<INLINE: Sync> GetItems<INLINE> {
                 _phantom: _,
             } = self;
 
-            let mut tmp: Vec<u8> = tmp_path_buffer();
+            let mut tmp = tmp_path_buffer();
 
             let mut items: Vec<Item<'region, P, INLINE>> = Vec::new();
             let items_ref = &mut items;
@@ -673,7 +673,7 @@ impl<INLINE: Sync> GetItems<INLINE> {
         include_top: bool,
         shared_regions: &'region SharedRegions,
     ) -> Result<(Bag<Item<'region, P, INLINE>>, Vec<anyhow::Error>)> {
-        let mut tmp: Vec<u8> = tmp_path_buffer();
+        let mut tmp = tmp_path_buffer();
         let dir_path = dir.psp_to_path(&mut tmp);
         let metadata = dir_path.symlink_metadata().with_context(|| {
             anyhow!("getting metadata for directory {dir_path:?}")

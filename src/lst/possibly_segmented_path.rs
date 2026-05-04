@@ -16,6 +16,7 @@ pub trait PossiblySegmentedPath<'region, INLINE>: Debug {
         region: &mut SharedRegion<'region>,
     ) -> Self;
 
+    /// Clears `tmp` before use
     fn psp_to_path<'tmp>(self, tmp: &'tmp mut Vec<u8>) -> &'tmp Path
     where
         'region: 'tmp;

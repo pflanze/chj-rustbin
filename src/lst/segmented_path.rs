@@ -299,18 +299,14 @@ impl<'region> SegmentedPath<'region> {
         out.push(b'/');
     }
 
-    /// Generate Path by pushing into `tmp` (clear it
-    /// sometimes). Returns the slice that was pushed.
+    /// Generate Path by pushing into `tmp` (clears it).
+    /// Returns the slice that was pushed.
     pub fn to_path<'tmp>(&self, tmp: &'tmp mut Vec<u8>) -> &'tmp Path {
-        let i0 = tmp.len();
+        tmp.clear();
         self._to_path(tmp);
-        let i1 = tmp.len();
         // Path "" is really "/" if there's no other segment
-        let used = if (i1 - i0) == 1 {
-            &tmp[i0..i1]
-        } else {
-            &tmp[i0..i1 - 1]
-        };
+        let len = tmp.len();
+        let used = if len == 1 { tmp } else { &tmp[0..len - 1] };
         let osstr = unsafe { OsStr::from_encoded_bytes_unchecked(used) };
         osstr.as_ref()
     }

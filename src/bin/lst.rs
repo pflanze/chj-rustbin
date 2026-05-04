@@ -118,7 +118,7 @@ struct Opt {
 
     /// Ignore paths matching the given regex (not glob pattern!)
     #[clap(short, long)]
-    ignore: Vec<Regex>,
+    ignore_path_regex: Vec<Regex>,
 
     /// Print entries as "long" listing, like `ls -l`
     #[clap(short, long)]
@@ -870,14 +870,14 @@ fn main() -> Result<()> {
     let desired_number_of_paths_per_chunk = 1000;
     let buf_size = desired_number_of_paths_per_chunk * 100;
 
-    let ignore = if opt.ignore.is_empty() {
+    let ignore_path_regex = if opt.ignore_path_regex.is_empty() {
         None
     } else {
-        Some(EfficientRegex::new_either_from(&opt.ignore))
+        Some(EfficientRegex::new_either_from(&opt.ignore_path_regex))
     };
 
     let get_items = GetItems {
-        ignore,
+        ignore_path_regex,
         long: opt.long,
         use_color,
         _phantom: std::marker::PhantomData,

@@ -354,18 +354,20 @@ fn t_sizes() {
 impl<'region, P: PossiblySegmentedPath<'region, INLINE>, INLINE>
     Item<'region, P, INLINE>
 {
+    // If `metadata.is_link()`, `_path` must be given! Otherwise panics
     fn from_path_and_metadata<'t>(
         path: P,
-        _path: &'t Path,
+        _path: Option<&'t Path>,
+        file_kind: Option<FileKind>,
         read_link: bool,
         stat_link_target: bool,
         metadata: Metadata,
     ) -> Result<Option<Self>> {
-        let metadata = EssentialMetadata::from_symlink_metadata(
-            &metadata,
-            _path.to_file_kind(),
-        )?;
+        let metadata =
+            EssentialMetadata::from_symlink_metadata(&metadata, file_kind)?;
         let link_target = if read_link && metadata.mode.file_type().is_link() {
+            let _path =
+                _path.expect("`_path` must be given if file type is link");
             match _path.read_link() {
                 Ok(t) => {
                     let metadata2 = if stat_link_target {
@@ -406,7 +408,8 @@ impl<'region, P: PossiblySegmentedPath<'region, INLINE>, INLINE>
         match _path.symlink_metadata() {
             Ok(metadata) => Self::from_path_and_metadata(
                 path,
-                _path,
+                Some(_path),
+                _path.to_file_kind(),
                 read_link,
                 stat_link_target,
                 metadata,
@@ -432,7 +435,7 @@ impl<'region, P: PossiblySegmentedPath<'region, INLINE>, INLINE>
 }
 
 pub struct GetItems<INLINE> {
-    pub ignore: Option<EfficientRegex>,
+    pub ignore_path_regex: Option<EfficientRegex>,
     pub long: bool,
     pub use_color: bool,
     pub _phantom: PhantomData<INLINE>,
@@ -440,7 +443,7 @@ pub struct GetItems<INLINE> {
 
 impl<INLINE: Sync> GetItems<INLINE> {
     fn ignore_path(&self, path: &Path) -> bool {
-        if let Some(ignore) = &self.ignore {
+        if let Some(ignore) = &self.ignore_path_regex {
             ignore.is_match_path(path)
         } else {
             false
@@ -521,7 +524,7 @@ impl<INLINE: Sync> GetItems<INLINE> {
     ) -> (Bag<Item<'region, P, INLINE>>, Bag<anyhow::Error>) {
         match (move || -> Result<_> {
             let Self {
-                ignore: _,
+                ignore_path_regex: _,
                 long,
                 use_color,
                 _phantom: _,
@@ -534,7 +537,12 @@ impl<INLINE: Sync> GetItems<INLINE> {
             let dir_path = dir.psp_to_path(&mut tmp);
             if include_dir {
                 if let Some(item) = Item::from_path_and_metadata(
-                    dir, dir_path, *long, *use_color, metadata,
+                    dir,
+                    Some(dir_path),
+                    dir_path.to_file_kind(),
+                    *long,
+                    *use_color,
+                    metadata,
                 )? {
                     items_ref.push(item);
                 }
@@ -552,20 +560,34 @@ impl<INLINE: Sync> GetItems<INLINE> {
                 for entry in input {
                     let entry: std::fs::DirEntry = entry?;
                     let metadata = entry.metadata()?;
-                    let sub_path = {
+                    let (file_kind, sub_path) = {
                         // XX get from libc instead to avoid allocation
                         let file_name = entry.file_name();
-                        dir.psp_add_segment(&file_name, &mut allocator)
+                        (
+                            (&*file_name).to_file_kind(),
+                            dir.psp_add_segment(&file_name, &mut allocator),
+                        )
                     };
-                    // XX optimize: change ignore feature so it can
-                    // work with filenames explicitly, then only work
-                    // on path if necessary. Although, need `path`
-                    // anyway for readlink? But only if symlink (and
-                    // could change to dir-fd based POSIX functions).
-                    let path = sub_path.psp_to_path(&mut tmp);
-                    if self.ignore_path(&path) {
-                        continue;
+
+                    // Only need &Path if a path regex was given or
+                    // the item is a symlink (in that latter case,
+                    // could also change to dir-fd based POSIX
+                    // functions).
+                    let opt_path = if self.ignore_path_regex.is_some()
+                        || metadata.is_symlink()
+                    {
+                        Some(sub_path.psp_to_path(&mut tmp))
+                    } else {
+                        None
+                    };
+
+                    if self.ignore_path_regex.is_some() {
+                        let path = opt_path.expect("set above");
+                        if self.ignore_path(&path) {
+                            continue;
+                        }
                     }
+
                     if metadata.is_dir() {
                         scope.spawn(move |_| {
                             let (items, errors) = self._find(
@@ -581,7 +603,8 @@ impl<INLINE: Sync> GetItems<INLINE> {
                         });
                     } else {
                         if let Some(item) = Item::from_path_and_metadata(
-                            sub_path, path, *long, *use_color, metadata,
+                            sub_path, opt_path, file_kind, *long, *use_color,
+                            metadata,
                         )? {
                             items_ref.push(item);
                         }

@@ -1,4 +1,4 @@
-use std::{os::unix::prelude::OsStrExt, path::Path};
+use std::{ffi::OsStr, os::unix::prelude::OsStrExt, path::Path};
 
 pub trait ToFileKind {
     fn to_file_kind(&self) -> Option<FileKind>;
@@ -17,22 +17,21 @@ pub enum FileKind {
     Archive,
 }
 
-impl ToFileKind for Path {
+impl ToFileKind for &OsStr {
     fn to_file_kind(&self) -> Option<FileKind> {
-        if let Some(file_name) = self.file_name() {
-            if let Some(s) = file_name.to_str() {
-                if s.chars().last().map(|c| c == '~').unwrap_or(false) {
-                    return Some(FileKind::EmacsBackupFile);
-                }
-            } else {
-                let b = file_name.as_bytes();
-                if b.last().map(|c| *c == b'~').unwrap_or(false) {
-                    return Some(FileKind::EmacsBackupFile);
-                }
+        if let Some(s) = self.to_str() {
+            if s.chars().last().map(|c| c == '~').unwrap_or(false) {
+                return Some(FileKind::EmacsBackupFile);
+            }
+        } else {
+            let b = self.as_bytes();
+            if b.last().map(|c| *c == b'~').unwrap_or(false) {
+                return Some(FileKind::EmacsBackupFile);
             }
         }
 
-        if let Some(ext) = self.extension() {
+        let path: &Path = self.as_ref();
+        if let Some(ext) = path.extension() {
             if let Some(ext) = ext.to_str() {
                 let tmp;
                 let ext_lc = if ext.chars().all(|c| c.is_lowercase()) {
@@ -55,5 +54,12 @@ impl ToFileKind for Path {
         }
 
         None
+    }
+}
+
+impl ToFileKind for Path {
+    fn to_file_kind(&self) -> Option<FileKind> {
+        let file_name = self.file_name()?;
+        file_name.to_file_kind()
     }
 }

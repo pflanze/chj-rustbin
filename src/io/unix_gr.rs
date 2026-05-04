@@ -4,6 +4,8 @@ use std::{collections::HashMap, ffi::CStr, pin::Pin, ptr::null_mut};
 
 use libc::{getgrgid_r, gid_t, group};
 
+use crate::merge_trait::Merge;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Gid(gid_t);
 
@@ -92,5 +94,11 @@ impl GrInfoCache {
 
     pub fn get_by_gid(&self, gid: Gid) -> Option<&GrInfo> {
         self.0.get(&gid)
+    }
+}
+
+impl Merge for GrInfoCache {
+    fn mut_merge(&mut self, other: Self) {
+        self.0.extend(other.0);
     }
 }

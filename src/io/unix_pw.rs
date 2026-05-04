@@ -4,6 +4,8 @@ use std::{collections::HashMap, ffi::CStr, pin::Pin, ptr::null_mut};
 
 use libc::{getpwuid_r, passwd, uid_t};
 
+use crate::merge_trait::Merge;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Uid(uid_t);
 
@@ -104,5 +106,11 @@ impl PwInfoCache {
 
     pub fn get_by_uid(&self, uid: Uid) -> Option<&PwInfo> {
         self.0.get(&uid)
+    }
+}
+
+impl Merge for PwInfoCache {
+    fn mut_merge(&mut self, other: Self) {
+        self.0.extend(other.0);
     }
 }

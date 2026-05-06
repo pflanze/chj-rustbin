@@ -204,6 +204,9 @@ impl<'g> SharedRegion<'g> {
             let boxes = match boxes_and_regions.entry(thread_id) {
                 Entry::Occupied(occupied_entry) => {
                     let (boxes, regions) = occupied_entry.into_mut();
+                    // XX todo: check more than just the last region,
+                    // to handle the case of multiple `SharedRegion`s
+                    // being used at the same time in the same thread.
                     if let Some(inner_shared_region) = regions.pop() {
                         return Self {
                             _only_on_same_thread: PhantomData,

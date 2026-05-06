@@ -205,14 +205,14 @@ impl<T> Bag<T> {
         out
     }
 
-    fn _flatten_refs<'s>(&'s self, out: &mut Vec<&'s T>) {
+    pub fn flatten_refs_to<'s>(&'s self, out: &mut Vec<&'s T>) {
         match self {
             Bag::Empty => (),
             Bag::Leaf(item) => out.push(item),
             Bag::LeafVec(items) => out.extend(items.iter()),
             Bag::Branching(_, bags) => {
                 for bag in bags {
-                    bag._flatten_refs(out);
+                    bag.flatten_refs_to(out);
                 }
             }
         }
@@ -221,11 +221,11 @@ impl<T> Bag<T> {
     pub fn flatten_refs(&self) -> Vec<&T> {
         let len = self.len();
         let mut out = Vec::with_capacity(len);
-        self._flatten_refs(&mut out);
+        self.flatten_refs_to(&mut out);
         out
     }
 
-    fn _map_flatten_refs<'s, U: 's, F: FnMut(&'s T) -> U>(
+    pub fn map_flatten_refs_to<'s, U: 's, F: FnMut(&'s T) -> U>(
         &'s self,
         f: &mut F,
         out: &mut Vec<U>,
@@ -236,7 +236,7 @@ impl<T> Bag<T> {
             Bag::LeafVec(items) => out.extend(items.iter().map(|x| f(x))),
             Bag::Branching(_, bags) => {
                 for bag in bags {
-                    bag._map_flatten_refs(f, out);
+                    bag.map_flatten_refs_to(f, out);
                 }
             }
         }
@@ -248,7 +248,7 @@ impl<T> Bag<T> {
     ) -> Vec<U> {
         let len = self.len();
         let mut out = Vec::with_capacity(len);
-        self._map_flatten_refs(&mut f, &mut out);
+        self.map_flatten_refs_to(&mut f, &mut out);
         out
     }
 

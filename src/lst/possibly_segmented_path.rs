@@ -7,7 +7,7 @@ use crate::{
         path_cmp,
         segmented_path::{SegmentedPath, SegmentedPathParent},
     },
-    shared_regions::SharedRegion,
+    shared_regions::{NonCollecting, SharedRegion},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -23,7 +23,7 @@ pub trait PossiblySegmentedPath<'region, INLINE>:
     fn psp_add_segment(
         self,
         file_name: &OsStr,
-        region: &mut SharedRegion<'region>,
+        region: &mut SharedRegion<'region, NonCollecting>,
     ) -> Self;
 
     /// Clears `tmp` before use
@@ -45,7 +45,7 @@ impl<'region, INLINE> PossiblySegmentedPath<'region, INLINE> for &'region Path {
     fn psp_add_segment(
         self,
         file_name: &OsStr,
-        region: &mut SharedRegion<'region>,
+        region: &mut SharedRegion<'region, NonCollecting>,
     ) -> Self {
         if false {
             let mut p = self.to_owned();
@@ -98,7 +98,7 @@ impl<'region, INLINE> PossiblySegmentedPath<'region, INLINE>
     fn psp_add_segment(
         self,
         file_name: &OsStr,
-        region: &mut SharedRegion<'region>,
+        region: &mut SharedRegion<'region, NonCollecting>,
     ) -> Self {
         self.add_segment(file_name, region)
     }
@@ -135,7 +135,7 @@ pub trait PossiblySegmentedPathParent<
     fn psp_add_segment(
         self,
         file_name: &OsStr,
-        region: &mut SharedRegion<'region>,
+        region: &mut SharedRegion<'region, NonCollecting>,
     ) -> P;
 }
 
@@ -146,7 +146,7 @@ impl<'region, INLINE>
     fn psp_add_segment(
         self,
         file_name: &OsStr,
-        region: &mut SharedRegion<'region>,
+        region: &mut SharedRegion<'region, NonCollecting>,
     ) -> &'region Path {
         match self.0 {
             Some(p) => PossiblySegmentedPath::<INLINE>::psp_add_segment(
@@ -178,7 +178,7 @@ impl<'region, INLINE>
     fn psp_add_segment(
         self,
         file_name: &OsStr,
-        region: &mut SharedRegion<'region>,
+        region: &mut SharedRegion<'region, NonCollecting>,
     ) -> &'region SegmentedPath<'region> {
         self.add_segment(file_name, region)
     }

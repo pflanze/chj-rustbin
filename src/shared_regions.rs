@@ -26,6 +26,8 @@ use std::{
     mem::swap,
     os::unix::ffi::OsStrExt,
     path::Path,
+    ptr::null_mut,
+    slice::from_raw_parts,
     sync::Mutex,
     thread::ThreadId,
 };
@@ -34,8 +36,8 @@ use log::trace;
 use memmap2::{MmapMut, MmapOptions};
 
 use crate::{
-    parse::parse_error::FileLocation, unsafe_util::raw_slice_mut::RawSliceMut,
-    unsync_unsend::UnSyncUnSend,
+    bag::Bag, parse::parse_error::FileLocation,
+    unsafe_util::raw_slice_mut::RawSliceMut, unsync_unsend::UnSyncUnSend,
 };
 
 /// A holder for all `SharedRegion`s across the program, to cache them
@@ -89,7 +91,13 @@ impl SharedRegions {
         }
     }
 
-    pub fn get_region(&self) -> SharedRegion<'_> {
+    pub fn get_region(&self) -> SharedRegion<'_, NonCollecting> {
+        SharedRegion::new(self)
+    }
+
+    pub fn get_collecting_region<'s>(
+        &'s self,
+    ) -> SharedRegion<'s, CollectingAreas<'s>> {
         SharedRegion::new(self)
     }
 
@@ -156,15 +164,22 @@ impl InnerSharedRegion {
     }
 }
 
+pub trait SharedRegionExtension {
+    fn uninitialized() -> Self;
+    fn new(current_start: *mut u8) -> Self;
+    fn area_finished(&mut self, last_data: *mut u8, new_data: *mut u8);
+}
+
 /// A fast allocator for byte slices for the current thread (!Sync,
 /// !Send).
-pub struct SharedRegion<'g> {
+pub struct SharedRegion<'g, E: SharedRegionExtension> {
     _only_on_same_thread: PhantomData<UnSyncUnSend>,
     shared_regions: &'g SharedRegions,
     inner_shared_region: Option<InnerSharedRegion>,
+    extension: E,
 }
 
-impl<'g> Drop for SharedRegion<'g> {
+impl<'g, E: SharedRegionExtension> Drop for SharedRegion<'g, E> {
     fn drop(&mut self) {
         if let Some(inner_shared_region) = self.inner_shared_region.take() {
             let cutoff = 1.max(self.shared_regions.min_region_size / 2);
@@ -195,7 +210,7 @@ impl<'g> Drop for SharedRegion<'g> {
     }
 }
 
-impl<'g> SharedRegion<'g> {
+impl<'g, E: SharedRegionExtension> SharedRegion<'g, E> {
     fn new(shared_regions: &'g SharedRegions) -> Self {
         let inner_shared_region = {
             let thread_id = std::thread::current().id();
@@ -208,10 +223,12 @@ impl<'g> SharedRegion<'g> {
                     // to handle the case of multiple `SharedRegion`s
                     // being used at the same time in the same thread.
                     if let Some(inner_shared_region) = regions.pop() {
+                        let current_start = inner_shared_region.current.data();
                         return Self {
                             _only_on_same_thread: PhantomData,
                             shared_regions,
                             inner_shared_region: Some(inner_shared_region),
+                            extension: E::new(current_start),
                         };
                     }
                     boxes
@@ -228,10 +245,12 @@ impl<'g> SharedRegion<'g> {
             boxes.push(bx);
             inner_shared_region
         };
+        let current_start = inner_shared_region.current.data();
         Self {
             _only_on_same_thread: PhantomData,
             shared_regions,
             inner_shared_region: Some(inner_shared_region),
+            extension: E::new(current_start),
         }
     }
 
@@ -268,9 +287,11 @@ impl<'g> SharedRegion<'g> {
             }
         }
 
-        // Done with the current region. Create a new one, swap
-        // and let it move itself back in if appropriate. (A bit
-        // less efficient than it could be?)
+        // Done with the current region.
+        let last_data = inner_shared_region.current.data();
+
+        // Create a new one, swap and let it move itself back in if
+        // appropriate. (A bit less efficient than it could be?)
 
         // Surplus is the largest possible gap at the beginning so
         // that the alignment is correct
@@ -290,12 +311,18 @@ impl<'g> SharedRegion<'g> {
                 );
             boxes_and_regions.0.push(bx);
         }
-        let mut other = Self {
+
+        let mut extension = E::uninitialized();
+        swap(&mut self.extension, &mut extension);
+        extension.area_finished(last_data, inner_shared_region.orig_start);
+
+        let mut new = Self {
             _only_on_same_thread: PhantomData,
             shared_regions: self.shared_regions,
             inner_shared_region: Some(inner_shared_region),
+            extension,
         };
-        swap(self, &mut other);
+        swap(self, &mut new);
         self.allocate::<ALIGN>(num_bytes)
     }
 
@@ -323,5 +350,78 @@ impl<'g> SharedRegion<'g> {
         sl.copy_from_slice(bytes);
         let os_str = OsStr::from_bytes(sl);
         os_str.as_ref()
+    }
+}
+
+pub struct NonCollecting;
+
+impl SharedRegionExtension for NonCollecting {
+    fn uninitialized() -> Self {
+        Self
+    }
+
+    fn new(_current_start: *mut u8) -> Self {
+        Self
+    }
+
+    fn area_finished(&mut self, _last_data: *mut u8, _new_data: *mut u8) {
+        ()
+    }
+}
+
+pub struct CollectingAreas<'g> {
+    current_start: *mut u8,
+    finished_areas: Bag<&'g [u8]>,
+}
+
+impl<'g> SharedRegionExtension for CollectingAreas<'g> {
+    fn uninitialized() -> Self {
+        Self {
+            current_start: null_mut(),
+            finished_areas: Bag::Empty,
+        }
+    }
+
+    fn new(current_start: *mut u8) -> Self {
+        Self {
+            current_start,
+            finished_areas: Bag::Empty,
+        }
+    }
+
+    fn area_finished(&mut self, last_data: *mut u8, new_data: *mut u8) {
+        let Self {
+            current_start,
+            finished_areas,
+        } = self;
+        let len = unsafe {
+            // Safety: len is calculated from current_start to the
+            // last value of `data` for a start, i.e. past the end of
+            // the last allocation, thus spanning the whole allocated
+            // area.
+            last_data.offset_from_unsigned(*current_start)
+        };
+        let slice = unsafe {
+            // Safety: using len correctly calculated above, fitting
+            // `current_start`. The lifetime is the one of the backing
+            // region, as `CollectedArea` has private fields and can
+            // only be instantiated by the methods in this module.
+            from_raw_parts(*current_start, len)
+        };
+        finished_areas.push(slice);
+        *current_start = new_data;
+    }
+}
+
+impl<'g> SharedRegion<'g, CollectingAreas<'g>> {
+    /// Done with the region; returns the bag of allocation areas
+    pub fn finish(mut self) -> Bag<&'g [u8]> {
+        let inner_shared_region = self
+            .inner_shared_region
+            .as_ref()
+            .expect("no reason to miss it");
+        self.extension
+            .area_finished(inner_shared_region.current.data(), null_mut());
+        std::mem::take(&mut self.extension.finished_areas)
     }
 }

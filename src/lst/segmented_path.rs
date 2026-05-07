@@ -5,7 +5,7 @@ use std::{
 
 use num::Zero;
 
-use crate::shared_regions::SharedRegion;
+use crate::shared_regions::{NonCollecting, SharedRegion};
 
 fn pointer_eq<T>(a: &T, b: &T) -> bool {
     let a: *const T = a;
@@ -37,7 +37,7 @@ impl<'region> SegmentedPathParent<'region> {
     pub fn add_segment(
         self,
         orig_name: &OsStr,
-        shared_region: &mut SharedRegion<'region>,
+        shared_region: &mut SharedRegion<'region, NonCollecting>,
     ) -> &'region SegmentedPath<'region> {
         SegmentedPath::new(self, orig_name, shared_region)
     }
@@ -137,7 +137,7 @@ impl<'region> SegmentedPath<'region> {
     fn new(
         parent: SegmentedPathParent<'region>,
         orig_name: &OsStr,
-        shared_region: &mut SharedRegion<'region>,
+        shared_region: &mut SharedRegion<'region, NonCollecting>,
     ) -> &'region Self {
         const STRUCT_SIZE: usize = size_of::<SegmentedPath>();
         const STRUCT_ALIGN: usize = align_of::<SegmentedPath>();
@@ -217,7 +217,7 @@ impl<'region> SegmentedPath<'region> {
     pub fn add_segment(
         self: &'region Self,
         orig_name: &OsStr,
-        shared_region: &mut SharedRegion<'region>,
+        shared_region: &mut SharedRegion<'region, NonCollecting>,
     ) -> &'region Self {
         Self::new(SegmentedPathParent(Some(self)), orig_name, shared_region)
     }
@@ -225,7 +225,7 @@ impl<'region> SegmentedPath<'region> {
     /// Returns None for the path ""
     pub fn new_from_path(
         path: &Path,
-        shared_region: &mut SharedRegion<'region>,
+        shared_region: &mut SharedRegion<'region, NonCollecting>,
     ) -> Option<&'region Self> {
         let mut p = None;
         for segment in path {
@@ -410,7 +410,7 @@ mod tests {
 
     fn p<'region>(
         path: &str,
-        region: &mut SharedRegion<'region>,
+        region: &mut SharedRegion<'region, NonCollecting>,
     ) -> Option<&'region SegmentedPath<'region>> {
         SegmentedPath::new_from_path(path.as_ref(), region)
     }
@@ -419,9 +419,10 @@ mod tests {
     fn t_() -> Result<()> {
         let regions = SharedRegions::new(1_000_000, file_location!(), false);
         let mut ps = {
-            let mut get_region = KitschCell::Unevaluated(|| -> SharedRegion {
-                regions.get_region()
-            });
+            let mut get_region =
+                KitschCell::Unevaluated(|| -> SharedRegion<_> {
+                    regions.get_region()
+                });
             move |path: &str, expected_path2: &str| -> Option<Vec<&str>> {
                 let mut region = get_region.get();
                 let spath = p(path, &mut region)?;

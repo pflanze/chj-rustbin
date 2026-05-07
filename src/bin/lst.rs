@@ -99,6 +99,10 @@ struct Opt {
     #[clap(long)]
     dev_old_path: bool,
 
+    /// Disable parallelism in some places; default: use parallelism.
+    #[clap(long)]
+    dev_single_threaded: bool,
+
     /// Say what is done
     #[clap(short, long)]
     verbose: bool,
@@ -1089,6 +1093,7 @@ fn main_cont<
     (|| -> Result<()> {
         if !opt.long {
             print_paths(
+                opt.dev_single_threaded,
                 filtered_items,
                 output_record_separator,
                 shared_regions,
@@ -1119,14 +1124,14 @@ fn print_paths<
     P: PossiblySegmentedPath<'region, InlineLst> + Copy + Sync + Send + 'region,
     I: Borrow<MiniItem<'i, 'region, P>> + Sync,
 >(
+    single_threaded: bool,
     selected_items: &[I],
     output_record_separator: u8,
     regions: &'region SharedRegions,
 ) -> Result<()> {
     use std::io::Write;
 
-    if false {
-        // single-threaded
+    if single_threaded {
         let mut outp = BufWriter::new(stdout().lock());
         let mut tmp = tmp_path_buffer();
         for item in selected_items {

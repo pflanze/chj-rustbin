@@ -76,13 +76,7 @@ impl<T: Send> FromParallelIterator<T> for Bag<T> {
     {
         par_iter
             .into_par_iter()
-            .fold(
-                || Bag::Empty,
-                |mut bag, item| -> Bag<T> {
-                    bag.push(item);
-                    bag
-                },
-            )
+            .fold(|| Bag::Empty, |bag, item| -> Bag<T> { bag.add(item) })
             .reduce(|| Bag::Empty, |x, y| -> Bag<T> { x.add_bag(y) })
     }
 }
@@ -194,6 +188,11 @@ impl<T> Bag<T> {
         let mut this = Bag::Empty;
         swap(&mut this, self);
         *self = this.add_bag(val);
+    }
+
+    pub fn add(mut self, val: T) -> Self {
+        self.push(val);
+        self
     }
 
     pub fn push(&mut self, val: T) {

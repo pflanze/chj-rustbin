@@ -69,6 +69,24 @@ impl<T: Send> FromParallelIterator<Bag<T>> for Bag<T> {
     }
 }
 
+impl<T: Send> FromParallelIterator<T> for Bag<T> {
+    fn from_par_iter<I>(par_iter: I) -> Self
+    where
+        I: rayon::prelude::IntoParallelIterator<Item = T>,
+    {
+        par_iter
+            .into_par_iter()
+            .fold(
+                || Bag::Empty,
+                |mut bag, item| -> Bag<T> {
+                    bag.push(item);
+                    bag
+                },
+            )
+            .reduce(|| Bag::Empty, |x, y| -> Bag<T> { x.add_bag(y) })
+    }
+}
+
 impl<T> Bag<T> {
     pub fn new() -> Self {
         Bag::Empty

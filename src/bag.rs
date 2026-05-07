@@ -13,6 +13,7 @@ use std::{
 
 use arbitrary::Arbitrary;
 use log::debug;
+use rayon::iter::{FromParallelIterator, ParallelIterator};
 
 use crate::{probe, unsafe_util::unsafe_sync_send::UnsafeSync};
 
@@ -54,6 +55,17 @@ impl<T> From<Vec<Bag<T>>> for Bag<T> {
                 value,
             )
         }
+    }
+}
+
+impl<T: Send> FromParallelIterator<Bag<T>> for Bag<T> {
+    fn from_par_iter<I>(par_iter: I) -> Self
+    where
+        I: rayon::prelude::IntoParallelIterator<Item = Bag<T>>,
+    {
+        par_iter
+            .into_par_iter()
+            .reduce(|| Bag::Empty, |x, y| -> Bag<T> { x.add_bag(y) })
     }
 }
 

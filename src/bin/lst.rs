@@ -44,7 +44,6 @@ use chj_rustbin::{
 use chrono::{DateTime, Datelike, Local, Timelike};
 use clap::Parser;
 use clap_with_warnings::clap_with_warnings;
-use internal_iterator::InternalIterator;
 use log::info;
 use mimalloc::MiMalloc;
 use rand::{rngs::ThreadRng, Rng};
@@ -1127,7 +1126,7 @@ fn print_paths<
     single_threaded: bool,
     selected_items: &[I],
     output_record_separator: u8,
-    regions: &'region SharedRegions,
+    _regions: &'region SharedRegions,
 ) -> Result<()> {
     use std::io::Write;
 
@@ -1141,20 +1140,21 @@ fn print_paths<
         }
         outp.flush()?;
     } else {
-        let buffers: Bag<&[u8]> = {
+        let buffers: Vec<Vec<u8>> = {
             probe!("fill output buffers");
             selected_items
                 .par_chunks(2000)
                 .map(|items| {
-                    let mut region = regions.get_collecting_region();
+                    let mut alloc = Vec::with_capacity(2000 * 20);
                     let mut tmp = tmp_path_buffer();
                     for item in items {
                         let path = item.borrow().path.psp_to_path(&mut tmp);
-                        let _ = region.allocate_path(path);
-                        let nl = region.allocate::<1>(1);
-                        nl[0] = output_record_separator;
+                        alloc.extend_from_slice(
+                            path.as_os_str().as_encoded_bytes(),
+                        );
+                        alloc.push(output_record_separator);
                     }
-                    region.finish()
+                    alloc
                 })
                 .collect()
         };
@@ -1162,6 +1162,7 @@ fn print_paths<
         let ioslices: Vec<_> = {
             probe!("bag to ioslices");
             buffers
+                .iter()
                 .map(|sl| {
                     tot_size += sl.len();
                     IoSlice::new(sl)

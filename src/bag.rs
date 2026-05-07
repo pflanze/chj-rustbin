@@ -9,9 +9,11 @@
 use std::{
     mem::{swap, transmute, MaybeUninit},
     num::NonZeroUsize,
+    ops::ControlFlow,
 };
 
 use arbitrary::Arbitrary;
+use internal_iterator::InternalIterator;
 use log::debug;
 use rayon::iter::{FromParallelIterator, ParallelIterator};
 
@@ -78,6 +80,39 @@ impl<T: Send> FromParallelIterator<T> for Bag<T> {
             .into_par_iter()
             .fold(|| Bag::Empty, |bag, item| -> Bag<T> { bag.add(item) })
             .reduce(|| Bag::Empty, |x, y| -> Bag<T> { x.add_bag(y) })
+    }
+}
+
+fn bag_try_for_each<T, R, F>(this: Bag<T>, f: &mut F) -> ControlFlow<R>
+where
+    F: FnMut(T) -> ControlFlow<R>,
+{
+    match this {
+        Bag::Empty => ControlFlow::Continue(()),
+        Bag::Leaf(val) => f(val),
+        Bag::LeafVec(items) => {
+            for item in items {
+                f(item)?
+            }
+            ControlFlow::Continue(())
+        }
+        Bag::Branching(_non_zero, bags) => {
+            for bag in bags {
+                bag_try_for_each(bag, f)?;
+            }
+            ControlFlow::Continue(())
+        }
+    }
+}
+
+impl<T> InternalIterator for Bag<T> {
+    type Item = T;
+
+    fn try_for_each<R, F>(self, mut f: F) -> ControlFlow<R>
+    where
+        F: FnMut(Self::Item) -> ControlFlow<R>,
+    {
+        bag_try_for_each(self, &mut f)
     }
 }
 

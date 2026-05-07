@@ -6,3 +6,4 @@ pub mod unix;
 pub mod unix_fs;
 pub mod unix_gr;
 pub mod unix_pw;
+pub mod write_all_vectored;

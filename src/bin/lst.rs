@@ -22,7 +22,7 @@ use chj_rustbin::{
     hack_static::hack_static,
     io::{
         unix::unix_file_type::UnixFileTypeMask, unix_gr::GrInfoCache,
-        unix_pw::PwInfoCache,
+        unix_pw::PwInfoCache, write_all_vectored::write_all_vectored,
     },
     io_utils::{
         read_buf::{ParReadBufStream, ReadBufStream},
@@ -44,6 +44,7 @@ use chj_rustbin::{
 use chrono::{DateTime, Datelike, Local, Timelike};
 use clap::Parser;
 use clap_with_warnings::clap_with_warnings;
+use internal_iterator::InternalIterator;
 use log::info;
 use mimalloc::MiMalloc;
 use rand::{rngs::ThreadRng, Rng};
@@ -924,6 +925,7 @@ fn main() -> Result<()> {
                 now,
                 output_record_separator,
                 use_color,
+                shared_regions: &shared_regions
             }
         }
     }
@@ -1004,12 +1006,13 @@ fn main() -> Result<()> {
     }
 }
 
-struct MainContVals {
+struct MainContVals<'region> {
     opt: Opt,
     cmds: Vec<ProcessingCommand>,
     now: SystemTime,
     output_record_separator: u8,
     use_color: bool,
+    shared_regions: &'region SharedRegions,
 }
 
 /// Flattened Item for more performant sorting
@@ -1061,7 +1064,8 @@ fn main_cont<
         now,
         output_record_separator,
         use_color,
-    }: MainContVals,
+        shared_regions,
+    }: MainContVals<'region>,
     (items_bag, errors): (Bag<Item<'region, P, InlineLst>>, Vec<anyhow::Error>),
 ) -> Result<()> {
     let mut mini_items: Vec<MiniItem<'_, 'region, P>> = {
@@ -1084,7 +1088,11 @@ fn main_cont<
     probe!("writing to stdout");
     (|| -> Result<()> {
         if !opt.long {
-            print_paths(filtered_items, output_record_separator)?
+            print_paths(
+                filtered_items,
+                output_record_separator,
+                shared_regions,
+            )?
         } else {
             print_listing(filtered_items, output_record_separator, use_color)?
         }
@@ -1109,19 +1117,58 @@ fn print_paths<
     'region: 'i,
     'i,
     P: PossiblySegmentedPath<'region, InlineLst> + Copy + Sync + Send + 'region,
+    I: Borrow<MiniItem<'i, 'region, P>> + Sync,
 >(
-    selected_items: &[impl Borrow<MiniItem<'i, 'region, P>>],
+    selected_items: &[I],
     output_record_separator: u8,
+    regions: &'region SharedRegions,
 ) -> Result<()> {
     use std::io::Write;
-    let mut outp = BufWriter::new(stdout().lock());
-    let mut tmp = tmp_path_buffer();
-    for item in selected_items {
-        let path = item.borrow().path.psp_to_path(&mut tmp);
-        outp.write_all(path.as_os_str().as_bytes())?;
-        outp.write_all(&[output_record_separator])?;
+
+    if false {
+        // single-threaded
+        let mut outp = BufWriter::new(stdout().lock());
+        let mut tmp = tmp_path_buffer();
+        for item in selected_items {
+            let path = item.borrow().path.psp_to_path(&mut tmp);
+            outp.write_all(path.as_os_str().as_bytes())?;
+            outp.write_all(&[output_record_separator])?;
+        }
+        outp.flush()?;
+    } else {
+        let buffers: Bag<&[u8]> = {
+            probe!("fill output buffers");
+            selected_items
+                .par_chunks(2000)
+                .map(|items| {
+                    let mut region = regions.get_collecting_region();
+                    let mut tmp = tmp_path_buffer();
+                    for item in items {
+                        let path = item.borrow().path.psp_to_path(&mut tmp);
+                        let _ = region.allocate_path(path);
+                        let nl = region.allocate::<1>(1);
+                        nl[0] = output_record_separator;
+                    }
+                    region.finish()
+                })
+                .collect()
+        };
+        let mut tot_size = 0;
+        let ioslices: Vec<_> = {
+            probe!("bag to ioslices");
+            buffers
+                .map(|sl| {
+                    tot_size += sl.len();
+                    IoSlice::new(sl)
+                })
+                .collect()
+        };
+        probe!("write all vectored");
+        let mut outp = stdout().lock();
+        write_all_vectored(&ioslices, tot_size, &mut outp)?;
+        outp.flush()?;
     }
-    outp.flush()?;
+
     Ok(())
 }
 
@@ -1241,20 +1288,14 @@ fn print_listing<
 
     {
         probe!("write out");
-        let mut outp = stdout().lock();
-        let mut output_ioslices = Vec::new();
+        let mut ioslices = Vec::new();
         let mut tot_size = 0;
         for v in &output_chunks {
-            output_ioslices.push(IoSlice::new(v));
+            ioslices.push(IoSlice::new(v));
             tot_size += v.len();
         }
-        let written = outp.write_vectored(&output_ioslices)?;
-        if written != tot_size {
-            bail!(
-                "could only write {written} out of {tot_size} bytes; \
-                             todo: change to `write_all_vectored` once stable"
-            )
-        }
+        let mut outp = stdout().lock();
+        write_all_vectored(&ioslices, tot_size, &mut outp)?;
         outp.flush()?;
     }
     Ok(())

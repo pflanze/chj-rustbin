@@ -399,7 +399,9 @@ impl<'g> SharedRegionExtension for CollectingAreas<'g> {
             // last value of `data` for a start, i.e. past the end of
             // the last allocation, thus spanning the whole allocated
             // area.
-            last_data.offset_from_unsigned(*current_start)
+            // XX revert back to `offset_from_unsigned` when Debian
+            // forky is stable
+            last_data.offset_from(*current_start) as usize
         };
         let slice = unsafe {
             // Safety: using len correctly calculated above, fitting

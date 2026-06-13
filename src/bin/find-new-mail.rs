@@ -75,6 +75,11 @@ struct Opt {
     #[clap(long, default_value = "3")]
     sleep_time: f64,
 
+    /// How long to poll in total in seconds (float) before exiting
+    /// (default: no limit)
+    #[clap(long)]
+    poll_total_time: Option<f64>,
+
     #[clap(flatten)]
     filter_opts: FilterOpts,
 
@@ -121,15 +126,28 @@ fn main() -> Result<()> {
     let opt: Opt = Opt::parse();
 
     let mut found = if opt.poll {
-        (|| -> Result<Vec<_>> {
+        if let Some(found) = (|| -> Result<Option<Vec<_>>> {
+            let start = SystemTime::now();
             loop {
                 let found = check(&opt.dir, &opt.filter_opts)?;
                 if !found.is_empty() {
-                    return Ok(found);
+                    return Ok(Some(found));
+                }
+                if let Some(poll_total_time) = opt.poll_total_time {
+                    let dur = SystemTime::now().duration_since(start)?;
+                    if dur.as_secs_f64() > poll_total_time {
+                        return Ok(None);
+                    }
                 }
                 std::thread::sleep(Duration::from_secs_f64(opt.sleep_time));
             }
         })()
+        .transpose()
+        {
+            found
+        } else {
+            return Ok(());
+        }
     } else {
         check(&opt.dir, &opt.filter_opts)
     }

@@ -4,10 +4,10 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use chj_rustbin::mystring::MyString;
+use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 
-use anyhow::{anyhow, bail, Context, Result};
+use chj_rustbin::mystring::MyString;
 
 #[derive(clap::Parser, Debug)]
 struct FilterOpts {

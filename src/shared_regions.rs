@@ -243,9 +243,9 @@ impl<'g> SharedRegion<'g> {
     where
         'g: 's,
     {
-        const {
-            assert!(ALIGN.count_ones() == 1);
-        }
+        // const {
+        //     assert!(ALIGN.count_ones() == 1);
+        // };
         let inner_shared_region =
             self.inner_shared_region.as_mut().expect("always there");
         if let Some(current_aligned) =

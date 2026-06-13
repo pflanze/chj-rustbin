@@ -78,7 +78,8 @@ mod tests {
     #[test]
     fn t_filetype() -> Result<()> {
         fn t(f: fn(&CStr) -> bool, s: &str, expected: bool) {
-            eprintln!("{f:?} {s:} {expected:?}");
+            // "implementation of `std::fmt::Debug` is not general enough" on Debian bookworm
+            // eprintln!("{f:?} {s:} {expected:?}");
             assert_eq!(f(&CString::new(s).unwrap()), expected);
         }
         t(path_is_dir, ".", true);

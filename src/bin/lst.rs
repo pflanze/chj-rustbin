@@ -43,7 +43,6 @@ use chj_rustbin::{
 };
 use chrono::{DateTime, Datelike, Local, Timelike};
 use clap::Parser;
-use clap_with_warnings::clap_with_warnings;
 use log::info;
 use mimalloc::MiMalloc;
 use rand::{rngs::ThreadRng, Rng};
@@ -74,7 +73,6 @@ impl FromStr for ColorMode {
     }
 }
 
-#[clap_with_warnings]
 #[derive(clap::Parser, Debug)]
 /// Partial `ls` replacement that takes the paths to (sort and) show
 /// from stdin
@@ -1047,6 +1045,8 @@ impl<
 
 #[test]
 fn t_sizeof_mini_item() {
+    use std::mem::size_of;
+
     assert_eq!(size_of::<MiniItem<&SegmentedPath>>(), 40);
     assert_eq!(size_of::<[MiniItem<&SegmentedPath>; 10]>(), 400);
 }
@@ -1170,7 +1170,7 @@ fn print_listing<
         probe!("resolve pw+gr info");
 
         let chunk_size = 100000;
-        let num_tasks = selected_items.len().div_ceil(chunk_size);
+        let num_tasks = (selected_items.len() + chunk_size - 1) / (chunk_size);
         let mut results: Vec<Mutex<Option<(PwInfoCache, GrInfoCache)>>> =
             Vec::new();
         results.resize_with(num_tasks, Default::default);

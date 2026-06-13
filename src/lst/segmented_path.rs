@@ -1,5 +1,10 @@
 use std::{
-    cmp::Ordering, ffi::OsStr, marker::PhantomPinned, path::Path,
+    cmp::Ordering,
+    ffi::OsStr,
+    marker::PhantomPinned,
+    mem::{align_of, size_of},
+    os::unix::prelude::OsStrExt,
+    path::Path,
     slice::from_raw_parts,
 };
 
@@ -142,7 +147,7 @@ impl<'region> SegmentedPath<'region> {
         const STRUCT_SIZE: usize = size_of::<SegmentedPath>();
         const STRUCT_ALIGN: usize = align_of::<SegmentedPath>();
 
-        let orig_name_bytes = orig_name.as_encoded_bytes();
+        let orig_name_bytes = orig_name.as_bytes();
         let orig_name_len = orig_name_bytes.len();
 
         // The largest possible allocation that we need
@@ -229,15 +234,15 @@ impl<'region> SegmentedPath<'region> {
     ) -> Option<&'region Self> {
         let mut p = None;
         for segment in path {
-            let segment_bytes = segment.as_encoded_bytes();
+            let segment_bytes = segment.as_bytes();
             let use_segment = if segment_bytes == &[b'/'] {
                 &[]
             } else {
                 segment_bytes
             };
-            let use_segment_osstr: &OsStr = unsafe {
+            let use_segment_osstr: &OsStr = {
                 // SAFETY: back from what we had, or empty, is OK?
-                OsStr::from_encoded_bytes_unchecked(use_segment)
+                OsStr::from_bytes(use_segment)
             };
             p = Some(SegmentedPath::new(
                 SegmentedPathParent(p),
@@ -288,10 +293,10 @@ impl<'region> SegmentedPath<'region> {
         };
         let bytes: &[u8] =
             unsafe { from_raw_parts(bytes_addr, self.orig_name_len as usize) };
-        unsafe {
+        {
             // Safety: we created the bytes via `as_encoded_bytes()`
             // in `new`
-            OsStr::from_encoded_bytes_unchecked(bytes)
+            OsStr::from_bytes(bytes)
         }
     }
 
@@ -316,7 +321,7 @@ impl<'region> SegmentedPath<'region> {
             parent._to_path(out)
         }
         // XX is encoded_bytes the right format for Path?
-        let bytes = self.orig_name().as_encoded_bytes();
+        let bytes = self.orig_name().as_bytes();
         out.extend_from_slice(bytes);
         out.push(b'/');
     }
@@ -329,7 +334,7 @@ impl<'region> SegmentedPath<'region> {
         // Path "" is really "/" if there's no other segment
         let len = tmp.len();
         let used = if len == 1 { tmp } else { &tmp[0..len - 1] };
-        let osstr = unsafe { OsStr::from_encoded_bytes_unchecked(used) };
+        let osstr = OsStr::from_bytes(used);
         osstr.as_ref()
     }
 

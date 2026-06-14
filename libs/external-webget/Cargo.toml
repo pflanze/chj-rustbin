@@ -8,4 +8,3 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 anyhow = "1.0"
 which = { version = "3.1.1", default-features = false, features = [] }
-clap = { version = "3", features = ["derive"] }

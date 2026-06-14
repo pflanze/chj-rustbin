@@ -109,6 +109,7 @@ dependencies = [
  "enumn",
  "env_logger",
  "extension-traits",
+ "external-webget",
  "filetime",
  "genawaiter",
  "getrandom",
@@ -368,6 +369,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "360cbc11ebc403c8ebb731dfb4d3950835d40d3d9a20f0e89a27b17e991d0863"
 dependencies = [
  "ext-trait",
+]
+
+[[package]]
+name = "external-webget"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "which",
 ]
 
 [[package]]
@@ -1065,6 +1074,15 @@ name = "wasm-bindgen-shared"
 version = "0.2.84"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0046fef7e28c3804e5e38bfa31ea2a0f73905319b677e57ebe37e49358989b5d"
+
+[[package]]
+name = "which"
+version = "3.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d011071ae14a2f6671d0b74080ae0cd8ebf3a6f8c9589a2cd45f23126fe29724"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "winapi"

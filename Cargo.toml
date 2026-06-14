@@ -16,6 +16,10 @@ panic = "abort"
 opt-level = "s"
 
 [dependencies]
+# Local
+external-webget = { path = "libs/external-webget" }
+
+# External
 #clap-with-warnings = { path = "../clap-with-warnings/clap-with-warnings" }
 # removed for Debian bookworm:
 #clap-with-warnings = "0.1.1"

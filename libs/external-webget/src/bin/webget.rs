@@ -6,7 +6,7 @@ use std::{
 use anyhow::{Context, Result};
 use clap::Parser;
 
-use external_webget::webget::{Request, WebGet, WebGetCommand};
+use external_webget::{Request, WebGet, WebGetCommand};
 
 #[derive(clap::Parser, Debug)]
 #[clap(next_line_help = true)]

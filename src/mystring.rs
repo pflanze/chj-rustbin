@@ -12,6 +12,10 @@ enum MyStringInner<const N: usize> {
 #[derive(Debug)]
 pub struct MyString<const N: usize>(MyStringInner<N>);
 
+pub type MyString23 = MyString<23>;
+pub type MyString31 = MyString<31>;
+pub type MyString39 = MyString<39>;
+
 // Todo optimization?: could rely on assumption that both sides must
 // be of the same enumerant.
 
@@ -113,6 +117,13 @@ mod tests {
         assert_eq!(size_of::<MyString<15>>(), 24);
         assert_eq!(size_of::<MyString<10>>(), 24); // bummer
         assert_eq!(size_of::<MyString<16>>(), 24);
+
+        assert_eq!(size_of::<MyString23>(), 24);
+        assert_eq!(size_of::<MyString31>(), 32);
+        assert_eq!(size_of::<MyString39>(), 40);
+
+        assert_eq!(size_of::<MyString<38>>(), 40);
+        assert_eq!(size_of::<MyString<40>>(), 48);
     }
 
     fn m(s: &str) -> MyString<23> {

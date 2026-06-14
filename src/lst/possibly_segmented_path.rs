@@ -1,6 +1,9 @@
 //! Allow switching between &Path and &SegmentedPath
 
-use std::{cmp::Ordering, ffi::OsStr, fmt::Debug, path::Path};
+use std::{
+    cmp::Ordering, ffi::OsStr, fmt::Debug, os::unix::prelude::OsStrExt,
+    path::Path,
+};
 
 use crate::{
     lst::{
@@ -53,8 +56,8 @@ impl<'region, INLINE> PossiblySegmentedPath<'region, INLINE> for &'region Path {
             region.allocate_path(&p)
         } else {
             // optimize: copy directly to region
-            let b0 = self.as_os_str().as_encoded_bytes();
-            let b1 = file_name.as_encoded_bytes();
+            let b0 = self.as_os_str().as_bytes();
+            let b1 = file_name.as_bytes();
             let l0 = b0.len();
             let l1 = b1.len();
             let len = l0 + 1 + l1;
@@ -62,11 +65,8 @@ impl<'region, INLINE> PossiblySegmentedPath<'region, INLINE> for &'region Path {
             alloc[0..l0].copy_from_slice(b0);
             alloc[l0] = b'/';
             alloc[l0 + 1..len].copy_from_slice(b1);
-            unsafe {
-                // Safety: should be OK?
-                OsStr::from_encoded_bytes_unchecked(alloc)
-            }
-            .as_ref()
+            // Safety: should be OK?
+            OsStr::from_bytes(alloc).as_ref()
         }
     }
 
@@ -154,15 +154,12 @@ impl<'region, INLINE>
             ),
             None => {
                 // Allocate file_name as the path
-                let bytes = file_name.as_encoded_bytes();
+                let bytes = file_name.as_bytes();
                 let len = bytes.len();
                 let alloc = region.allocate::<1>(len);
                 alloc.copy_from_slice(bytes);
-                unsafe {
-                    // Safety: should be OK?
-                    OsStr::from_encoded_bytes_unchecked(alloc)
-                }
-                .as_ref()
+                // Safety: should be OK?
+                OsStr::from_bytes(alloc).as_ref()
             }
         }
     }

@@ -339,6 +339,8 @@ pub struct Item<'region, P: PossiblySegmentedPath<'region, INLINE>, INLINE> {
 
 #[test]
 fn t_sizes() {
+    use std::mem::size_of;
+
     assert_eq!(size_of::<UnixFileType>(), 1);
     // Sec and nsec both taking up 8 B
     assert_eq!(size_of::<SystemTime>(), 16);

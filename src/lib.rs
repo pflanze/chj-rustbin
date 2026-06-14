@@ -23,6 +23,7 @@ pub mod kitschcell;
 pub mod lst;
 pub mod merge;
 pub mod merge_trait;
+pub mod mystring;
 pub mod numbers;
 pub mod parse;
 pub mod path_file_kind;

@@ -43,9 +43,9 @@ impl RawSliceMut {
     }
 
     pub fn aligned<const ALIGN: usize>(self) -> Option<Self> {
-        const {
-            assert!(ALIGN.count_ones() == 1);
-        }
+        // const {
+        //     assert!(ALIGN.count_ones() == 1);
+        // }
         let Self { data, len } = self;
         let offset = data.align_offset(ALIGN);
         if offset < len {

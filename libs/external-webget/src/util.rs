@@ -9,7 +9,8 @@ where
     L: IntoIterator<Item = S>,
 {
     let iter = sequence.into_iter();
-    let items: Vec<String> = iter.map(|v| format!("{:?}", v.as_ref())).collect();
+    let items: Vec<String> =
+        iter.map(|v| format!("{:?}", v.as_ref())).collect();
     items.join(", ")
 }
 

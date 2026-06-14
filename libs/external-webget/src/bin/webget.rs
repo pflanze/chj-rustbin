@@ -42,7 +42,8 @@ fn main() -> Result<()> {
     } else {
         WebGet::auto_choose()?
     };
-    let headers: Cow<[Cow<str>]> = opts.header.into_iter().map(|s| s.into()).collect();
+    let headers: Cow<[Cow<str>]> =
+        opts.header.into_iter().map(|s| s.into()).collect();
     let request = Request {
         url: (&*opts.url).into(),
         follow: opts.follow,

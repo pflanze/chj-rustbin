@@ -3,7 +3,8 @@
 //! tokio, reqwest, a system ssl library (probably openssl) which
 //! reqwest does statically hence never security-updated).
 use std::{
-    borrow::Cow, os::unix::process::ExitStatusExt, path::PathBuf, process::Command, str::FromStr,
+    borrow::Cow, os::unix::process::ExitStatusExt, path::PathBuf,
+    process::Command, str::FromStr,
 };
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -27,7 +28,9 @@ impl FromStr for WebGetCommand {
             "curl" => Ok(Curl),
             "wget" => Ok(Wget),
             "GET" => Ok(GET),
-            _ => bail!("unsupported command, needs to be one of curl | wget | GET"),
+            _ => bail!(
+                "unsupported command, needs to be one of curl | wget | GET"
+            ),
         }
     }
 }
@@ -108,8 +111,9 @@ impl WebGet {
     /// Use the given command
     pub fn new(command: WebGetCommand) -> Result<Self> {
         let command_name = command.command_name();
-        let command_path = which(command_name)
-            .with_context(|| anyhow!("could not find command {command_name:?}"))?;
+        let command_path = which(command_name).with_context(|| {
+            anyhow!("could not find command {command_name:?}")
+        })?;
         Ok(WebGet {
             command,
             command_path,

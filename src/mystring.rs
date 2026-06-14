@@ -1,3 +1,5 @@
+/// Yet another small string implementation, with more optimized space than KString offers.
+// ~Just for fun.
 use std::{fmt::Display, ops::Deref};
 
 #[derive(Debug)]
@@ -99,7 +101,7 @@ impl<const N: usize> MyString<N> {
 
 #[cfg(test)]
 mod tests {
-    use std::mem::size_of;
+    use std::mem::{size_of, size_of_val};
 
     use super::*;
 
@@ -112,9 +114,13 @@ mod tests {
         assert_eq!(size_of::<MyString<10>>(), 24); // bummer
         assert_eq!(size_of::<MyString<16>>(), 24);
     }
+
+    fn m(s: &str) -> MyString<23> {
+        s.into()
+    }
+
     #[test]
-    fn t_() {
-        let m = |s: &str| -> MyString<23> { s.into() };
+    fn t_correctness() {
         let s = "foo";
         let ms = m(s);
         assert_eq!(&*ms, s);
@@ -134,5 +140,31 @@ mod tests {
         let ms = m(s);
         assert_eq!(&*ms, s);
         assert!(!ms.is_short());
+    }
+
+    #[test]
+    fn t_kstring() {
+        // Verify my claim that MyString offers more inline space than
+        // KString.
+        use kstring::KString;
+
+        let s = "01234567890123456789012";
+        let ms = m(s);
+        assert_eq!(&*ms, s);
+        assert!(ms.is_short());
+
+        fn is_inline(ks: &KString) -> bool {
+            let s = format!("{ks:?}");
+            s.contains("Inline")
+        }
+
+        let ks = KString::from_ref(s);
+        assert!(!is_inline(&ks));
+
+        // vs.                               "01234567890123456789012" // 23
+        assert!(is_inline(&KString::from_ref("012345678901234"))); // 15
+        assert!(!is_inline(&KString::from_ref("0123456789012345")));
+
+        assert_eq!(size_of_val(&ms), size_of_val(&ks));
     }
 }

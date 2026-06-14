@@ -96,14 +96,14 @@ struct Opt {
     dir: PathBuf,
 }
 
+/// Returns the filenames of the files (that are newer than the given
+/// filters, if any).
 fn check(
     dir: &Path,
     filter_opts: &FilterOpts,
 ) -> Result<Vec<(u64, MyString<23>)>> {
     let newer_than_time = filter_opts.newer_than_unixtime()?;
-    debug!(
-        "filter_opts = {filter_opts:?}, newer_than_time = {newer_than_time:?}"
-    );
+    debug!("filter_opts = {filter_opts:?} => {newer_than_time:?}");
     let dir = std::fs::read_dir(&dir)?;
     let mut items = Vec::new();
     for item in dir {
@@ -146,7 +146,7 @@ fn main() -> Result<()> {
     env_logger::init();
 
     let mut found = if opt.poll {
-        if let Some(found) = (|| -> Result<Option<Vec<_>>> {
+        if let Some(found) = (|| -> Result<Option<Vec<(u64, MyString<23>)>>> {
             let start = SystemTime::now();
             loop {
                 let found = check(&opt.dir, &opt.filter_opts)?;

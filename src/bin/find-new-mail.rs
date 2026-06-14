@@ -8,6 +8,7 @@ use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 
 use chj_rustbin::mystring::MyString;
+use log::debug;
 
 fn path_mtime(path: &Path) -> Result<u64> {
     (|| -> Result<_> {
@@ -67,6 +68,14 @@ impl FilterOpts {
 /// given time.
 #[clap(name = "find-new-mail from chj-rustbin")]
 struct Opt {
+    /// Show what it's doing
+    #[clap(short, long)]
+    verbose: bool,
+
+    /// Show what it's doing in more detail
+    #[clap(long)]
+    debug: bool,
+
     /// Poll until there are files to be listed
     #[clap(long)]
     poll: bool,
@@ -92,6 +101,9 @@ fn check(
     filter_opts: &FilterOpts,
 ) -> Result<Vec<(u64, MyString<23>)>> {
     let newer_than_time = filter_opts.newer_than_unixtime()?;
+    debug!(
+        "filter_opts = {filter_opts:?}, newer_than_time = {newer_than_time:?}"
+    );
     let dir = std::fs::read_dir(&dir)?;
     let mut items = Vec::new();
     for item in dir {
@@ -124,6 +136,14 @@ fn check(
 
 fn main() -> Result<()> {
     let opt: Opt = Opt::parse();
+
+    if opt.verbose {
+        std::env::set_var("RUST_LOG", "info");
+    }
+    if opt.debug {
+        std::env::set_var("RUST_LOG", "trace");
+    }
+    env_logger::init();
 
     let mut found = if opt.poll {
         if let Some(found) = (|| -> Result<Option<Vec<_>>> {

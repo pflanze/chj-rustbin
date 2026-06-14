@@ -82,7 +82,7 @@ struct Opt {
     #[clap(short, long)]
     verbose: bool,
 
-    /// Show what it's doing
+    /// Show what it's doing in more detail
     #[clap(long)]
     debug: bool,
 

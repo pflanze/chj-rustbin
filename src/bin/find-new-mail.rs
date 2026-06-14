@@ -4,10 +4,20 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 
 use chj_rustbin::mystring::MyString;
+
+fn path_mtime(path: &Path) -> Result<u64> {
+    (|| -> Result<_> {
+        let m: std::fs::Metadata = path.metadata()?;
+        let mtime: SystemTime = m.modified()?;
+        let unix: u64 = mtime.duration_since(SystemTime::UNIX_EPOCH)?.as_secs();
+        Ok(unix)
+    })()
+    .with_context(|| anyhow!("getting modification time of path {path:?}"))
+}
 
 #[derive(clap::Parser, Debug)]
 struct FilterOpts {
@@ -23,9 +33,10 @@ struct FilterOpts {
 }
 
 impl FilterOpts {
-    /// 'Parse' the given options into a single time point; returns
-    /// None if no option was given. Returns an error if a given
-    /// file's path couldn't be used.
+    /// Process the given options into a single time point; if both
+    /// options were given, returns the newer time. Returns None if no
+    /// option was given. Returns an error if a given file's path
+    /// couldn't be used.
     fn newer_than_unixtime(&self) -> Result<Option<u64>> {
         match self {
             FilterOpts {
@@ -35,24 +46,13 @@ impl FilterOpts {
             FilterOpts {
                 newer_than_unixtime: None,
                 newer_than_file_path: Some(path),
-            } => (|| -> Result<_> {
-                let m: std::fs::Metadata = path.metadata()?;
-                let mtime: SystemTime = m.modified()?;
-                let unix: u64 =
-                    mtime.duration_since(SystemTime::UNIX_EPOCH)?.as_secs();
-                Ok(Some(unix))
-            })()
-            .with_context(|| {
-                anyhow!("getting modification time of path {path:?}")
-            }),
+            } => path_mtime(path).map(Some),
             FilterOpts {
-                newer_than_unixtime: Some(_),
-                newer_than_file_path: Some(_),
+                newer_than_unixtime: Some(t),
+                newer_than_file_path: Some(path),
             } => {
-                bail!(
-                    "both the --newer-than-unixtime and \
-                     --newer-than-file-path options were given"
-                )
+                let t1 = path_mtime(path)?;
+                Ok(Some((*t).max(t1)))
             }
             FilterOpts {
                 newer_than_unixtime: None,

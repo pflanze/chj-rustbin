@@ -31,6 +31,18 @@ struct FilterOpts {
     /// time of the file at this path
     #[clap(long)]
     newer_than_file_path: Option<PathBuf>,
+
+    /// Print the given string if both `--newer-than-...` options were
+    /// given and the file is newer than the given unixtime
+    #[clap(long)]
+    newer_than_file_print: Option<String>,
+}
+
+#[derive(Debug)]
+enum NewerThan<'s> {
+    None,
+    Time(u64),
+    Switched(&'s str),
 }
 
 impl FilterOpts {
@@ -38,27 +50,36 @@ impl FilterOpts {
     /// options were given, returns the newer time. Returns None if no
     /// option was given. Returns an error if a given file's path
     /// couldn't be used.
-    fn newer_than_unixtime(&self) -> Result<Option<u64>> {
+    fn newer_than_unixtime(&self) -> Result<NewerThan<'_>> {
         match self {
             FilterOpts {
                 newer_than_unixtime: Some(t),
                 newer_than_file_path: None,
-            } => Ok(Some(*t)),
+                newer_than_file_print: _,
+            } => Ok(NewerThan::Time(*t)),
             FilterOpts {
                 newer_than_unixtime: None,
                 newer_than_file_path: Some(path),
-            } => path_mtime(path).map(Some),
+                newer_than_file_print: _,
+            } => path_mtime(path).map(NewerThan::Time),
             FilterOpts {
-                newer_than_unixtime: Some(t),
+                newer_than_unixtime: Some(t1),
                 newer_than_file_path: Some(path),
+                newer_than_file_print,
             } => {
-                let t1 = path_mtime(path)?;
-                Ok(Some((*t).max(t1)))
+                let t2 = path_mtime(path)?;
+                if let Some(newer_than_file_print) = newer_than_file_print {
+                    if t2 > *t1 {
+                        return Ok(NewerThan::Switched(newer_than_file_print));
+                    }
+                }
+                Ok(NewerThan::Time((*t1).max(t2)))
             }
             FilterOpts {
                 newer_than_unixtime: None,
                 newer_than_file_path: None,
-            } => Ok(None),
+                newer_than_file_print: _,
+            } => Ok(NewerThan::None),
         }
     }
 }
@@ -100,10 +121,8 @@ struct Opt {
 /// filters, if any).
 fn check(
     dir: &Path,
-    filter_opts: &FilterOpts,
+    newer_than_time: Option<u64>,
 ) -> Result<Vec<(u64, MyString<23>)>> {
-    let newer_than_time = filter_opts.newer_than_unixtime()?;
-    debug!("filter_opts = {filter_opts:?} => {newer_than_time:?}");
     let dir = std::fs::read_dir(&dir)?;
     let mut items = Vec::new();
     for item in dir {
@@ -149,7 +168,20 @@ fn main() -> Result<()> {
         if let Some(found) = (|| -> Result<Option<Vec<(u64, MyString<23>)>>> {
             let start = SystemTime::now();
             loop {
-                let found = check(&opt.dir, &opt.filter_opts)?;
+                let filter_opts = &opt.filter_opts;
+                let newer_than = filter_opts.newer_than_unixtime()?;
+                debug!("filter_opts = {filter_opts:?} => {newer_than:?}");
+
+                let newer_than_time = match newer_than {
+                    NewerThan::None => None,
+                    NewerThan::Time(t) => Some(t),
+                    NewerThan::Switched(s) => {
+                        println!("{s}");
+                        return Ok(None);
+                    }
+                };
+
+                let found = check(&opt.dir, newer_than_time)?;
                 if !found.is_empty() {
                     return Ok(Some(found));
                 }
@@ -169,7 +201,17 @@ fn main() -> Result<()> {
             return Ok(());
         }
     } else {
-        check(&opt.dir, &opt.filter_opts)
+        // Stupid COPY
+        let newer_than = opt.filter_opts.newer_than_unixtime()?;
+        let newer_than_time = match newer_than {
+            NewerThan::None => None,
+            NewerThan::Time(t) => Some(t),
+            NewerThan::Switched(s) => {
+                println!("{s}");
+                return Ok(());
+            }
+        };
+        check(&opt.dir, newer_than_time)
     }
     .with_context(|| anyhow!("reading directory {:?}", opt.dir))?;
 

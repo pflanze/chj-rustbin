@@ -36,7 +36,7 @@ impl FromStr for WebGetCommand {
 }
 
 impl WebGetCommand {
-    pub const LIST: &[WebGetCommand] = {
+    pub const LIST: &'static [WebGetCommand] = {
         use WebGetCommand::*;
         &[Curl, Wget, GET]
     };

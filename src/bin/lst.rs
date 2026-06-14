@@ -1149,9 +1149,7 @@ fn print_paths<
                     let mut tmp = tmp_path_buffer();
                     for item in items {
                         let path = item.borrow().path.psp_to_path(&mut tmp);
-                        alloc.extend_from_slice(
-                            path.as_os_str().as_encoded_bytes(),
-                        );
+                        alloc.extend_from_slice(path.as_os_str().as_bytes());
                         alloc.push(output_record_separator);
                     }
                     alloc

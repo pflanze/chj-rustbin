@@ -33,16 +33,17 @@ struct FilterOpts {
     newer_than_file_path: Option<PathBuf>,
 
     /// Print the given string if both `--newer-than-...` options were
-    /// given and the file is newer than the given unixtime
+    /// given and the file is newer than the given unixtime. The
+    /// string `{t}` is replaced with the time derived from the file.
     #[clap(long)]
     newer_than_file_print: Option<String>,
 }
 
 #[derive(Debug)]
-enum NewerThan<'s> {
+enum NewerThan {
     None,
     Time(u64),
-    Switched(&'s str),
+    Switched(String),
 }
 
 impl FilterOpts {
@@ -50,7 +51,7 @@ impl FilterOpts {
     /// options were given, returns the newer time. Returns None if no
     /// option was given. Returns an error if a given file's path
     /// couldn't be used.
-    fn newer_than_unixtime(&self) -> Result<NewerThan<'_>> {
+    fn newer_than_unixtime(&self) -> Result<NewerThan> {
         match self {
             FilterOpts {
                 newer_than_unixtime: Some(t),
@@ -70,7 +71,9 @@ impl FilterOpts {
                 let t2 = path_mtime(path)?;
                 if let Some(newer_than_file_print) = newer_than_file_print {
                     if t2 > *t1 {
-                        return Ok(NewerThan::Switched(newer_than_file_print));
+                        let s = newer_than_file_print
+                            .replace("{t}", &t2.to_string());
+                        return Ok(NewerThan::Switched(s));
                     }
                 }
                 Ok(NewerThan::Time((*t1).max(t2)))

@@ -7,7 +7,9 @@ use std::{
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 
-use chj_rustbin::mystring::MyString31;
+use chj_rustbin::{
+    io::unix::unix_file_content_key::UnixFileContentKey, mystring::MyString31,
+};
 use log::debug;
 
 fn path_mtime(path: &Path) -> Result<u64> {
@@ -170,30 +172,43 @@ fn main() -> Result<()> {
     let mut found = if opt.poll {
         if let Some(found) = (|| -> Result<Option<Vec<(u64, MyString31)>>> {
             let start = SystemTime::now();
+            let mut last_key: Option<UnixFileContentKey> = None;
             loop {
-                let filter_opts = &opt.filter_opts;
-                let newer_than = filter_opts.newer_than_unixtime()?;
-                debug!("filter_opts = {filter_opts:?} => {newer_than:?}");
+                let key = Some(
+                    UnixFileContentKey::from_path_metadata(&opt.dir)
+                        .with_context(|| {
+                            anyhow!("getting metadata from path {:?}", opt.dir)
+                        })?,
+                );
 
-                let newer_than_time = match newer_than {
-                    NewerThan::None => None,
-                    NewerThan::Time(t) => Some(t),
-                    NewerThan::Switched(s) => {
-                        println!("{s}");
-                        return Ok(None);
-                    }
-                };
+                if key != last_key {
+                    last_key = key;
 
-                let found = check(&opt.dir, newer_than_time)?;
-                if !found.is_empty() {
-                    return Ok(Some(found));
-                }
-                if let Some(poll_total_time) = opt.poll_total_time {
-                    let dur = SystemTime::now().duration_since(start)?;
-                    if dur.as_secs_f64() > poll_total_time {
-                        return Ok(None);
+                    let filter_opts = &opt.filter_opts;
+                    let newer_than = filter_opts.newer_than_unixtime()?;
+                    debug!("filter_opts = {filter_opts:?} => {newer_than:?}");
+
+                    let newer_than_time = match newer_than {
+                        NewerThan::None => None,
+                        NewerThan::Time(t) => Some(t),
+                        NewerThan::Switched(s) => {
+                            println!("{s}");
+                            return Ok(None);
+                        }
+                    };
+
+                    let found = check(&opt.dir, newer_than_time)?;
+                    if !found.is_empty() {
+                        return Ok(Some(found));
+                    }
+                    if let Some(poll_total_time) = opt.poll_total_time {
+                        let dur = SystemTime::now().duration_since(start)?;
+                        if dur.as_secs_f64() > poll_total_time {
+                            return Ok(None);
+                        }
                     }
                 }
+
                 std::thread::sleep(Duration::from_secs_f64(opt.sleep_time));
             }
         })()

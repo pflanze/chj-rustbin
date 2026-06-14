@@ -1,0 +1,10 @@
+# atty 0.2.14 affected by RUSTSEC-2021-0145 (unsound), atty 0.2.14 affected by RUSTSEC-2024-0375 (unmaintained)
+RUSTSEC-2021-0145
+RUSTSEC-2024-0375
+
+# failure 0.1.8 affected by RUSTSEC-2019-0036 (unsound), failure 0.1.8 affected by RUSTSEC-2020-0036 (unmaintained)
+RUSTSEC-2019-0036
+RUSTSEC-2020-0036
+
+# proc-macro-error 1.0.4 affected by RUSTSEC-2024-0370 (unmaintained)
+RUSTSEC-2024-0370

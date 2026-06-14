@@ -7,7 +7,7 @@ use std::{
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 
-use chj_rustbin::mystring::MyString;
+use chj_rustbin::mystring::MyString31;
 use log::debug;
 
 fn path_mtime(path: &Path) -> Result<u64> {
@@ -125,7 +125,7 @@ struct Opt {
 fn check(
     dir: &Path,
     newer_than_time: Option<u64>,
-) -> Result<Vec<(u64, MyString<23>)>> {
+) -> Result<Vec<(u64, MyString31)>> {
     let dir = std::fs::read_dir(&dir)?;
     let mut items = Vec::new();
     for item in dir {
@@ -168,7 +168,7 @@ fn main() -> Result<()> {
     env_logger::init();
 
     let mut found = if opt.poll {
-        if let Some(found) = (|| -> Result<Option<Vec<(u64, MyString<23>)>>> {
+        if let Some(found) = (|| -> Result<Option<Vec<(u64, MyString31)>>> {
             let start = SystemTime::now();
             loop {
                 let filter_opts = &opt.filter_opts;
@@ -225,4 +225,13 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[test]
+fn t_size() {
+    use chj_rustbin::mystring::{MyString23, MyString31};
+    use std::mem::size_of;
+    assert_eq!(size_of::<(u64, MyString23)>(), 4 * 8);
+    assert_eq!(size_of::<(u64, MyString31)>(), 5 * 8);
+    assert_eq!(size_of::<[(u64, MyString31); 10]>(), 10 * 5 * 8);
 }

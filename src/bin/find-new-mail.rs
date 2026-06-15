@@ -172,32 +172,36 @@ fn main() -> Result<()> {
     let mut found = if opt.poll {
         if let Some(found) = (|| -> Result<Option<Vec<(u64, MyString31)>>> {
             let start = SystemTime::now();
-            let mut last_key: Option<UnixFileContentKey> = None;
+            // The 'key' is used to tell whether anything has changed
+            let mut last_key: Option<(UnixFileContentKey, Option<u64>)> = None;
             loop {
-                let key = Some(
-                    UnixFileContentKey::from_path_metadata(&opt.dir)
-                        .with_context(|| {
-                            anyhow!("getting metadata from path {:?}", opt.dir)
-                        })?,
-                );
-
-                if key != last_key {
-                    last_key = key;
-
+                let newer_than_time = {
                     let filter_opts = &opt.filter_opts;
                     let newer_than = filter_opts.newer_than_unixtime()?;
                     debug!("filter_opts = {filter_opts:?} => {newer_than:?}");
-
-                    let newer_than_time = match newer_than {
+                    match newer_than {
                         NewerThan::None => None,
                         NewerThan::Time(t) => Some(t),
                         NewerThan::Switched(s) => {
                             println!("{s}");
                             return Ok(None);
                         }
-                    };
+                    }
+                };
+
+                let key = Some((
+                    UnixFileContentKey::from_path_metadata(&opt.dir)
+                        .with_context(|| {
+                            anyhow!("getting metadata from path {:?}", opt.dir)
+                        })?,
+                    newer_than_time,
+                ));
+
+                if key != last_key {
+                    last_key = key;
 
                     let found = check(&opt.dir, newer_than_time)?;
+                    debug!("found = {found:?}");
                     if !found.is_empty() {
                         return Ok(Some(found));
                     }

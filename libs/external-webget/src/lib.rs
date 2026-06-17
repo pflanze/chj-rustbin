@@ -15,6 +15,13 @@ use which::which;
 
 use crate::util::format_string_list;
 
+#[derive(Debug)]
+pub struct Request<'t> {
+    pub url: Cow<'t, str>,
+    pub follow: bool,
+    pub headers: Cow<'t, [Cow<'t, str>]>,
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum WebGetCommand {
     Curl,
@@ -191,11 +198,4 @@ impl WebGet {
             )
         }
     }
-}
-
-#[derive(Debug)]
-pub struct Request<'t> {
-    pub url: Cow<'t, str>,
-    pub follow: bool,
-    pub headers: Cow<'t, [Cow<'t, str>]>,
 }

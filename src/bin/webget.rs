@@ -1,12 +1,16 @@
 use std::{
     borrow::Cow,
     io::{stdout, Write},
+    path::PathBuf,
 };
 
 use anyhow::{Context, Result};
+use cj_path_util::tempfile_utils::tempfile_unbuffered;
 use clap::Parser;
 
-use external_webget::{Request, WebGet, WebGetCommand};
+use external_webget::{
+    Request, ResponseToFile, ResponseToVec, WebGet, WebGetCommand,
+};
 
 #[derive(clap::Parser, Debug)]
 #[clap(next_line_help = true)]
@@ -23,6 +27,10 @@ struct Opts {
     /// Whether to follow redirects
     #[clap(long)]
     follow: bool,
+
+    /// Output file
+    #[clap(long)]
+    file: Option<PathBuf>,
 
     /// URL to retrieve
     url: String,
@@ -42,8 +50,14 @@ fn main() -> Result<()> {
         follow: opts.follow,
         headers,
     };
-    let response = webget.request(&request)?;
-    let mut out = stdout().lock();
-    out.write_all(&response).context("writing to stdout")?;
+    if let Some(path) = &opts.file {
+        let (tmpfile, file) = tempfile_unbuffered(path.clone(), true)?;
+        let () = webget.request(&request, ResponseToFile(file))?;
+        tmpfile.finish()?;
+    } else {
+        let response = webget.request(&request, ResponseToVec)?;
+        let mut out = stdout().lock();
+        out.write_all(&response).context("writing to stdout")?;
+    }
     Ok(())
 }

@@ -6,7 +6,7 @@
 pub mod util;
 
 use std::{
-    borrow::Cow, os::unix::process::ExitStatusExt, path::PathBuf,
+    borrow::Cow, fs::File, os::unix::process::ExitStatusExt, path::PathBuf,
     process::Command, str::FromStr,
 };
 
@@ -20,6 +20,39 @@ pub struct Request<'t> {
     pub url: Cow<'t, str>,
     pub follow: bool,
     pub headers: Cow<'t, [Cow<'t, str>]>,
+}
+
+pub trait ResponseStorage {
+    type Output;
+    fn into_output_file(self) -> Option<File>;
+    fn make_output(v: Vec<u8>) -> Self::Output;
+}
+
+pub struct ResponseToVec;
+
+impl ResponseStorage for ResponseToVec {
+    type Output = Vec<u8>;
+
+    fn into_output_file(self) -> Option<File> {
+        None
+    }
+    fn make_output(v: Vec<u8>) -> Self::Output {
+        v
+    }
+}
+
+pub struct ResponseToFile(pub File);
+
+impl ResponseStorage for ResponseToFile {
+    type Output = ();
+
+    fn into_output_file(self) -> Option<File> {
+        Some(self.0)
+    }
+    fn make_output(_v: Vec<u8>) -> Self::Output {
+        // _v should be empty in this case. Simply drop it.
+        ()
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -153,8 +186,17 @@ impl WebGet {
         )
     }
 
-    /// Carry out the given request
-    pub fn request(&self, request: &Request) -> Result<Vec<u8>> {
+    /// Carry out the given request. If `output` is of type
+    /// `ResponseToVec`, the response is returned as a byte vector,
+    /// whereas if it is of type `ResponseToFile` then it is written
+    /// to the `File` contained in `ResponseToFile` (note: you could
+    /// use `cj_path_util::tempfile_utils::tempfile_unbuffered` to set
+    /// up the `File` for this).
+    pub fn request<O: ResponseStorage>(
+        &self,
+        request: &Request,
+        output: O,
+    ) -> Result<O::Output> {
         // Can't use Cow<str> in args as that doesn't cast to OsStr, bummer.
         let mut args: Vec<&str> = vec![];
 
@@ -175,12 +217,16 @@ impl WebGet {
         let mut command = Command::new(&self.command_path);
         command.args(&args);
 
+        if let Some(output_file) = output.into_output_file() {
+            command.stdout(output_file);
+        }
+
         let output = command.output().with_context(|| {
             anyhow!("running {:?} with arguments {:?}", self.command_path, args)
         })?;
 
         if output.status.success() {
-            Ok(output.stdout)
+            Ok(O::make_output(output.stdout))
         } else {
             let what = if let Some(code) = output.status.code() {
                 format!("exit code {code}")

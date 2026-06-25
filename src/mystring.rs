@@ -3,7 +3,7 @@
 /// Currently cannot represent the zero (`'\0'`) characters; i.e. only
 /// good for file system paths and similar.
 // ~Just for fun.
-use std::{fmt::Display, ops::Deref};
+use std::{fmt::Display, mem::transmute, ops::Deref};
 
 #[derive(Debug)]
 enum MyStringInner<const N: usize> {
@@ -24,9 +24,16 @@ impl<const N: usize, const N2: usize> PartialEq<MyString<N2>> for MyString<N> {
         if N == N2 {
             match &self.0 {
                 MyStringInner::Short(a) => match &other.0 {
-                    // XX does rustc optimize this back to fixed-size
-                    // array comparisons, or should we use transmute?
-                    MyStringInner::Short(b) => &a[0..N] == &b[0..N],
+                    MyStringInner::Short(b) => {
+                        // Would rustc optimize `&a[0..N] == &b[0..N]`
+                        // so that transmute isn't needed?
+                        let bn = unsafe {
+                            // Safe because N2 == N as the if
+                            // statement above verified
+                            transmute::<&[u8; N2], &[u8; N]>(b)
+                        };
+                        a == bn
+                    }
                     MyStringInner::Long(_) => false,
                 },
                 MyStringInner::Long(a) => match &other.0 {

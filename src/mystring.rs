@@ -1,4 +1,7 @@
 /// Yet another small string implementation, with more optimized space than KString offers.
+///
+/// Currently cannot represent the zero (`'\0'`) characters; i.e. only
+/// good for file system paths and similar.
 // ~Just for fun.
 use std::{fmt::Display, ops::Deref};
 
@@ -16,12 +19,24 @@ pub type MyString23 = MyString<23>;
 pub type MyString31 = MyString<31>;
 pub type MyString39 = MyString<39>;
 
-// Todo optimization?: could rely on assumption that both sides must
-// be of the same enumerant.
-
-impl<const N: usize> PartialEq for MyString<N> {
-    fn eq(&self, other: &Self) -> bool {
-        self.as_ref() == other.as_ref()
+impl<const N: usize, const N2: usize> PartialEq<MyString<N2>> for MyString<N> {
+    fn eq(&self, other: &MyString<N2>) -> bool {
+        if N == N2 {
+            match &self.0 {
+                MyStringInner::Short(a) => match &other.0 {
+                    // XX does rustc optimize this back to fixed-size
+                    // array comparisons, or should we use transmute?
+                    MyStringInner::Short(b) => &a[0..N] == &b[0..N],
+                    MyStringInner::Long(_) => false,
+                },
+                MyStringInner::Long(a) => match &other.0 {
+                    MyStringInner::Short(_) => false,
+                    MyStringInner::Long(b) => a == b,
+                },
+            }
+        } else {
+            self.as_ref() == other.as_ref()
+        }
     }
 }
 
@@ -177,5 +192,25 @@ mod tests {
         assert!(!is_inline(&KString::from_ref("0123456789012345")));
 
         assert_eq!(size_of_val(&ms), size_of_val(&ks));
+    }
+
+    #[test]
+    fn t_eq() {
+        let a = m("01234567890123456789012");
+        let a2 = m("01234567890123456789012");
+        let b = m("012345678901234567890123");
+        let b2 = m("012345678901234567890123");
+        assert!(a == a2);
+        assert!(b == b2);
+        assert!(!(a == b));
+
+        let a = m("012345678901234567890\0\0");
+        let a2 = m("012345678901234567890");
+        // Currently those are in fact equal
+        assert!(a == a2);
+        let a = m("012345678901234567890123\0\0");
+        let a2 = m("012345678901234567890123");
+        // But once above the immediate size, they aren't anymore
+        assert!(!(a == a2));
     }
 }

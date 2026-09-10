@@ -19,6 +19,7 @@ use chj_rustbin::{
     cpu_probe,
     efficient_regex::EfficientRegex,
     file_location,
+    grep::{file_contents_grep, file_lines_grep},
     hack_static::hack_static,
     io::{
         unix::unix_file_type::UnixFileTypeMask, unix_gr::GrInfoCache,
@@ -30,6 +31,7 @@ use chj_rustbin::{
         read_find_bufs::FindBufStream,
     },
     is_a_terminal::is_a_terminal,
+    limited_eprintln,
     lst::{
         get_items::{GetItems, Item, UnixFileType},
         possibly_segmented_path::PossiblySegmentedPath,
@@ -243,7 +245,16 @@ impl IntRange {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
+struct RegexWithEq(regex::bytes::Regex);
+
+impl PartialEq for RegexWithEq {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.as_str() == other.0.as_str()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 enum ProcessingCommand {
     Skip(usize),
     SkipTail(usize),
@@ -255,6 +266,15 @@ enum ProcessingCommand {
     },
     FilterDays(IntRange),
     Reverse,
+    LineGrep {
+        invert_outside: bool,
+        invert: bool,
+        regex: RegexWithEq,
+    },
+    FileGrep {
+        invert: bool,
+        regex: RegexWithEq,
+    },
 }
 
 impl ProcessingCommand {
@@ -266,15 +286,24 @@ impl ProcessingCommand {
             ProcessingCommand::SkipTail(n) => ProcessingCommand::Skip(*n),
             ProcessingCommand::Head(n) => ProcessingCommand::Tail(*n),
             ProcessingCommand::Tail(n) => ProcessingCommand::Head(*n),
+            // Weird one, should not be encountered because we already
+            // take spans without Reverse
+            ProcessingCommand::Reverse => ProcessingCommand::Reverse,
             // No change
             ProcessingCommand::FilterDays(_)
             | ProcessingCommand::Filter {
                 invert: _,
                 file_types: _,
+            }
+            | ProcessingCommand::LineGrep {
+                invert: _,
+                regex: _,
+                invert_outside: _,
+            }
+            | ProcessingCommand::FileGrep {
+                invert: _,
+                regex: _,
             } => self.clone(),
-            // Weird one, should not be encountered because we already
-            // take spans without Reverse
-            ProcessingCommand::Reverse => ProcessingCommand::Reverse,
         }
     }
 }
@@ -350,6 +379,67 @@ fn parse_processing_commands(
                 bail!("missing {} {cmd_str:?}", help())
             }
         };
+        let parse_grep = |i: &mut usize,
+                          cmd_name,
+                          line_based: bool|
+         -> Result<ProcessingCommand> {
+            let help = || {
+                format!(
+                    "usage: {cmd_name} <options> <regex>\n\
+                     options: a combination of the 3 characters !, ~, i (or the empty string),\n  \
+                     where repetitions invert the previous value and the default is off:\n  \
+                     !: invert the filtering,\n  \
+                     ~: invert the regular expression match (equivalent to '!' in the case of `file-grep`),\n  \
+                     i: insensitive search\n\
+                     regex: regular expression to match per line (for `line-grep`) or on the whole file (`file-grep`)")
+            };
+
+            let mut get_arg = |missing: &str| -> Result<&str> {
+                if *i >= processing_commands.len() {
+                    bail!("missing {missing} after {cmd_name:?}")
+                }
+                let s = &processing_commands[*i];
+                *i += 1;
+                Ok(s)
+            };
+
+            let options = get_arg("both arguments")?;
+            let regex_string = get_arg("the second argument")?;
+
+            let mut invert_outside = false;
+            let mut invert = false;
+            let mut insensitive = false;
+            for c in options.chars() {
+                match c  {
+                    '!' => invert_outside = true.bitxor(invert_outside),
+                    '~' => invert = true.bitxor(invert),
+                    'i'  => insensitive = true.bitxor(insensitive),
+                    _ => bail!(
+                        "invalid option character {c:?} in options {options:?} after `{cmd_name}`:\n{}",
+                        help())
+                }
+            }
+            let mut regex = regex::bytes::RegexBuilder::new(regex_string);
+            regex.case_insensitive(insensitive);
+            // Turn EOL matching on unconditionally since 'line-grep'
+            // is handled by `file_lines_grep` which feeds inputs to
+            // the regex engine line by line (with line ending
+            // stripped), thus never have any in that case.
+            regex.dot_matches_new_line(true);
+            let regex = RegexWithEq(regex.build().with_context(|| {
+                anyhow!("parsing regex {regex_string:?} after `{cmd_name}`")
+            })?);
+            if line_based {
+                Ok(ProcessingCommand::LineGrep {
+                    invert_outside,
+                    invert,
+                    regex,
+                })
+            } else {
+                let invert = invert_outside.bitxor(invert);
+                Ok(ProcessingCommand::FileGrep { invert, regex })
+            }
+        };
 
         let cmd = match cmd_str {
             "skip" => ProcessingCommand::Skip(parse_usize(&mut i)?),
@@ -361,9 +451,12 @@ fn parse_processing_commands(
             "filter-days" => {
                 ProcessingCommand::FilterDays(parse_range(&mut i)?)
             }
+            "line-grep" => parse_grep(&mut i, "line-grep", true)?,
+            "file-grep" => parse_grep(&mut i, "file-grep", false)?,
             _ => bail!(
                 "unknown processing command {cmd_str:?} -- \
-                 valid are skip, head, tail, reverse, filter, filter-days"
+                 valid are: \
+                 skip, head, tail, reverse, filter, filter-days, line-grep, file-grep"
             ),
         };
         cmds.push(cmd);
@@ -524,6 +617,15 @@ mod tests {
                                 invert: _,
                                 file_types: _,
                             } => (),
+                            ProcessingCommand::LineGrep {
+                                invert: _,
+                                regex: _,
+                                invert_outside: _,
+                            } => (),
+                            ProcessingCommand::FileGrep {
+                                invert: _,
+                                regex: _,
+                            } => (),
                         }
                         match rng.gen_range::<u8, _>(0..7) {
                             0 => ProcessingCommand::Skip(
@@ -546,6 +648,20 @@ mod tests {
                                 invert: rng.gen_bool(0.5),
                                 file_types: rng.gen(),
                             },
+                            // These just cost expensive file path accesses
+                            // 7 => ProcessingCommand::LineGrep {
+                            //     invert_outside: rng.gen_bool(0.2),
+                            //     invert: rng.gen_bool(0.2),
+                            //     regex: RegexWithEq(
+                            //         regex::bytes::Regex::new("").expect("OK"),
+                            //     ),
+                            // },
+                            // 8 => ProcessingCommand::FileGrep {
+                            //     invert: rng.gen_bool(0.2),
+                            //     regex: RegexWithEq(
+                            //         regex::bytes::Regex::new("").expect("OK"),
+                            //     ),
+                            // },
                             _ => unreachable!(),
                         }
                     })
@@ -697,6 +813,48 @@ fn run_processing_commands<
                         invert.bitxor(
                             (mini_item.file_type_mask & file_types) != 0,
                         )
+                    })
+                    .map(|r| *r)
+                    .collect();
+                *items = new_items;
+                selected_items = unsafe { hack_static(&mut **items) };
+            }
+            ProcessingCommand::LineGrep {
+                invert,
+                regex,
+                invert_outside,
+            } => {
+                let new_items: Vec<MiniItem<_>> = (&*selected_items)
+                    .into_par_iter()
+                    .filter(|mini_item| {
+                        let mut path_buf = tmp_path_buffer();
+                        let path = mini_item.path.psp_to_path(&mut path_buf);
+                        match file_lines_grep(path, &regex.0, *invert, b'\n') {
+                            Ok(val) => val.is_some().bitxor(invert_outside),
+                            Err(e) => {
+                                limited_eprintln!("line-grep: ignoring error with {path:?}: {e:#}");
+                                false
+                            }
+                        }
+                    })
+                    .map(|r| *r)
+                    .collect();
+                *items = new_items;
+                selected_items = unsafe { hack_static(&mut **items) };
+            }
+            ProcessingCommand::FileGrep { invert, regex } => {
+                let new_items: Vec<MiniItem<_>> = (&*selected_items)
+                    .into_par_iter()
+                    .filter(|mini_item| {
+                        let mut path_buf = tmp_path_buffer();
+                        let path = mini_item.path.psp_to_path(&mut path_buf);
+                        match file_contents_grep(path, &regex.0, *invert) {
+                            Ok(val) => val.is_some(),
+                            Err(e) => {
+                                limited_eprintln!("file-grep: ignoring error with {path:?}: {e:#}");
+                                false
+                            }
+                        }
                     })
                     .map(|r| *r)
                     .collect();

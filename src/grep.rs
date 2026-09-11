@@ -56,6 +56,14 @@ impl TryFrom<Position128> for Position64 {
     }
 }
 
+pub fn trim_line_terminator(line: &[u8], line_terminator: u8) -> &[u8] {
+    if line.last().copied() == Some(line_terminator) {
+        &line[0..line.len() - 1]
+    } else {
+        &line
+    }
+}
+
 /// Report whether a file contains at least one line matching (or not
 /// matching if `invert`) `regex`
 ///
@@ -72,11 +80,7 @@ pub fn file_lines_grep(
     let mut line = Vec::new();
     let mut line_no: u64 = 0;
     while input.read_until(line_terminator, &mut line)? > 0 {
-        let trimmed = if line.last().copied() == Some(line_terminator) {
-            &line[0..line.len() - 1]
-        } else {
-            &line
-        };
+        let trimmed = trim_line_terminator(&line, line_terminator);
         let m = regex.find(trimmed);
         let is_match = m.is_some();
         if is_match.bitxor(invert) {

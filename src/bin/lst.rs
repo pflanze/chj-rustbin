@@ -19,7 +19,7 @@ use chj_rustbin::{
     cpu_probe,
     efficient_regex::EfficientRegex,
     file_location,
-    grep::{file_contents_grep, file_lines_grep},
+    grep::{file_contents_grep, file_lines_grep, Position64},
     hack_static::hack_static,
     io::{
         unix::unix_file_type::UnixFileTypeMask, unix_gr::GrInfoCache,
@@ -181,6 +181,11 @@ struct Opt {
     /// filter range
     #[clap(long)]
     show_files_from_future: bool,
+
+    /// Show the position, if any, of the last file content match, by
+    /// appending `:line:col` to each path
+    #[clap(short = ':', long)]
+    pos: bool,
 
     /// Disable the optimizer for processing commands (in case there
     /// are bugs in it?)
@@ -826,18 +831,26 @@ fn run_processing_commands<
             } => {
                 let new_items: Vec<MiniItem<_>> = (&*selected_items)
                     .into_par_iter()
-                    .filter(|mini_item| {
+                    .filter_map(|mini_item| {
                         let mut path_buf = tmp_path_buffer();
                         let path = mini_item.path.psp_to_path(&mut path_buf);
                         match file_lines_grep(path, &regex.0, *invert, b'\n') {
-                            Ok(val) => val.is_some().bitxor(invert_outside),
+                            Ok(m) => if m.is_some().bitxor(invert_outside) {
+                                let opt_position = m.map(|(pos,_)| -> Position64 {
+                                    pos.try_into().expect(
+                                        "assumes your files have fewer than u32::MAX lines"
+                                    )
+                                });
+                                Some(mini_item.set_position(opt_position))
+                            } else {
+                                None
+                            },
                             Err(e) => {
                                 limited_eprintln!("line-grep: ignoring error with {path:?}: {e:#}");
-                                false
+                                None
                             }
                         }
                     })
-                    .map(|r| *r)
                     .collect();
                 *items = new_items;
                 selected_items = unsafe { hack_static(&mut **items) };
@@ -845,18 +858,26 @@ fn run_processing_commands<
             ProcessingCommand::FileGrep { invert, regex } => {
                 let new_items: Vec<MiniItem<_>> = (&*selected_items)
                     .into_par_iter()
-                    .filter(|mini_item| {
+                    .filter_map(|mini_item| {
                         let mut path_buf = tmp_path_buffer();
                         let path = mini_item.path.psp_to_path(&mut path_buf);
                         match file_contents_grep(path, &regex.0, *invert) {
-                            Ok(val) => val.is_some(),
+                            Ok(m) => m.map(|m| {
+                                let opt_position: Option<Position64> = m.start_position(b'\n')
+                                    .map(|p| {
+                                        p.try_into()
+                                            .expect(
+                                                "assumes your files have fewer than u32::MAX lines"
+                                            )
+                                    });
+                                mini_item.set_position(opt_position)
+                            }),
                             Err(e) => {
                                 limited_eprintln!("file-grep: ignoring error with {path:?}: {e:#}");
-                                false
+                                None
                             }
                         }
                     })
-                    .map(|r| *r)
                     .collect();
                 *items = new_items;
                 selected_items = unsafe { hack_static(&mut **items) };
@@ -868,6 +889,7 @@ fn run_processing_commands<
 
 struct TableFromItems {
     use_color: bool,
+    pos: bool,
     pw_info_cache: PwInfoCache,
     gr_info_cache: GrInfoCache,
 }
@@ -887,6 +909,7 @@ impl TableFromItems {
     ) -> YatTable<7> {
         let Self {
             use_color,
+            pos,
             pw_info_cache,
             gr_info_cache,
         } = self;
@@ -968,6 +991,13 @@ impl TableFromItems {
             } else {
                 row.add_cell_bytes(path_bytes);
             }
+
+            if *pos {
+                if let Some(Position64 { line, column }) = &mini_item.position {
+                    row.amend_cell_fmt(format_args!(":{line}:{column}"));
+                }
+            }
+
             if let Some(style) = style {
                 row.amend_cell_fmt(format_args!("{style:#}"));
             }
@@ -1174,7 +1204,8 @@ struct MainContVals<'region> {
     shared_regions: &'region SharedRegions,
 }
 
-/// Flattened Item for more performant sorting
+/// Flattened Item for more performant sorting, and with additional
+/// information like optional position
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 struct MiniItem<
     'i,
@@ -1184,7 +1215,25 @@ struct MiniItem<
     mtime: SystemTime,
     file_type_mask: UnixFileTypeMask,
     path: P,
+    position: Option<Position64>,
     item: &'i Item<'region, P, InlineLst>,
+}
+
+impl<
+        'i,
+        'region: 'i,
+        P: PossiblySegmentedPath<'region, InlineLst>
+            + Copy
+            + Sync
+            + Send
+            + 'region,
+    > MiniItem<'i, 'region, P>
+{
+    fn set_position(&self, position: Option<Position64>) -> Self {
+        let mut this = *self;
+        this.position = position;
+        this
+    }
 }
 
 impl<
@@ -1203,6 +1252,7 @@ impl<
             file_type_mask: item.metadata.file_type().as_mask(),
             path: item.path,
             item,
+            position: None,
         }
     }
 }
@@ -1211,8 +1261,8 @@ impl<
 fn t_sizeof_mini_item() {
     use std::mem::size_of;
 
-    assert_eq!(size_of::<MiniItem<&SegmentedPath>>(), 40);
-    assert_eq!(size_of::<[MiniItem<&SegmentedPath>; 10]>(), 400);
+    assert_eq!(size_of::<MiniItem<&SegmentedPath>>(), 48);
+    assert_eq!(size_of::<[MiniItem<&SegmentedPath>; 10]>(), 480);
 }
 
 fn main_cont<
@@ -1253,10 +1303,16 @@ fn main_cont<
                 opt.dev_single_threaded,
                 filtered_items,
                 output_record_separator,
+                opt.pos,
                 shared_regions,
             )?
         } else {
-            print_listing(filtered_items, output_record_separator, use_color)?
+            print_listing(
+                filtered_items,
+                output_record_separator,
+                use_color,
+                opt.pos,
+            )?
         }
         Ok(())
     })()
@@ -1284,6 +1340,7 @@ fn print_paths<
     single_threaded: bool,
     selected_items: &[I],
     output_record_separator: u8,
+    pos: bool,
     _regions: &'region SharedRegions,
 ) -> Result<()> {
     use std::io::Write;
@@ -1292,8 +1349,14 @@ fn print_paths<
         let mut outp = BufWriter::new(stdout().lock());
         let mut tmp = tmp_path_buffer();
         for item in selected_items {
-            let path = item.borrow().path.psp_to_path(&mut tmp);
+            let mini_item: &MiniItem<P> = item.borrow();
+            let path = mini_item.path.psp_to_path(&mut tmp);
             outp.write_all(path.as_os_str().as_bytes())?;
+            if pos {
+                if let Some(Position64 { line, column }) = mini_item.position {
+                    write!(outp, ":{line}:{column}")?;
+                }
+            }
             outp.write_all(&[output_record_separator])?;
         }
         outp.flush()?;
@@ -1306,8 +1369,16 @@ fn print_paths<
                     let mut alloc = Vec::with_capacity(2000 * 20);
                     let mut tmp = tmp_path_buffer();
                     for item in items {
-                        let path = item.borrow().path.psp_to_path(&mut tmp);
+                        let mini_item: &MiniItem<P> = item.borrow();
+                        let path = mini_item.path.psp_to_path(&mut tmp);
                         alloc.extend_from_slice(path.as_os_str().as_bytes());
+                        if pos {
+                            if let Some(Position64 { line, column }) =
+                                mini_item.position
+                            {
+                                _ = write!(alloc, ":{line}:{column}");
+                            }
+                        }
                         alloc.push(output_record_separator);
                     }
                     alloc
@@ -1372,6 +1443,7 @@ fn print_listing<
     selected_items: &[impl Borrow<MiniItem<'i, 'region, P>> + Sync],
     output_record_separator: u8,
     use_color: bool,
+    pos: bool,
 ) -> Result<()> {
     use std::io::Write;
 
@@ -1409,6 +1481,7 @@ fn print_listing<
 
         TableFromItems {
             use_color,
+            pos,
             pw_info_cache,
             gr_info_cache,
         }

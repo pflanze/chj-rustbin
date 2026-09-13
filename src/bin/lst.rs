@@ -4,7 +4,7 @@ use std::{
     env::set_current_dir,
     ffi::OsString,
     io::{stdin, stdout, BufWriter, IoSlice},
-    ops::BitXor,
+    ops::{BitXor, ControlFlow},
     os::unix::prelude::OsStrExt,
     path::PathBuf,
     str::FromStr,
@@ -45,6 +45,7 @@ use chj_rustbin::{
 };
 use chrono::{DateTime, Datelike, Local, Timelike};
 use clap::Parser;
+use internal_iterator::InternalIterator;
 use log::info;
 use mimalloc::MiMalloc;
 use rand::{rngs::ThreadRng, Rng};
@@ -259,6 +260,52 @@ impl PartialEq for RegexWithEq {
     }
 }
 
+/// Which items to report when using content search
+#[derive(Clone, Debug, PartialEq)]
+enum ItemFindMode {
+    NonMatching,
+    Matching,
+    AllMatches,
+}
+
+struct InvertAndGlobal {
+    invert: bool,
+    global: bool,
+}
+
+impl ItemFindMode {
+    fn from_bools(
+        InvertAndGlobal { invert, global }: InvertAndGlobal,
+        invert_lines_msg: &str,
+    ) -> Result<Self, String> {
+        match (invert, global) {
+            (false, false) => Ok(ItemFindMode::Matching),
+            (false, true) => Ok(ItemFindMode::AllMatches),
+            (true, false) => Ok(ItemFindMode::NonMatching),
+            (true, true) => Err(format!(
+                "both inversion (`!`{invert_lines_msg}) and `g` (global) given"
+            )),
+        }
+    }
+
+    fn to_bools(&self) -> InvertAndGlobal {
+        match self {
+            ItemFindMode::Matching => InvertAndGlobal {
+                invert: false,
+                global: false,
+            },
+            ItemFindMode::AllMatches => InvertAndGlobal {
+                invert: false,
+                global: true,
+            },
+            ItemFindMode::NonMatching => InvertAndGlobal {
+                invert: true,
+                global: false,
+            },
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 enum ProcessingCommand {
     Skip(usize),
@@ -272,12 +319,12 @@ enum ProcessingCommand {
     FilterDays(IntRange),
     Reverse,
     LineGrep {
-        invert_outside: bool,
-        invert: bool,
+        item_find_mode: ItemFindMode,
+        invert_lines: bool,
         regex: RegexWithEq,
     },
     FileGrep {
-        invert: bool,
+        item_find_mode: ItemFindMode,
         regex: RegexWithEq,
     },
 }
@@ -301,12 +348,12 @@ impl ProcessingCommand {
                 file_types: _,
             }
             | ProcessingCommand::LineGrep {
-                invert: _,
+                item_find_mode: _,
                 regex: _,
-                invert_outside: _,
+                invert_lines: _,
             }
             | ProcessingCommand::FileGrep {
-                invert: _,
+                item_find_mode: _,
                 regex: _,
             } => self.clone(),
         }
@@ -390,13 +437,14 @@ fn parse_processing_commands(
          -> Result<ProcessingCommand> {
             let help = || {
                 format!(
-                    "usage: {cmd_name} <options> <regex>\n\
-                     options: a combination of the 3 characters !, ~, i (or the empty string),\n  \
-                     where repetitions invert the previous value and the default is off:\n  \
-                     !: invert the filtering,\n  \
-                     ~: invert the regular expression match (equivalent to '!' in the case of `file-grep`),\n  \
-                     i: insensitive search\n\
-                     regex: regular expression to match per line (for `line-grep`) or on the whole file (`file-grep`)")
+                    "Usage: {cmd_name} <options> <regex>\n  \
+                     <options>: a combination of the 4 characters !, g, ~, i (or the empty string),\n    \
+                     where repetitions invert the previous value and the default is off:\n    \
+                     !: invert the filtering;\n    \
+                     g: global search--report all the matches, not just the first (best used with `--pos`); conflicts with `!`;\n    \
+                     ~: invert the regular expression match (equivalent to '!' in the case of `file-grep`);\n    \
+                     i: case-insensitive search.\n  \
+                     <regex>: regular expression to match per line (for `line-grep`) or on the whole file (`file-grep`)")
             };
 
             let mut get_arg = |missing: &str| -> Result<&str> {
@@ -411,19 +459,22 @@ fn parse_processing_commands(
             let options = get_arg("both arguments")?;
             let regex_string = get_arg("the second argument")?;
 
-            let mut invert_outside = false;
             let mut invert = false;
+            let mut global = false;
+            let mut invert_lines = false;
             let mut insensitive = false;
             for c in options.chars() {
                 match c  {
-                    '!' => invert_outside = true.bitxor(invert_outside),
-                    '~' => invert = true.bitxor(invert),
+                    '!' => invert = true.bitxor(invert),
+                    '~' => invert_lines = true.bitxor(invert_lines),
+                    'g' => global = true.bitxor(global),
                     'i'  => insensitive = true.bitxor(insensitive),
                     _ => bail!(
-                        "invalid option character {c:?} in options {options:?} after `{cmd_name}`:\n{}",
+                        "invalid option character {c:?} in options {options:?} after `{cmd_name}`.\n{}",
                         help())
                 }
             }
+
             let mut regex = regex::bytes::RegexBuilder::new(regex_string);
             regex.case_insensitive(insensitive);
             // Turn EOL matching on unconditionally since 'line-grep'
@@ -434,15 +485,36 @@ fn parse_processing_commands(
             let regex = RegexWithEq(regex.build().with_context(|| {
                 anyhow!("parsing regex {regex_string:?} after `{cmd_name}`")
             })?);
+
+            let options_after_cmd_context = |e: String| {
+                anyhow!(
+                    "{e} in options {options:?} after `{cmd_name}`.\n{}",
+                    help()
+                )
+            };
+
             if line_based {
+                let item_find_mode = ItemFindMode::from_bools(
+                    InvertAndGlobal { invert, global },
+                    "",
+                )
+                .map_err(options_after_cmd_context)?;
                 Ok(ProcessingCommand::LineGrep {
-                    invert_outside,
-                    invert,
+                    item_find_mode,
+                    invert_lines,
                     regex,
                 })
             } else {
-                let invert = invert_outside.bitxor(invert);
-                Ok(ProcessingCommand::FileGrep { invert, regex })
+                let invert = invert.bitxor(invert_lines);
+                let item_find_mode = ItemFindMode::from_bools(
+                    InvertAndGlobal { invert, global },
+                    " or `~`",
+                )
+                .map_err(options_after_cmd_context)?;
+                Ok(ProcessingCommand::FileGrep {
+                    item_find_mode,
+                    regex,
+                })
             }
         };
 
@@ -623,12 +695,12 @@ mod tests {
                                 file_types: _,
                             } => (),
                             ProcessingCommand::LineGrep {
-                                invert: _,
+                                item_find_mode: _,
+                                invert_lines: _,
                                 regex: _,
-                                invert_outside: _,
                             } => (),
                             ProcessingCommand::FileGrep {
-                                invert: _,
+                                item_find_mode: _,
                                 regex: _,
                             } => (),
                         }
@@ -680,12 +752,14 @@ mod tests {
                     &cmds_original,
                     now,
                     false,
+                    false,
                 );
                 let mut items2 = mini_items.clone();
                 let results_optimized = run_processing_commands(
                     &mut items2,
                     &cmds_optimized,
                     now,
+                    false,
                     false,
                 );
                 if results_original != results_optimized {
@@ -747,6 +821,9 @@ fn cmp_function<
 /// Mutates `items`. Requires a mutable sequence because sorting
 /// in-place needs to move the slots around. And it needs to be a Vec
 /// since filtering changes the size of it.
+///
+/// `will_use_positions` indicates whether doing costly position
+/// calculations are worth it
 fn run_processing_commands<
     'region: 'v + 'i,
     'v,
@@ -757,6 +834,7 @@ fn run_processing_commands<
     cmds: &[ProcessingCommand],
     now: SystemTime,
     show_files_from_future: bool,
+    will_use_positions: bool,
 ) -> &'v [MiniItem<'i, 'region, P>] {
     probe!("run_processing_commands");
     let mut selected_items = unsafe { hack_static(&mut **items) };
@@ -825,60 +903,205 @@ fn run_processing_commands<
                 selected_items = unsafe { hack_static(&mut **items) };
             }
             ProcessingCommand::LineGrep {
-                invert,
+                item_find_mode,
+                invert_lines,
                 regex,
-                invert_outside,
             } => {
-                let new_items: Vec<MiniItem<_>> = (&*selected_items)
-                    .into_par_iter()
-                    .filter_map(|mini_item| {
-                        let mut path_buf = tmp_path_buffer();
-                        let path = mini_item.path.psp_to_path(&mut path_buf);
-                        match file_lines_grep(path, &regex.0, *invert, b'\n') {
-                            Ok(m) => if m.is_some().bitxor(invert_outside) {
-                                let opt_position = m.map(|(pos,_)| -> Position64 {
-                                    pos.try_into().expect(
-                                        "assumes your files have fewer than u32::MAX lines"
-                                    )
-                                });
-                                Some(mini_item.set_position(opt_position))
-                            } else {
-                                None
-                            },
-                            Err(e) => {
-                                limited_eprintln!("line-grep: ignoring error with {path:?}: {e:#}");
-                                None
+                let InvertAndGlobal { invert, global } =
+                    item_find_mode.to_bools();
+                #[allow(unused)]
+                let item_find_mode = ();
+
+                let new_items: Vec<MiniItem<_>> = if global {
+                    #[allow(unused)]
+                    let invert = ();
+
+                    // Flatten-in all matches (copying `mini_item` but
+                    // with separate locations)
+                    (&*selected_items)
+                        .into_par_iter()
+                        .flat_map(|mini_item| {
+                            let mut path_buf = tmp_path_buffer();
+                            let path = mini_item.path.psp_to_path(&mut path_buf);
+                            match file_lines_grep(
+                                path,
+                                &regex.0,
+                                *invert_lines,
+                                b'\n'
+                            ) {
+                                Ok(ms) => {
+                                    let mut items = Vec::new();
+                                    // ms is an InternalIterator, and
+                                    // have to stop on the first Err,
+                                    // thus use `try_for_each`
+                                    // directly (is there any more
+                                    // elegant solution?)
+                                    _ = ms.try_for_each(|result_m| {
+                                        match result_m {
+                                            Ok((pos, _)) => {
+                                                let position = pos.try_into().expect(
+                                                    "assumes your files have fewer than u32::MAX lines"
+                                                );
+                                                items.push(mini_item.set_position(Some(position)));
+                                                ControlFlow::Continue(())
+                                            },
+                                            Err(e) => {
+                                                limited_eprintln!(
+                                                    "line-grep: ignoring file {path:?} with error: {e:#}"
+                                                );
+                                                // Stop iterating
+                                                // (avoid more error
+                                                // messages, at least)
+                                                ControlFlow::Break(())
+                                            }
+                                        }
+                                    });
+                                    items
+                                },
+                                Err(e) => {
+                                    limited_eprintln!(
+                                        "line-grep: ignoring file {path:?} with error: {e:#}"
+                                    );
+                                    vec![]
+                                }
                             }
-                        }
-                    })
-                    .collect();
+                        })
+                        .collect()
+                } else {
+                    // Keep only the first match per `mini_item`, but
+                    // add location information if possible
+                    (&*selected_items)
+                        .into_par_iter()
+                        .filter_map(|mini_item| {
+                            let mut path_buf = tmp_path_buffer();
+                            let path = mini_item.path.psp_to_path(&mut path_buf);
+                            match file_lines_grep(path, &regex.0, *invert_lines, b'\n') {
+                                Ok(ms) => 
+                                    match ms.next() {
+                                        None => if invert {
+                                            Some(*mini_item)
+                                        } else {
+                                            None
+                                        },
+                                        Some(Ok((pos, _))) => {
+                                            if invert {
+                                                None
+                                            } else {
+                                                let position = pos.try_into().expect(
+                                                    "assumes your files have fewer than u32::MAX lines"
+                                                );
+                                                Some(mini_item.set_position(Some(position)))
+                                            }
+                                        },
+                                        Some(Err(e)) =>  {
+                                            limited_eprintln!(
+                                                "line-grep: ignoring file {path:?} with error: {e:#}"
+                                            );
+                                            None
+                                        }
+                                    },
+                                Err(e) => {
+                                    limited_eprintln!(
+                                        "line-grep: ignoring file {path:?} with error: {e:#}"
+                                    );
+                                    None
+                                }
+                            }
+                        })
+                        .collect()
+                };
                 *items = new_items;
                 selected_items = unsafe { hack_static(&mut **items) };
             }
-            ProcessingCommand::FileGrep { invert, regex } => {
-                let new_items: Vec<MiniItem<_>> = (&*selected_items)
+            ProcessingCommand::FileGrep {
+                item_find_mode,
+                regex,
+            } => {
+                let InvertAndGlobal { invert, global } =
+                    item_find_mode.to_bools();
+                #[allow(unused)]
+                let item_find_mode = ();
+
+                let new_items: Vec<MiniItem<_>> = if global {
+                    #[allow(unused)]
+                    let invert = ();
+
+                    // Flatten-in all matches (copying `mini_item` but with
+                    // separate locations (if `will_use_positions` is true))
+                    (&*selected_items)
+                    .into_par_iter()
+                    .flat_map(|mini_item| {
+                        let mut path_buf = tmp_path_buffer();
+                        let path = mini_item.path.psp_to_path(&mut path_buf);
+                        match file_contents_grep(path, &regex.0) {
+                            Ok(ms) => {
+                                let items = ms.map(|m| {
+                                    if will_use_positions {
+                                        let position = m.start_position(b'\n').try_into().expect(
+                                            "assumes your files have fewer than u32::MAX lines"
+                                        );
+                                        mini_item.set_position(Some(position))
+                                    } else {
+                                        *mini_item
+                                    }
+                                }).collect();
+                                items
+                            }
+                            Err(e) => {
+                                limited_eprintln!(
+                                    "file-grep: ignoring file {path:?} with error: {e:#}"
+                                );
+                                vec![]
+                            }
+                        }
+                    })
+                    .collect()
+                } else {
+                    // Keep only the first match per `mini_item`, but
+                    // add location information if possible and
+                    // desired
+                    (&*selected_items)
                     .into_par_iter()
                     .filter_map(|mini_item| {
                         let mut path_buf = tmp_path_buffer();
                         let path = mini_item.path.psp_to_path(&mut path_buf);
-                        match file_contents_grep(path, &regex.0, *invert) {
-                            Ok(m) => m.map(|m| {
-                                let opt_position: Option<Position64> = m.start_position(b'\n')
-                                    .map(|p| {
-                                        p.try_into()
-                                            .expect(
-                                                "assumes your files have fewer than u32::MAX lines"
-                                            )
-                                    });
-                                mini_item.set_position(opt_position)
-                            }),
+                        match file_contents_grep(path, &regex.0) {
+                            Ok(ms) => {
+                                match ms.next() {
+                                    Some(m) => {
+                                        if invert {
+                                            None
+                                        } else {
+                                            // Only bother counting the line endings
+                                            // if they will be printed 
+                                            if will_use_positions {
+                                                let position: Position64 = m.start_position(b'\n')
+                                                    .try_into().expect(
+                                                        "assumes your files have fewer than u32::MAX lines"
+                                                    );
+                                                Some(mini_item.set_position(Some(position)))
+                                            } else {
+                                                Some(*mini_item)
+                                            }
+                                        }
+                                    },
+                                    None => if invert {
+                                        Some(*mini_item)
+                                    } else {
+                                        None
+                                    }
+                                }
+                            }
                             Err(e) => {
-                                limited_eprintln!("file-grep: ignoring error with {path:?}: {e:#}");
+                                limited_eprintln!(
+                                    "file-grep: ignoring file {path:?} with error: {e:#}"
+                                );
                                 None
                             }
                         }
                     })
-                    .collect();
+                    .collect()
+                };
                 *items = new_items;
                 selected_items = unsafe { hack_static(&mut **items) };
             }
@@ -1294,6 +1517,7 @@ fn main_cont<
         &cmds,
         now,
         opt.show_files_from_future,
+        opt.pos,
     );
 
     probe!("writing to stdout");

@@ -2,10 +2,12 @@ use std::{
     fs::File,
     io::{BufRead, BufReader},
     num::{NonZeroU32, NonZeroU64},
-    ops::{BitXor, Range},
+    ops::{BitXor, ControlFlow, Range},
     path::Path,
+    sync::Arc,
 };
 
+use internal_iterator::InternalIterator;
 use regex::bytes::Regex;
 
 /// Position within a file, limited to 32-bit values
@@ -64,74 +66,122 @@ pub fn trim_line_terminator(line: &[u8], line_terminator: u8) -> &[u8] {
     }
 }
 
-/// Report whether a file contains at least one line matching (or not
-/// matching if `invert`) `regex`
+/// Report lines in the file matching (or not matching if `invert`)
+/// `regex`
+///
+/// Note: the iterator (InternalIterator to be precise) only reports
+/// the first match for a line!
+///
+pub fn file_lines_grep<'regex>(
+    path: &Path,
+    regex: &'regex Regex,
+    invert: bool,
+    line_terminator: u8,
+) -> Result<FileLinesGrep<'regex>, std::io::Error> {
+    let input = BufReader::new(File::open(path)?);
+    let line = Vec::new();
+    let line_no: u64 = 0;
+    Ok(FileLinesGrep {
+        regex,
+        invert,
+        line_terminator,
+        input,
+        line,
+        line_no,
+    })
+}
+
+/// Results for `file_lines_grep`
 ///
 /// Returns the start position of the match (with column set to 0 if
 /// `invert` is true) and the matched line. Note that the position is
 /// byte based!
-pub fn file_lines_grep(
-    path: &Path,
-    regex: &Regex,
+///
+/// Note: only reports the first match for a line!
+///
+pub struct FileLinesGrep<'regex> {
+    regex: &'regex Regex,
     invert: bool,
     line_terminator: u8,
-) -> Result<Option<(Position128, Vec<u8>)>, std::io::Error> {
-    let mut input = BufReader::new(File::open(path)?);
-    let mut line = Vec::new();
-    let mut line_no: u64 = 0;
-    while input.read_until(line_terminator, &mut line)? > 0 {
-        let trimmed = trim_line_terminator(&line, line_terminator);
-        let m = regex.find(trimmed);
-        let is_match = m.is_some();
-        if is_match.bitxor(invert) {
-            let position = {
-                let line = unsafe {
-                    // Safe because the addition guarantees that the value is never zero
-                    NonZeroU64::new_unchecked(line_no.saturating_add(1))
-                };
-                let column = if let Some(m) = m { m.start() as u64 } else { 0 };
-                Position128 { line, column }
-            };
+    input: BufReader<File>,
+    line: Vec<u8>,
+    line_no: u64,
+}
 
-            return Ok(Some((position, line)));
+impl<'regex> InternalIterator for FileLinesGrep<'regex> {
+    type Item = Result<(Position128, Vec<u8>), std::io::Error>;
+
+    fn try_for_each<R, F>(self, mut f: F) -> ControlFlow<R>
+    where
+        F: FnMut(Self::Item) -> ControlFlow<R>,
+    {
+        let Self {
+            regex,
+            invert,
+            line_terminator,
+            mut input,
+            mut line,
+            mut line_no,
+        } = self;
+
+        while match input.read_until(line_terminator, &mut line) {
+            Ok(n) => n,
+            Err(e) => return f(Err(e)),
+        } > 0
+        {
+            let trimmed = trim_line_terminator(&line, line_terminator);
+            let m = regex.find(trimmed);
+            let is_match = m.is_some();
+            if is_match.bitxor(invert) {
+                let position = {
+                    let line = unsafe {
+                        // Safe because the addition guarantees that the value is never zero
+                        NonZeroU64::new_unchecked(line_no.saturating_add(1))
+                    };
+                    let column =
+                        if let Some(m) = m { m.start() as u64 } else { 0 };
+                    Position128 { line, column }
+                };
+
+                f(Ok((position, line.clone())))?;
+            }
+            line_no = line_no.saturating_add(1);
+            line.clear();
         }
-        line_no = line_no.saturating_add(1);
-        line.clear();
+        ControlFlow::Continue(())
     }
-    Ok(None)
 }
 
 pub struct ContentsWithMatchRange {
-    pub contents: Vec<u8>,
+    pub contents: Arc<[u8]>,
     /// Note that the range is byte based!
-    pub range: Option<Range<usize>>,
+    pub range: Range<usize>,
 }
 
 impl ContentsWithMatchRange {
     /// Calculate the start position by counting the line terminators
     /// in the contents before the match
-    pub fn start_position(&self, line_terminator: u8) -> Option<Position128> {
-        self.range.as_ref().map(|range| {
-            let start_pos = range.start;
-            let runup = &self.contents[0..start_pos];
-            let mut last_terminator_pos: usize = 0;
-            let mut line: u64 = 1;
-            for (i, b) in runup.iter().enumerate() {
-                if *b == line_terminator {
-                    line = line.saturating_add(1);
-                    last_terminator_pos = i;
-                }
+    pub fn start_position(&self, line_terminator: u8) -> Position128 {
+        let Self { contents, range } = self;
+        let start_pos = range.start;
+        let runup = &contents[0..start_pos];
+        let mut last_terminator_pos: usize = 0;
+        let mut line: u64 = 1;
+        for (i, b) in runup.iter().enumerate() {
+            if *b == line_terminator {
+                line = line.saturating_add(1);
+                last_terminator_pos = i;
             }
-            let column_usize = start_pos - last_terminator_pos;
-            // XX how do better? saturating_into?
-            let column: u64 = column_usize as u64;
-            Position128 {
-                line: line.try_into().expect(
-                    "guaranteed since started at 1 and only doing saturating add"
-                ),
-                column
-            }
-        })
+        }
+        let column_usize = start_pos - last_terminator_pos;
+        // XX how do better? saturating_into?
+        let column: u64 = column_usize as u64;
+        Position128 {
+            line: line.try_into().expect(
+                "guaranteed since started at 1 and only doing saturating add",
+            ),
+            column,
+        }
     }
 }
 
@@ -141,18 +191,35 @@ impl ContentsWithMatchRange {
 ///
 /// Returns the file contents if it matched (modulo inversion), with
 /// range if the regex actually did match.
-pub fn file_contents_grep(
+pub fn file_contents_grep<'regex>(
     path: &Path,
-    regex: &Regex,
-    invert: bool,
-) -> Result<Option<ContentsWithMatchRange>, std::io::Error> {
-    let contents = std::fs::read(path)?;
-    let m = regex.find(&contents);
-    let is_match = m.is_some();
-    if is_match.bitxor(invert) {
-        let range = m.map(|m| m.start()..m.end());
-        Ok(Some(ContentsWithMatchRange { contents, range }))
-    } else {
-        Ok(None)
+    regex: &'regex Regex,
+) -> Result<FileContentsGrep<'regex>, std::io::Error> {
+    let contents = std::fs::read(path)?.into();
+    Ok(FileContentsGrep { regex, contents })
+}
+
+pub struct FileContentsGrep<'regex> {
+    regex: &'regex Regex,
+    contents: Arc<[u8]>,
+}
+
+impl<'regex> InternalIterator for FileContentsGrep<'regex> {
+    type Item = ContentsWithMatchRange;
+
+    fn try_for_each<R, F>(self, mut f: F) -> ControlFlow<R>
+    where
+        F: FnMut(Self::Item) -> ControlFlow<R>,
+    {
+        let Self { regex, contents } = self;
+
+        for m in regex.find_iter(&contents) {
+            let range = m.start()..m.end();
+            f(ContentsWithMatchRange {
+                contents: Arc::clone(&contents),
+                range,
+            })?;
+        }
+        ControlFlow::Continue(())
     }
 }

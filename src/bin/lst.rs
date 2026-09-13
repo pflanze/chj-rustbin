@@ -449,7 +449,7 @@ fn parse_processing_commands(
 
             let mut get_arg = |missing: &str| -> Result<&str> {
                 if *i >= processing_commands.len() {
-                    bail!("missing {missing} after {cmd_name:?}")
+                    bail!("missing {missing} after {cmd_name:?}.\n{}", help())
                 }
                 let s = &processing_commands[*i];
                 *i += 1;

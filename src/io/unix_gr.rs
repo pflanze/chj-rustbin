@@ -47,7 +47,9 @@ impl Gid {
             gr_mem: null_mut(),
         };
         let pwd_ptr: *mut group = &mut gr;
-        const BUFLEN: usize = 1000;
+        // XX 1000 was too small. But this wastes space in the Box!
+        // Use a retry algorithm?
+        const BUFLEN: usize = 4000;
         let buf: [i8; BUFLEN] = [0; BUFLEN];
         let mut _buffer = Box::pin(buf);
         let buf_ptr: *mut i8 = (*_buffer).as_mut_ptr();

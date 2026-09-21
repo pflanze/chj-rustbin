@@ -4,6 +4,7 @@
 pub mod alist;
 pub mod alternatively;
 pub mod bag;
+pub mod by_tmp_ref_iterator;
 pub mod checked_mutex;
 pub mod chunks;
 pub mod cpu_probe;
@@ -20,6 +21,7 @@ pub mod io;
 pub mod io_utils;
 pub mod is_a_terminal;
 pub mod kitschcell;
+pub mod lines_by_tmp_ref;
 pub mod lst;
 pub mod merge;
 pub mod merge_trait;

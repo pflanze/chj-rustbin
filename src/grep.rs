@@ -1,14 +1,21 @@
 use std::{
     fs::File,
-    io::{BufRead, BufReader},
+    io::BufReader,
     num::{NonZeroU32, NonZeroU64},
-    ops::{BitXor, ControlFlow, Range},
+    ops::{BitXor, ControlFlow, Deref, Range},
     path::Path,
     sync::Arc,
 };
 
 use internal_iterator::InternalIterator;
 use regex::bytes::Regex;
+
+use crate::{
+    by_tmp_ref_iterator::ByTmpRefIterator,
+    lines_by_tmp_ref::{
+        trim_line_terminator, ContentLinesByTmpRef, ReadLinesByTmpRef,
+    },
+};
 
 /// Position within a file, limited to 32-bit values
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -58,16 +65,8 @@ impl TryFrom<Position128> for Position64 {
     }
 }
 
-pub fn trim_line_terminator(line: &[u8], line_terminator: u8) -> &[u8] {
-    if line.last().copied() == Some(line_terminator) {
-        &line[0..line.len() - 1]
-    } else {
-        &line
-    }
-}
-
-/// Report lines in the file matching (or not matching if `invert`)
-/// `regex`
+/// Report lines in the file at the given path that match (or do not
+/// match if `invert`) `regex`
 ///
 /// Note: the iterator (InternalIterator to be precise) only reports
 /// the first match for a line!
@@ -77,16 +76,38 @@ pub fn file_lines_grep<'regex>(
     regex: &'regex Regex,
     invert: bool,
     line_terminator: u8,
-) -> Result<FileLinesGrep<'regex>, std::io::Error> {
+) -> Result<LinesGrep<'regex, ReadLinesByTmpRef>, std::io::Error> {
     let input = BufReader::new(File::open(path)?);
-    let line = Vec::new();
     let line_no: u64 = 0;
-    Ok(FileLinesGrep {
+    let lines = ReadLinesByTmpRef::new(input, line_terminator);
+    Ok(LinesGrep {
         regex,
         invert,
         line_terminator,
-        input,
-        line,
+        lines,
+        line_no,
+    })
+}
+
+/// Report lines in the given content that match (or do not match if
+/// `invert`) `regex`
+///
+/// Note: the iterator (InternalIterator to be precise) only reports
+/// the first match for a line!
+///
+pub fn content_lines_grep<'regex>(
+    content: Arc<[u8]>,
+    regex: &'regex Regex,
+    invert: bool,
+    line_terminator: u8,
+) -> Result<LinesGrep<'regex, ContentLinesByTmpRef>, std::io::Error> {
+    let line_no: u64 = 0;
+    let lines = ContentLinesByTmpRef::new(content, line_terminator);
+    Ok(LinesGrep {
+        regex,
+        invert,
+        line_terminator,
+        lines,
         line_no,
     })
 }
@@ -99,16 +120,17 @@ pub fn file_lines_grep<'regex>(
 ///
 /// Note: only reports the first match for a line!
 ///
-pub struct FileLinesGrep<'regex> {
+pub struct LinesGrep<'regex, Lines> {
     regex: &'regex Regex,
     invert: bool,
     line_terminator: u8,
-    input: BufReader<File>,
-    line: Vec<u8>,
+    lines: Lines,
     line_no: u64,
 }
 
-impl<'regex> InternalIterator for FileLinesGrep<'regex> {
+impl<'regex, Lines: ByTmpRefIterator<Item = [u8], Error = std::io::Error>>
+    InternalIterator for LinesGrep<'regex, Lines>
+{
     type Item = Result<(Position128, Vec<u8>), std::io::Error>;
 
     fn try_for_each<R, F>(self, mut f: F) -> ControlFlow<R>
@@ -119,17 +141,15 @@ impl<'regex> InternalIterator for FileLinesGrep<'regex> {
             regex,
             invert,
             line_terminator,
-            mut input,
-            mut line,
+            mut lines,
             mut line_no,
         } = self;
 
-        while match input.read_until(line_terminator, &mut line) {
-            Ok(n) => n,
+        while let Some(line) = match lines.next_tmp_ref() {
+            Ok(l) => l,
             Err(e) => return f(Err(e)),
-        } > 0
-        {
-            let trimmed = trim_line_terminator(&line, line_terminator);
+        } {
+            let trimmed = trim_line_terminator(line, line_terminator);
             let m = regex.find(trimmed);
             let is_match = m.is_some();
             if is_match.bitxor(invert) {
@@ -143,17 +163,16 @@ impl<'regex> InternalIterator for FileLinesGrep<'regex> {
                     Position128 { line, column }
                 };
 
-                f(Ok((position, line.clone())))?;
+                f(Ok((position, line.to_owned())))?;
             }
             line_no = line_no.saturating_add(1);
-            line.clear();
         }
         ControlFlow::Continue(())
     }
 }
 
 pub struct ContentsWithMatchRange {
-    pub contents: Arc<[u8]>,
+    pub contents: Contents,
     /// Note that the range is byte based!
     pub range: Range<usize>,
 }
@@ -194,17 +213,17 @@ impl ContentsWithMatchRange {
 pub fn file_contents_grep<'regex>(
     path: &Path,
     regex: &'regex Regex,
-) -> Result<FileContentsGrep<'regex>, std::io::Error> {
-    let contents = std::fs::read(path)?.into();
-    Ok(FileContentsGrep { regex, contents })
+) -> Result<ContentsGrep<'regex>, std::io::Error> {
+    let contents = file_contents(path)?;
+    Ok(ContentsGrep { regex, contents })
 }
 
-pub struct FileContentsGrep<'regex> {
+pub struct ContentsGrep<'regex> {
     regex: &'regex Regex,
-    contents: Arc<[u8]>,
+    contents: Contents,
 }
 
-impl<'regex> InternalIterator for FileContentsGrep<'regex> {
+impl<'regex> InternalIterator for ContentsGrep<'regex> {
     type Item = ContentsWithMatchRange;
 
     fn try_for_each<R, F>(self, mut f: F) -> ControlFlow<R>
@@ -216,10 +235,51 @@ impl<'regex> InternalIterator for FileContentsGrep<'regex> {
         for m in regex.find_iter(&contents) {
             let range = m.start()..m.end();
             f(ContentsWithMatchRange {
-                contents: Arc::clone(&contents),
+                contents: contents.clone(),
                 range,
             })?;
         }
         ControlFlow::Continue(())
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct Contents {
+    pub contents: Arc<[u8]>,
+    pub range: Range<usize>,
+}
+
+// No need, Deref works!
+// impl Index<Range<usize>> for Contents {
+// }
+
+impl Deref for Contents {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.contents[self.range.clone()]
+    }
+}
+
+impl Contents {
+    pub fn as_slice(&self) -> &[u8] {
+        let Self { contents, range } = self;
+        &contents[range.clone()]
+    }
+
+    pub fn grep<'regex, 's>(
+        self,
+        regex: &'regex Regex,
+    ) -> ContentsGrep<'regex> {
+        ContentsGrep {
+            regex,
+            contents: self,
+        }
+    }
+}
+
+pub fn file_contents(path: &Path) -> Result<Contents, std::io::Error> {
+    let contents: Arc<[u8]> = std::fs::read(path)?.into();
+    let range = 0..contents.len();
+    Ok(Contents { contents, range })
 }

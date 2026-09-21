@@ -19,7 +19,7 @@ use chj_rustbin::{
     cpu_probe,
     efficient_regex::EfficientRegex,
     file_location,
-    grep::{file_contents_grep, file_lines_grep, Position64},
+    grep::{file_contents, file_lines_grep, Position64},
     hack_static::hack_static,
     io::{
         unix::unix_file_type::UnixFileTypeMask, unix_gr::GrInfoCache,
@@ -1033,8 +1033,9 @@ fn run_processing_commands<
                     .flat_map(|mini_item| {
                         let mut path_buf = tmp_path_buffer();
                         let path = mini_item.path.psp_to_path(&mut path_buf);
-                        match file_contents_grep(path, &regex.0) {
-                            Ok(ms) => {
+                        match file_contents(path) {
+                            Ok(contents) => {
+                                let ms = contents.grep(&regex.0);
                                 let items = ms.map(|m| {
                                     if will_use_positions {
                                         let position = m.start_position(b'\n').try_into().expect(
@@ -1065,8 +1066,9 @@ fn run_processing_commands<
                     .filter_map(|mini_item| {
                         let mut path_buf = tmp_path_buffer();
                         let path = mini_item.path.psp_to_path(&mut path_buf);
-                        match file_contents_grep(path, &regex.0) {
-                            Ok(ms) => {
+                        match file_contents(path) {
+                            Ok(contents) => {
+                                let ms = contents.grep(&regex.0);
                                 match ms.next() {
                                     Some(m) => {
                                         if invert {

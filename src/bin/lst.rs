@@ -14,6 +14,7 @@ use std::{
 
 use anstyle::{AnsiColor, Color, Style};
 use anyhow::{anyhow, bail, Context, Result};
+use bstr::ByteSlice;
 use chj_rustbin::{
     bag::Bag,
     cpu_probe,
@@ -79,6 +80,35 @@ impl FromStr for ColorMode {
     }
 }
 
+#[derive(clap::Args, Debug)]
+struct PrintOpts {
+    /// Disable parallelism in some places; default: use parallelism.
+    #[clap(long)]
+    dev_single_threaded: bool,
+
+    /// Show the position, if any, of the last file content match, by
+    /// appending `:line:col` to each path
+    #[clap(short = ':', long)]
+    pos: bool,
+
+    /// Show the matched strings (as per the last command doing
+    /// content matching). If you want to see the whole line(s)
+    /// containing the match, see `--context`.
+    #[clap(short = 'm', long)]
+    show_matches: bool,
+
+    /// Show full context line(s) containing the match, 0 meaning just
+    /// the line(s) containing the match. This is unlike
+    /// `--show-matches` which just shows the match itself.
+    #[clap(short = 'C', long)]
+    context: Option<usize>,
+
+    /// The prefix to use for showing lines when `--show-matches` or `--context` is
+    /// used.
+    #[clap(long, default_value = "# ")]
+    show_matches_prefix: String,
+}
+
 #[derive(clap::Parser, Debug)]
 /// Partial `ls` replacement that takes the paths to (sort and) show
 /// from stdin
@@ -101,10 +131,6 @@ struct Opt {
     /// Use &Path to store paths; default: segmented paths.
     #[clap(long)]
     dev_old_path: bool,
-
-    /// Disable parallelism in some places; default: use parallelism.
-    #[clap(long)]
-    dev_single_threaded: bool,
 
     /// Say what is done
     #[clap(short, long)]
@@ -186,10 +212,8 @@ struct Opt {
     #[clap(long)]
     show_files_from_future: bool,
 
-    /// Show the position, if any, of the last file content match, by
-    /// appending `:line:col` to each path
-    #[clap(short = ':', long)]
-    pos: bool,
+    #[clap(flatten)]
+    print_opts: PrintOpts,
 
     /// Disable the optimizer for processing commands (in case there
     /// are bugs in it?)
@@ -1490,18 +1514,17 @@ fn main_cont<
     (|| -> Result<()> {
         if !opt.long {
             print_paths(
-                opt.dev_single_threaded,
+                &opt.print_opts,
                 filtered_items,
                 output_record_separator,
-                opt.pos,
                 shared_regions,
             )?
         } else {
             print_listing(
+                &opt.print_opts,
                 filtered_items,
                 output_record_separator,
                 use_color,
-                opt.pos,
             )?
         }
         Ok(())
@@ -1527,22 +1550,29 @@ fn print_paths<
     P: PossiblySegmentedPath<'region, InlineLst> + Copy + Sync + Send + 'region,
     I: Borrow<MiniItem<'i, 'region, P>> + Sync,
 >(
-    single_threaded: bool,
+    opts: &PrintOpts,
     selected_items: &[I],
     output_record_separator: u8,
-    pos: bool,
     _regions: &'region SharedRegions,
 ) -> Result<()> {
+    let PrintOpts {
+        dev_single_threaded,
+        pos,
+        show_matches,
+        show_matches_prefix,
+        context,
+    } = opts;
+
     use std::io::Write;
 
-    if single_threaded {
+    if *dev_single_threaded {
         let mut outp = BufWriter::new(stdout().lock());
         let mut tmp = tmp_path_buffer();
         for item in selected_items {
             let mini_item: &MiniItem<P> = item.borrow();
             let path = mini_item.path.psp_to_path(&mut tmp);
             outp.write_all(path.as_os_str().as_bytes())?;
-            if pos {
+            if *pos {
                 if let Some(m) = mini_item.content_match.as_deref() {
                     let Position128 { line, column } = m.start_position(b'\n');
                     write!(outp, ":{line}:{column}")?;
@@ -1563,12 +1593,49 @@ fn print_paths<
                         let mini_item: &MiniItem<P> = item.borrow();
                         let path = mini_item.path.psp_to_path(&mut tmp);
                         alloc.extend_from_slice(path.as_os_str().as_bytes());
-                        if pos {
+                        if *pos {
                             if let Some(m) = mini_item.content_match.as_deref()
                             {
                                 let Position128 { line, column } =
                                     m.start_position(b'\n');
                                 _ = write!(alloc, ":{line}:{column}");
+                                let need_nl;
+                                if let Some(context) = context {
+                                    for (line, opt_range) in
+                                        m.lines_around_match(*context, *context)
+                                    {
+                                        _ = write!(
+                                            alloc,
+                                            "\n{}{}",
+                                            show_matches_prefix,
+                                            line.as_bstr()
+                                        );
+                                    }
+                                    need_nl = true;
+                                } else if *show_matches {
+                                    for line in m.match_as_slice().split(|b| {
+                                        *b == m.contents.line_terminator()
+                                    }) {
+                                        _ = write!(
+                                            alloc,
+                                            "\n{}{}",
+                                            show_matches_prefix,
+                                            line.as_bstr()
+                                        );
+                                    }
+                                    need_nl = true;
+                                } else {
+                                    need_nl = false;
+                                }
+                                // Add spacer line for better
+                                // visibility
+                                if need_nl {
+                                    // As above, don't use
+                                    // output_record_separator here
+                                    // which could be \0, but actual
+                                    // \n, OK?
+                                    alloc.push(b'\n');
+                                }
                             }
                         }
                         alloc.push(output_record_separator);
@@ -1632,10 +1699,10 @@ fn print_listing<
     'i,
     P: PossiblySegmentedPath<'region, InlineLst> + Copy + Sync + Send + 'region,
 >(
+    opts: &PrintOpts,
     selected_items: &[impl Borrow<MiniItem<'i, 'region, P>> + Sync],
     output_record_separator: u8,
     use_color: bool,
-    pos: bool,
 ) -> Result<()> {
     use std::io::Write;
 
@@ -1673,7 +1740,7 @@ fn print_listing<
 
         TableFromItems {
             use_color,
-            pos,
+            pos: opts.pos,
             pw_info_cache,
             gr_info_cache,
         }

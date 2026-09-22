@@ -17,6 +17,44 @@ use crate::{
     },
 };
 
+fn range_add(outer: Range<usize>, inner: Range<usize>) -> Range<usize> {
+    let start = outer.start + inner.start;
+    let end = outer.start + inner.end;
+    // Ignore outer.end, just assume that inner fits within outer?
+    start..end
+}
+
+/// Calculate a range within a window denoted by `outer`, but given as
+/// a `inner` window in the same backing as `outer` is. (I.e. the
+/// result is using small numbers.)
+fn range_within(
+    inner: Range<usize>,
+    frame: Range<usize>,
+) -> Option<Range<usize>> {
+    let start = inner.start.max(frame.start);
+    let end = inner.end.min(frame.end);
+    let intersection = start..end;
+    if intersection.is_empty() {
+        None
+    } else {
+        Some((start - frame.start)..(end - frame.start))
+    }
+}
+
+#[test]
+fn t_range_within() {
+    let t = range_within;
+    assert_eq!(t(110..120, 100..200), Some(10..20));
+    assert_eq!(t(90..120, 100..200), Some(0..20));
+    assert_eq!(t(110..220, 100..200), Some(10..100));
+    assert_eq!(t(100..200, 100..200), Some(0..100));
+    assert_eq!(t(90..220, 100..200), Some(0..100));
+    assert_eq!(t(220..230, 100..200), None);
+    assert_eq!(t(200..230, 100..200), None);
+    assert_eq!(t(90..100, 100..200), None);
+    // XX now also test with start and end jumbled?
+}
+
 /// Position within a file, limited to 32-bit values
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Position64 {
@@ -307,6 +345,84 @@ fn t_size_contents_with_match_range() {
 }
 
 impl ContentsWithMatchRange {
+    /// Just the matching area
+    pub fn match_as_slice(&self) -> &[u8] {
+        let Self { contents, range } = self;
+        &contents.as_slice()[range.clone()]
+    }
+
+    // todo: collect all these sorts of text-and-line-break
+    // manipulation stuff (incl. xmlhub)
+
+    /// The whole line(s) in which the match lies, and the area of
+    /// each line that is part of the match. If the `context_*`
+    /// arguments are non-zero, that many more lines are included with
+    /// None for the range.
+    ///
+    /// (Panics for context numbers too close to MAX.)
+    pub fn lines_around_match(
+        &self,
+        context_above: usize,
+        context_below: usize,
+    ) -> Vec<(&[u8], Option<Range<usize>>)> {
+        let ContentsWithMatchRange { contents, range } = self;
+        // To find line endings, break out of the framing, OK?
+        let backing = contents.backing().as_ref();
+        let range_in_backing =
+            range_add(contents.range_in_backing(), range.clone());
+        let line_terminator = contents.line_terminator();
+        #[allow(unused)]
+        let (contents, range) = ((), ());
+
+        let pre = &backing[0..range_in_backing.start];
+        // Need to register the lines within the match range, too,
+        // thus don't skip it!
+        let onwards = &backing[range_in_backing.start..];
+        let mut line_starts: Vec<usize> = pre
+            .iter()
+            .enumerate()
+            .rev()
+            .filter(|(_, b)| **b == line_terminator)
+            .map(|(i, _)| i + 1)
+            .take(context_above + 1)
+            .collect();
+        if line_starts.len() <= context_above {
+            line_starts.push(0);
+        }
+        line_starts.reverse();
+        let num_line_starts_before = line_starts.len();
+
+        let num_line_breaks_within_match = &backing[range_in_backing.clone()]
+            .iter()
+            .filter(|b| **b == line_terminator)
+            .count();
+
+        line_starts.extend(
+            onwards
+                .iter()
+                .enumerate()
+                .filter(|(_, b)| **b == line_terminator)
+                .map(|(i, _)| range_in_backing.start + i + 1)
+                .take(num_line_breaks_within_match + context_below + 1),
+        );
+        if line_starts.len() - num_line_starts_before <= context_below {
+            // + 1 for a "virtual" line terminator to subtract later
+            line_starts.push(backing.len() + 1);
+        }
+        line_starts
+            .iter()
+            .copied()
+            .zip(line_starts.iter().copied().skip(1))
+            .map(|(line_start, line_end)| {
+                let range_line = line_start..line_end - 1;
+                let line = &backing[range_line.clone()];
+                let opt_range =
+                    range_within(range_in_backing.clone(), range_line);
+                (line, opt_range)
+            })
+            .collect()
+    }
+
     /// Calculate the start position by counting the line terminators
     /// in the contents before the match
     pub fn start_position(&self, line_terminator: u8) -> Position128 {
@@ -360,7 +476,7 @@ impl<'regex> InternalIterator for ContentsGrep<'regex> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Contents {
-    contents: Arc<[u8]>,
+    backing: Arc<[u8]>,
     range: Range<usize>,
     line_terminator: u8,
     /// The line/column position of the start of `range` in
@@ -388,21 +504,43 @@ impl Deref for Contents {
 }
 
 impl Contents {
+    pub fn new_full(backing: Arc<[u8]>, line_terminator: u8) -> Self {
+        let range = 0..backing.len();
+        Self {
+            backing,
+            range,
+            line_terminator,
+            range_start_position: Some(Position128::TOP_LEFT),
+        }
+    }
+
+    pub fn backing(&self) -> &Arc<[u8]> {
+        &self.backing
+    }
+
+    pub fn range_in_backing(&self) -> Range<usize> {
+        self.range.clone()
+    }
+
+    pub fn line_terminator(&self) -> u8 {
+        self.line_terminator
+    }
+
     pub fn as_slice(&self) -> &[u8] {
         let Self {
-            contents,
+            backing,
             range,
             line_terminator: _,
             range_start_position: _,
         } = self;
-        &contents[range.clone()]
+        &backing[range.clone()]
     }
 
     /// Returns the lines without the line endings, referencing via
     /// Arc clone into self's content.
     pub fn lines(&self) -> impl Iterator<Item = Contents> + '_ {
         let Self {
-            contents,
+            backing,
             range,
             line_terminator,
             range_start_position: _,
@@ -414,7 +552,7 @@ impl Contents {
             .split(move |b| *b == line_terminator)
             .map(move |line| {
                 let this = Self {
-                    contents: contents.clone(),
+                    backing: backing.clone(),
                     range: range_start..(range_start + line.len()),
                     line_terminator,
                     range_start_position: Some(range_start_position.clone()),
@@ -438,16 +576,13 @@ impl Contents {
 
     pub fn start_position(&self) -> Position128 {
         let Self {
-            contents,
+            backing,
             range,
             range_start_position,
             line_terminator,
         } = self;
         range_start_position.unwrap_or_else(|| {
-            Position128::from_run_up(
-                &contents[0..range.start],
-                *line_terminator,
-            )
+            Position128::from_run_up(&backing[0..range.start], *line_terminator)
         })
     }
 }
@@ -456,12 +591,69 @@ pub fn file_contents(
     path: &Path,
     line_terminator: u8,
 ) -> Result<Contents, std::io::Error> {
-    let contents: Arc<[u8]> = std::fs::read(path)?.into();
-    let range = 0..contents.len();
-    Ok(Contents {
-        contents,
-        range,
-        range_start_position: Some(Position128::TOP_LEFT),
+    Ok(Contents::new_full(
+        std::fs::read(path)?.into(),
         line_terminator,
-    })
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use bstr::{ByteSlice, B};
+
+    use super::*;
+
+    #[test]
+    fn t_lines_around_match() {
+        let full_contents = Contents::new_full(
+            b"Hello\nThere.\nLine 3.\nLine 4".to_owned().into(),
+            b'\n',
+        );
+
+        {
+            // Line based matching: match in a line sub-Contents
+
+            let lines: Vec<_> = full_contents.lines().collect();
+            assert_eq!(lines.len(), 4);
+
+            let line3 = lines[2].clone();
+            assert_eq!(line3.as_slice(), b"Line 3.");
+
+            let m = ContentsWithMatchRange {
+                contents: line3,
+                range: 2..4,
+            };
+            assert_eq!(m.match_as_slice(), b"ne");
+
+            let l = m.lines_around_match(0, 0);
+            assert_eq!(l.len(), 1);
+            assert_eq!(l[0].0.as_bstr(), B("Line 3.").as_bstr());
+            assert_eq!(l[0].1, Some(2..4));
+
+            let l = m.lines_around_match(1, 55);
+            assert_eq!(l.len(), 3);
+            assert_eq!(l[0].0, b"There.");
+            assert_eq!(l[0].1, None);
+            assert_eq!(l[1].0, b"Line 3.");
+            assert_eq!(l[1].1, Some(2..4));
+            assert_eq!(l[2].0, b"Line 4");
+            assert_eq!(l[2].1, None);
+        }
+
+        {
+            // File matching with a multi-line match
+            let m = ContentsWithMatchRange {
+                contents: full_contents,
+                range: 7..16,
+            };
+            assert_eq!(m.match_as_slice().as_bstr(), B("here.\nLin").as_bstr());
+
+            let l = m.lines_around_match(0, 0);
+            // assert_eq!(l.len(), 2);
+            assert_eq!(l[0].0.as_bstr(), B("There.").as_bstr());
+            assert_eq!(l[0].1, Some(1..6));
+            assert_eq!(l[1].0.as_bstr(), B("Line 3.").as_bstr());
+            assert_eq!(l[1].1, Some(0..3));
+        }
+    }
 }

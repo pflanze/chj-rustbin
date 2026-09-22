@@ -21,8 +21,8 @@ use chj_rustbin::{
     efficient_regex::EfficientRegex,
     file_location,
     grep::{
-        file_contents, file_lines_grep_via_contents, ContentsWithMatchRange,
-        Position128,
+        file_contents, file_lines_grep_via_contents, split3_line_range,
+        ContentsWithMatchRange, Position128,
     },
     hack_static::hack_static,
     io::{
@@ -1601,15 +1601,33 @@ fn print_paths<
                                 _ = write!(alloc, ":{line}:{column}");
                                 let need_nl;
                                 if let Some(context) = context {
+                                    const STYLE_CONTEXT: Style = Style::new()
+                                        .fg_color(Some(Color::Ansi(AnsiColor::BrightBlue)),
+                                    );
+                                    const STYLE_MATCH: Style = Style::new()
+                                        .bold()
+                                        .fg_color(Some(Color::Ansi(AnsiColor::Red)));
                                     for (line, opt_range) in
                                         m.lines_around_match(*context, *context)
                                     {
-                                        _ = write!(
-                                            alloc,
-                                            "\n{}{}",
-                                            show_matches_prefix,
-                                            line.as_bstr()
-                                        );
+                                        if let Some(range) = opt_range {
+                                            let (a, b, c) =
+                                                split3_line_range(line, range);
+                                            _ = write!(
+                                                alloc,
+                                                "\n{}{STYLE_CONTEXT}{a}{STYLE_CONTEXT:#}\
+                                                 {STYLE_MATCH}{b}{STYLE_MATCH:#}\
+                                                 {STYLE_CONTEXT}{c}{STYLE_CONTEXT:#}",
+                                                show_matches_prefix
+                                            );
+                                        } else {
+                                            _ = write!(
+                                                alloc,
+                                                "\n{}{STYLE_CONTEXT}{}{STYLE_CONTEXT:#}",
+                                                show_matches_prefix,
+                                                line.as_bstr()
+                                            );
+                                        }
                                     }
                                     need_nl = true;
                                 } else if *show_matches {

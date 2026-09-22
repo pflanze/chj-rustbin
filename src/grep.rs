@@ -7,6 +7,7 @@ use std::{
     sync::Arc,
 };
 
+use bstr::{BStr, ByteSlice};
 use internal_iterator::InternalIterator;
 use regex::bytes::Regex;
 
@@ -342,6 +343,20 @@ pub struct ContentsWithMatchRange {
 #[test]
 fn t_size_contents_with_match_range() {
     assert_eq!(size_of::<ContentsWithMatchRange>(), 9 * size_of::<usize>());
+}
+
+pub fn split3_line_range(
+    line: &[u8],
+    range: Range<usize>,
+) -> (&BStr, &BStr, &BStr) {
+    let start = range.start;
+    let end = range.end;
+    let veryend = line.len();
+    (
+        line[0..start].as_bstr(),
+        line[start..end].as_bstr(),
+        line[end..veryend].as_bstr(),
+    )
 }
 
 impl ContentsWithMatchRange {

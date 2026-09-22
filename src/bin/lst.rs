@@ -8,7 +8,7 @@ use std::{
     os::unix::prelude::OsStrExt,
     path::PathBuf,
     str::FromStr,
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::SystemTime,
 };
 
@@ -19,7 +19,10 @@ use chj_rustbin::{
     cpu_probe,
     efficient_regex::EfficientRegex,
     file_location,
-    grep::{file_contents, file_lines_grep, Position64},
+    grep::{
+        file_contents, file_lines_grep_via_contents, ContentsWithMatchRange,
+        Position128,
+    },
     hack_static::hack_static,
     io::{
         unix::unix_file_type::UnixFileTypeMask, unix_gr::GrInfoCache,
@@ -752,14 +755,12 @@ mod tests {
                     &cmds_original,
                     now,
                     false,
-                    false,
                 );
                 let mut items2 = mini_items.clone();
                 let results_optimized = run_processing_commands(
                     &mut items2,
                     &cmds_optimized,
                     now,
-                    false,
                     false,
                 );
                 if results_original != results_optimized {
@@ -834,7 +835,6 @@ fn run_processing_commands<
     cmds: &[ProcessingCommand],
     now: SystemTime,
     show_files_from_future: bool,
-    will_use_positions: bool,
 ) -> &'v [MiniItem<'i, 'region, P>] {
     probe!("run_processing_commands");
     let mut selected_items = unsafe { hack_static(&mut **items) };
@@ -884,7 +884,7 @@ fn run_processing_commands<
                             }
                         }
                     })
-                    .map(|r| *r)
+                    .map(Clone::clone)
                     .collect();
                 *items = new_items;
                 selected_items = unsafe { hack_static(&mut **items) };
@@ -897,7 +897,7 @@ fn run_processing_commands<
                             (mini_item.file_type_mask & file_types) != 0,
                         )
                     })
-                    .map(|r| *r)
+                    .map(Clone::clone)
                     .collect();
                 *items = new_items;
                 selected_items = unsafe { hack_static(&mut **items) };
@@ -923,7 +923,7 @@ fn run_processing_commands<
                         .flat_map(|mini_item| {
                             let mut path_buf = tmp_path_buffer();
                             let path = mini_item.path.psp_to_path(&mut path_buf);
-                            match file_lines_grep(
+                            match file_lines_grep_via_contents(
                                 path,
                                 &regex.0,
                                 *invert_lines,
@@ -931,30 +931,9 @@ fn run_processing_commands<
                             ) {
                                 Ok(ms) => {
                                     let mut items = Vec::new();
-                                    // ms is an InternalIterator, and
-                                    // have to stop on the first Err,
-                                    // thus use `try_for_each`
-                                    // directly (is there any more
-                                    // elegant solution?)
-                                    _ = ms.try_for_each(|result_m| {
-                                        match result_m {
-                                            Ok((pos, _)) => {
-                                                let position = pos.try_into().expect(
-                                                    "assumes your files have fewer than u32::MAX lines"
-                                                );
-                                                items.push(mini_item.set_position(Some(position)));
-                                                ControlFlow::Continue(())
-                                            },
-                                            Err(e) => {
-                                                limited_eprintln!(
-                                                    "line-grep: ignoring file {path:?} with error: {e:#}"
-                                                );
-                                                // Stop iterating
-                                                // (avoid more error
-                                                // messages, at least)
-                                                ControlFlow::Break(())
-                                            }
-                                        }
+                                    _ = ms.try_for_each::<(), _>(|m| {
+                                        items.push(mini_item.set_content_match(Some(m.into())));
+                                        ControlFlow::Continue(())
                                     });
                                     items
                                 },
@@ -975,30 +954,21 @@ fn run_processing_commands<
                         .filter_map(|mini_item| {
                             let mut path_buf = tmp_path_buffer();
                             let path = mini_item.path.psp_to_path(&mut path_buf);
-                            match file_lines_grep(path, &regex.0, *invert_lines, b'\n') {
+                            match file_lines_grep_via_contents(path, &regex.0, *invert_lines, b'\n') {
                                 Ok(ms) => 
                                     match ms.next() {
                                         None => if invert {
-                                            Some(*mini_item)
+                                            Some(mini_item.clone())
                                         } else {
                                             None
                                         },
-                                        Some(Ok((pos, _))) => {
+                                        Some(m) => {
                                             if invert {
                                                 None
                                             } else {
-                                                let position = pos.try_into().expect(
-                                                    "assumes your files have fewer than u32::MAX lines"
-                                                );
-                                                Some(mini_item.set_position(Some(position)))
+                                                Some(mini_item.set_content_match(Some(m.into())))
                                             }
                                         },
-                                        Some(Err(e)) =>  {
-                                            limited_eprintln!(
-                                                "line-grep: ignoring file {path:?} with error: {e:#}"
-                                            );
-                                            None
-                                        }
                                     },
                                 Err(e) => {
                                     limited_eprintln!(
@@ -1033,18 +1003,11 @@ fn run_processing_commands<
                     .flat_map(|mini_item| {
                         let mut path_buf = tmp_path_buffer();
                         let path = mini_item.path.psp_to_path(&mut path_buf);
-                        match file_contents(path) {
+                        match file_contents(path, b'\n') {
                             Ok(contents) => {
                                 let ms = contents.grep(&regex.0);
                                 let items = ms.map(|m| {
-                                    if will_use_positions {
-                                        let position = m.start_position(b'\n').try_into().expect(
-                                            "assumes your files have fewer than u32::MAX lines"
-                                        );
-                                        mini_item.set_position(Some(position))
-                                    } else {
-                                        *mini_item
-                                    }
+                                    mini_item.set_content_match(Some(m.into()))
                                 }).collect();
                                 items
                             }
@@ -1066,7 +1029,7 @@ fn run_processing_commands<
                     .filter_map(|mini_item| {
                         let mut path_buf = tmp_path_buffer();
                         let path = mini_item.path.psp_to_path(&mut path_buf);
-                        match file_contents(path) {
+                        match file_contents(path, b'\n') {
                             Ok(contents) => {
                                 let ms = contents.grep(&regex.0);
                                 match ms.next() {
@@ -1074,21 +1037,11 @@ fn run_processing_commands<
                                         if invert {
                                             None
                                         } else {
-                                            // Only bother counting the line endings
-                                            // if they will be printed 
-                                            if will_use_positions {
-                                                let position: Position64 = m.start_position(b'\n')
-                                                    .try_into().expect(
-                                                        "assumes your files have fewer than u32::MAX lines"
-                                                    );
-                                                Some(mini_item.set_position(Some(position)))
-                                            } else {
-                                                Some(*mini_item)
-                                            }
+                                            Some(mini_item.set_content_match(Some(m.into())))
                                         }
                                     },
                                     None => if invert {
-                                        Some(*mini_item)
+                                        Some(mini_item.clone())
                                     } else {
                                         None
                                     }
@@ -1218,7 +1171,8 @@ impl TableFromItems {
             }
 
             if *pos {
-                if let Some(Position64 { line, column }) = &mini_item.position {
+                if let Some(m) = mini_item.content_match.as_deref() {
+                    let Position128 { line, column } = m.start_position(b'\n');
                     row.amend_cell_fmt(format_args!(":{line}:{column}"));
                 }
             }
@@ -1431,7 +1385,7 @@ struct MainContVals<'region> {
 
 /// Flattened Item for more performant sorting, and with additional
 /// information like optional position
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 struct MiniItem<
     'i,
     'region: 'i,
@@ -1440,7 +1394,15 @@ struct MiniItem<
     mtime: SystemTime,
     file_type_mask: UnixFileTypeMask,
     path: P,
-    position: Option<Position64>,
+    // Bummer about costly double Arc (another is inside
+    // ContentsWithMatchRange) for each e.g. line match, but then
+    // usage cases for content matching should have few matches thus
+    // it's fine, and want to keep the size of MiniItem small for
+    // purely path based processing. Not using Box since
+    // `run_processing_commands` clones MiniItem multiple times (and
+    // such a clone would still do refcounting, then on the
+    // second-level Arc).
+    content_match: Option<Arc<ContentsWithMatchRange>>,
     item: &'i Item<'region, P, InlineLst>,
 }
 
@@ -1454,9 +1416,12 @@ impl<
             + 'region,
     > MiniItem<'i, 'region, P>
 {
-    fn set_position(&self, position: Option<Position64>) -> Self {
-        let mut this = *self;
-        this.position = position;
+    fn set_content_match(
+        &self,
+        content_match: Option<Arc<ContentsWithMatchRange>>,
+    ) -> Self {
+        let mut this = self.clone();
+        this.content_match = content_match;
         this
     }
 }
@@ -1477,7 +1442,7 @@ impl<
             file_type_mask: item.metadata.file_type().as_mask(),
             path: item.path,
             item,
-            position: None,
+            content_match: None,
         }
     }
 }
@@ -1519,7 +1484,6 @@ fn main_cont<
         &cmds,
         now,
         opt.show_files_from_future,
-        opt.pos,
     );
 
     probe!("writing to stdout");
@@ -1579,7 +1543,8 @@ fn print_paths<
             let path = mini_item.path.psp_to_path(&mut tmp);
             outp.write_all(path.as_os_str().as_bytes())?;
             if pos {
-                if let Some(Position64 { line, column }) = mini_item.position {
+                if let Some(m) = mini_item.content_match.as_deref() {
+                    let Position128 { line, column } = m.start_position(b'\n');
                     write!(outp, ":{line}:{column}")?;
                 }
             }
@@ -1599,9 +1564,10 @@ fn print_paths<
                         let path = mini_item.path.psp_to_path(&mut tmp);
                         alloc.extend_from_slice(path.as_os_str().as_bytes());
                         if pos {
-                            if let Some(Position64 { line, column }) =
-                                mini_item.position
+                            if let Some(m) = mini_item.content_match.as_deref()
                             {
+                                let Position128 { line, column } =
+                                    m.start_position(b'\n');
                                 _ = write!(alloc, ":{line}:{column}");
                             }
                         }

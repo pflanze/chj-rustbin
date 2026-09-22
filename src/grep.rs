@@ -2,7 +2,7 @@ use std::{
     fs::File,
     io::BufReader,
     num::{NonZeroU32, NonZeroU64},
-    ops::{BitXor, ControlFlow, Deref, Range},
+    ops::{Add, BitXor, ControlFlow, Deref, Range},
     path::Path,
     sync::Arc,
 };
@@ -29,6 +29,68 @@ pub struct Position64 {
 pub struct Position128 {
     pub line: NonZeroU64,
     pub column: u64,
+}
+
+const NON_ZERO_ONE: NonZeroU64 = unsafe { NonZeroU64::new_unchecked(1) };
+
+impl Add for Position128 {
+    type Output = Position128;
+
+    // XX a + b != b + a  !
+    /// `rhs` is assumed to be a local position inside a window after
+    /// `self` in an outer context; returns the position in that outer
+    /// context.
+    fn add(self, rhs: Self) -> Self::Output {
+        if rhs.line == NON_ZERO_ONE {
+            let Self { line, column } = self;
+            Self {
+                line,
+                column: column + rhs.column,
+            }
+        } else {
+            Self {
+                line: self.line.saturating_add(rhs.line.get()),
+                column: rhs.column,
+            }
+        }
+    }
+}
+
+impl Position128 {
+    /// Not called `ZERO` because it starts at line 1
+    const TOP_LEFT: Position128 = Position128 {
+        line: unsafe {
+            // 1 is NonZero
+            NonZeroU64::new_unchecked(1)
+        },
+        column: 0,
+    };
+
+    /// `run_up` is the contents before the
+    pub fn from_run_up(run_up: &[u8], line_terminator: u8) -> Position128 {
+        let mut last_terminator_pos: usize = 0;
+        let mut line: u64 = 1;
+        for (i, b) in run_up.iter().enumerate() {
+            if *b == line_terminator {
+                line = line.saturating_add(1);
+                last_terminator_pos = i;
+            }
+        }
+        let column_usize = run_up.len() - last_terminator_pos;
+        // XX how do better? saturating_into?
+        let column: u64 = column_usize as u64;
+        Position128 {
+            line: line.try_into().expect(
+                "guaranteed since started at 1 and only doing saturating add",
+            ),
+            column,
+        }
+    }
+
+    pub fn inc_line(&mut self) {
+        self.line = self.line.saturating_add(1);
+        self.column = 0;
+    }
 }
 
 #[test]
@@ -112,7 +174,23 @@ pub fn content_lines_grep<'regex>(
     })
 }
 
-/// Results for `file_lines_grep`
+/// Same as `file_lines_grep` but loads (or mmap's, todo) the file,
+/// then shares its contents in all match results via `Arc`
+pub fn file_lines_grep_via_contents<'regex>(
+    path: &Path,
+    regex: &'regex Regex,
+    invert: bool,
+    line_terminator: u8,
+) -> Result<LinesGrepContents<'regex>, std::io::Error> {
+    let lines = file_contents(path, line_terminator)?;
+    Ok(LinesGrepContents {
+        regex,
+        invert,
+        lines,
+    })
+}
+
+/// Iterator returning line matches for the given regex
 ///
 /// Returns the start position of the match (with column set to 0 if
 /// `invert` is true) and the matched line. Note that the position is
@@ -137,7 +215,7 @@ impl<'regex, Lines: ByTmpRefIterator<Item = [u8], Error = std::io::Error>>
     where
         F: FnMut(Self::Item) -> ControlFlow<R>,
     {
-        let Self {
+        let LinesGrep {
             regex,
             invert,
             line_terminator,
@@ -171,36 +249,72 @@ impl<'regex, Lines: ByTmpRefIterator<Item = [u8], Error = std::io::Error>>
     }
 }
 
+/// Iterator returning line matches for the given regex
+///
+/// Returns the start position of the match (with column set to 0 if
+/// `invert` is true) and the matched line. Note that the position is
+/// byte based!
+///
+/// Note: only reports the first match for a line!
+///
+pub struct LinesGrepContents<'regex> {
+    regex: &'regex Regex,
+    invert: bool,
+    lines: Contents,
+}
+
+impl<'regex> InternalIterator for LinesGrepContents<'regex> {
+    type Item = ContentsWithMatchRange;
+
+    fn try_for_each<R, F>(self, mut f: F) -> ControlFlow<R>
+    where
+        F: FnMut(Self::Item) -> ControlFlow<R>,
+    {
+        let LinesGrepContents {
+            regex,
+            invert,
+            lines,
+        } = self;
+
+        for contents in lines.lines() {
+            let trimmed = contents.as_slice();
+            let opt_m = regex.find(trimmed);
+            let is_match = opt_m.is_some();
+            if is_match.bitxor(invert) {
+                let range = if let Some(m) = opt_m {
+                    m.start()..m.end()
+                } else {
+                    0..trimmed.len()
+                };
+                f(ContentsWithMatchRange { contents, range })?;
+            }
+        }
+        ControlFlow::Continue(())
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub struct ContentsWithMatchRange {
     pub contents: Contents,
-    /// Note that the range is byte based!
+    /// Range within `contents.as_slice()`. Note that the range is
+    /// byte based!
     pub range: Range<usize>,
+}
+
+#[test]
+fn t_size_contents_with_match_range() {
+    assert_eq!(size_of::<ContentsWithMatchRange>(), 9 * size_of::<usize>());
 }
 
 impl ContentsWithMatchRange {
     /// Calculate the start position by counting the line terminators
     /// in the contents before the match
     pub fn start_position(&self, line_terminator: u8) -> Position128 {
-        let Self { contents, range } = self;
-        let start_pos = range.start;
-        let runup = &contents[0..start_pos];
-        let mut last_terminator_pos: usize = 0;
-        let mut line: u64 = 1;
-        for (i, b) in runup.iter().enumerate() {
-            if *b == line_terminator {
-                line = line.saturating_add(1);
-                last_terminator_pos = i;
-            }
-        }
-        let column_usize = start_pos - last_terminator_pos;
-        // XX how do better? saturating_into?
-        let column: u64 = column_usize as u64;
-        Position128 {
-            line: line.try_into().expect(
-                "guaranteed since started at 1 and only doing saturating add",
-            ),
-            column,
-        }
+        self.contents.start_position()
+            + Position128::from_run_up(
+                &self.contents[0..self.range.start],
+                line_terminator,
+            )
     }
 }
 
@@ -213,8 +327,9 @@ impl ContentsWithMatchRange {
 pub fn file_contents_grep<'regex>(
     path: &Path,
     regex: &'regex Regex,
+    line_terminator: u8,
 ) -> Result<ContentsGrep<'regex>, std::io::Error> {
-    let contents = file_contents(path)?;
+    let contents = file_contents(path, line_terminator)?;
     Ok(ContentsGrep { regex, contents })
 }
 
@@ -243,10 +358,21 @@ impl<'regex> InternalIterator for ContentsGrep<'regex> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Contents {
-    pub contents: Arc<[u8]>,
-    pub range: Range<usize>,
+    contents: Arc<[u8]>,
+    range: Range<usize>,
+    line_terminator: u8,
+    /// The line/column position of the start of `range` in
+    /// `contents`, if already known (otherwise lines will be counted
+    /// in the `start_position` method)
+    range_start_position: Option<Position128>,
+}
+
+#[test]
+fn t_size_contents() {
+    // bummer, line_terminator blows it up by a word
+    assert_eq!(size_of::<Contents>(), 7 * size_of::<usize>());
 }
 
 // No need, Deref works!
@@ -257,14 +383,47 @@ impl Deref for Contents {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &self.contents[self.range.clone()]
+        self.as_slice()
     }
 }
 
 impl Contents {
     pub fn as_slice(&self) -> &[u8] {
-        let Self { contents, range } = self;
+        let Self {
+            contents,
+            range,
+            line_terminator: _,
+            range_start_position: _,
+        } = self;
         &contents[range.clone()]
+    }
+
+    /// Returns the lines without the line endings, referencing via
+    /// Arc clone into self's content.
+    pub fn lines(&self) -> impl Iterator<Item = Contents> + '_ {
+        let Self {
+            contents,
+            range,
+            line_terminator,
+            range_start_position: _,
+        } = self;
+        let line_terminator = *line_terminator;
+        let mut range_start_position = self.start_position();
+        let mut range_start = range.start;
+        self.as_slice()
+            .split(move |b| *b == line_terminator)
+            .map(move |line| {
+                let this = Self {
+                    contents: contents.clone(),
+                    range: range_start..(range_start + line.len()),
+                    line_terminator,
+                    range_start_position: Some(range_start_position.clone()),
+                };
+                range_start =
+                    range_start.saturating_add(line.len().saturating_add(1));
+                range_start_position.inc_line();
+                this
+            })
     }
 
     pub fn grep<'regex, 's>(
@@ -276,10 +435,33 @@ impl Contents {
             contents: self,
         }
     }
+
+    pub fn start_position(&self) -> Position128 {
+        let Self {
+            contents,
+            range,
+            range_start_position,
+            line_terminator,
+        } = self;
+        range_start_position.unwrap_or_else(|| {
+            Position128::from_run_up(
+                &contents[0..range.start],
+                *line_terminator,
+            )
+        })
+    }
 }
 
-pub fn file_contents(path: &Path) -> Result<Contents, std::io::Error> {
+pub fn file_contents(
+    path: &Path,
+    line_terminator: u8,
+) -> Result<Contents, std::io::Error> {
     let contents: Arc<[u8]> = std::fs::read(path)?.into();
     let range = 0..contents.len();
-    Ok(Contents { contents, range })
+    Ok(Contents {
+        contents,
+        range,
+        range_start_position: Some(Position128::TOP_LEFT),
+        line_terminator,
+    })
 }

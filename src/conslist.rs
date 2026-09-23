@@ -10,6 +10,7 @@
 //! to pay for the heap allocation overhead, so the reference case may
 //! be the only interesting one.
 //!
+//! For a usage example, see `find_in_tree` in the unit tests.
 
 pub enum List<'t, T> {
     Pair(T, &'t List<'t, T>),
@@ -172,5 +173,109 @@ mod tests {
         assert_eq!(c.alist_get(&5), Some(&"five"));
         assert_eq!(c.alist_get(&3), Some(&"three"));
         assert_eq!(c.alist_get(&4), None);
+    }
+
+    use std::{fmt::Display, sync::Arc};
+
+    use itertools::Itertools;
+
+    enum TreeNode<N: AsRef<str>, T> {
+        Leaf(T),
+        Split {
+            name: N,
+            a: Arc<TreeNode<N, T>>,
+            b: Arc<TreeNode<N, T>>,
+        },
+    }
+
+    fn leaf<N: AsRef<str>, T>(val: T) -> Arc<TreeNode<N, T>> {
+        TreeNode::Leaf(val).into()
+    }
+
+    fn split<N: AsRef<str>, T>(
+        name: N,
+        a: Arc<TreeNode<N, T>>,
+        b: Arc<TreeNode<N, T>>,
+    ) -> Arc<TreeNode<N, T>> {
+        TreeNode::Split { name, a, b }.into()
+    }
+
+    #[derive(Clone)]
+    struct FoundNode<'name> {
+        direction: &'static str,
+        name: &'name str,
+    }
+
+    impl<'name> Display for FoundNode<'name> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let Self { direction, name } = self;
+            write!(f, "{direction}({name:?})")
+        }
+    }
+
+    /// Give a human-readable path to the first leaf for which `pred` returns true.
+    fn find_in_tree<N: AsRef<str>, T>(
+        tree: &TreeNode<N, T>,
+        pred: impl Fn(&T) -> bool + Copy,
+        parents: &List<FoundNode>,
+    ) -> Option<String> {
+        match tree {
+            TreeNode::Leaf(l) => {
+                if pred(l) {
+                    Some(parents.to_vec().iter().rev().join("/"))
+                } else {
+                    None
+                }
+            }
+            TreeNode::Split { name, a, b } => find_in_tree(
+                a,
+                pred,
+                &cons(
+                    FoundNode {
+                        direction: "a",
+                        name: name.as_ref(),
+                    },
+                    parents,
+                ),
+            )
+            .or_else(|| {
+                find_in_tree(
+                    b,
+                    pred,
+                    &cons(
+                        FoundNode {
+                            direction: "b",
+                            name: name.as_ref(),
+                        },
+                        parents,
+                    ),
+                )
+            }),
+        }
+    }
+
+    #[test]
+    fn t_find_in_tree() {
+        let house = split(
+            "house",
+            split(
+                "kitchen",
+                split(
+                    "cupboard",
+                    split("dishes", leaf("plate"), leaf("jug")),
+                    split("food", leaf("beans"), leaf("pasta")),
+                ),
+                leaf("stove"),
+            ),
+            split(
+                "bathroom",
+                split("cupboard", leaf("toothbrush"), leaf("comb")),
+                split("toilet", leaf("toilet paper"), leaf("brush")),
+            ),
+        );
+        assert_eq!(
+            find_in_tree(&house, |n| *n == "comb", &List::Null).as_deref(),
+            Some(r#"b("house")/a("bathroom")/b("cupboard")"#)
+        );
     }
 }

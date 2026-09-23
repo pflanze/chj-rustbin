@@ -209,12 +209,12 @@ mod tests {
     impl<'name> Display for FoundNode<'name> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             let Self { direction, name } = self;
-            write!(f, "{direction}({name:?})")
+            write!(f, "{name} »{direction}» ")
         }
     }
 
     /// Give a human-readable path to the first leaf for which `pred` returns true.
-    fn find_in_tree<N: AsRef<str>, T>(
+    fn find_in_tree<N: AsRef<str>, T: ToString>(
         tree: &TreeNode<N, T>,
         pred: impl Fn(&T) -> bool + Copy,
         parents: &List<FoundNode>,
@@ -222,7 +222,9 @@ mod tests {
         match tree {
             TreeNode::Leaf(l) => {
                 if pred(l) {
-                    Some(parents.to_vec().iter().rev().join("/"))
+                    Some(
+                        parents.to_vec().iter().rev().join("") + &l.to_string(),
+                    )
                 } else {
                     None
                 }
@@ -275,7 +277,7 @@ mod tests {
         );
         assert_eq!(
             find_in_tree(&house, |n| *n == "comb", &List::Null).as_deref(),
-            Some(r#"b("house")/a("bathroom")/b("cupboard")"#)
+            Some("house »b» bathroom »a» cupboard »b» comb"),
         );
     }
 }

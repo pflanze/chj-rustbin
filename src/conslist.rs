@@ -3,9 +3,14 @@
 //! These only work with normal references. That's because making it
 //! generic for the reference/container type appears unworkable, even
 //! though feasible in principle, due to requiring explicit type
-//! parameters on every single cons call. The solution will be to
-//! generate the code for versions using Rc, Arc or whatever when
-//! needed. (Or, use dyn?, or perhaps/probably rather, enum.)
+//! parameters on every single cons call. The solution would be to
+//! generate the code (via macros) for versions using Rc, Arc or
+//! whatever when needed; but there are more performant
+//! representations for persistent lists than cons lists if they need
+//! to pay for the heap allocation overhead, so the reference case may
+//! be the only interesting one.
+//!
+
 pub enum List<'t, T> {
     Pair(T, &'t List<'t, T>),
     Null,

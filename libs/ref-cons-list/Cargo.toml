@@ -3,6 +3,15 @@ name = "ref-cons-list"
 version = "0.1.0"
 edition = "2021"
 authors = ["Christian Jaeger <ch@christianjaeger.ch>"]
+license = "MIT OR Apache-2.0"
+description = "Cons lists -- efficient immutable temporary lists for recursion"
+repository = "https://github.com/pflanze/chj-rustbin"
+keywords = [
+    "fp",
+    "persistent",
+    "immutable",
+    "data-structures",
+]
 
 [dependencies]
 

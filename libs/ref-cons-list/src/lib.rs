@@ -1,4 +1,4 @@
-//! Cons lists
+//! Cons lists: efficient immutable temporary lists for recursion
 //!
 //! These only work with normal references. That's because making it
 //! generic for the reference/container type appears unworkable, even

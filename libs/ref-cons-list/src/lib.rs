@@ -10,7 +10,8 @@
 //! to pay for the heap allocation overhead, so the reference case may
 //! be the only interesting one.
 //!
-//! For a usage example, see `find_in_tree` in the unit tests.
+//! For a usage example, see [`find_in_tree` in the unit
+//! tests](https://github.com/pflanze/chj-rustbin//blob/master/libs/ref-cons-list/src/lib.rs).
 
 pub enum List<'t, T> {
     Pair(T, &'t List<'t, T>),

@@ -1,0 +1,10 @@
+[package]
+name = "ref-cons-list"
+version = "0.1.0"
+edition = "2021"
+authors = ["Christian Jaeger <ch@christianjaeger.ch>"]
+
+[dependencies]
+
+[dev-dependencies]
+itertools = "0.11.0"

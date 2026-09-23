@@ -24,11 +24,11 @@ use mimalloc::MiMalloc;
 use once_cell::sync::OnceCell;
 use rayon::prelude::ParallelBridge;
 use rayon::{iter::ParallelIterator, slice::ParallelSliceMut};
+use ref_cons_list::{cons, List};
 use regex::Regex;
 
 use chj_rustbin::{
     chunks::ChunksOp,
-    conslist::{cons, List},
     fp::compose,
     impl_item_options_from,
     io::excludes::default_excludes,

@@ -6,7 +6,6 @@ pub mod alternatively;
 pub mod bag;
 pub mod checked_mutex;
 pub mod chunks;
-pub mod conslist;
 pub mod cpu_probe;
 pub mod debian_version;
 pub mod duu;

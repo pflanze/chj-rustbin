@@ -204,15 +204,11 @@ impl<const BLOCK_SIZE_IN_BYTES: usize> BackingWithIndex<BLOCK_SIZE_IN_BYTES> {
 pub struct Contents {
     backing: Arc<BackingWithIndex>,
     range: Range<usize>,
-    /// The line/column position of the start of `range` in
-    /// `contents`, if already known (otherwise it will be calculated
-    /// in the `start_position` method)
-    range_start_position: Option<Position64>,
 }
 
 #[test]
 fn t_size_contents() {
-    assert_eq!(size_of::<Contents>(), 4 * size_of::<usize>());
+    assert_eq!(size_of::<Contents>(), 3 * size_of::<usize>());
 }
 
 // No need, Deref works!
@@ -233,7 +229,6 @@ impl Contents {
         Self {
             backing: Arc::new(BackingWithIndex::new(content, line_terminator)),
             range,
-            range_start_position: Some(Position64::TOP_LEFT),
         }
     }
 
@@ -250,22 +245,14 @@ impl Contents {
     }
 
     pub fn as_slice(&self) -> &[u8] {
-        let Self {
-            backing,
-            range,
-            range_start_position: _,
-        } = self;
+        let Self { backing, range } = self;
         &backing[range.clone()]
     }
 
     /// Returns the lines without the line endings, referencing via
     /// Arc clone into self's content.
     pub fn lines(&self) -> impl Iterator<Item = Contents> + '_ {
-        let Self {
-            backing,
-            range,
-            range_start_position: _,
-        } = self;
+        let Self { backing, range } = self;
         let line_terminator = backing.line_terminator();
         let mut range_start_position = self.start_position();
         let mut range_start = range.start;
@@ -275,7 +262,6 @@ impl Contents {
                 let this = Self {
                     backing: backing.clone(),
                     range: range_start..(range_start + line.len()),
-                    range_start_position: Some(range_start_position.clone()),
                 };
                 range_start =
                     range_start.saturating_add(line.len().saturating_add(1));
@@ -287,23 +273,12 @@ impl Contents {
     /// Position of the start of this contents window within the
     /// backing text
     pub fn start_position(&self) -> Position64 {
-        let Self {
-            backing,
-            range,
-            range_start_position,
-        } = self;
-        range_start_position.unwrap_or_else(|| backing.position_at(range.start))
+        let Self { backing, range } = self;
+        backing.position_at(range.start)
     }
 
     pub fn position_at(&self, offset_within_window: usize) -> Position64 {
-        let Self {
-            backing,
-            range,
-            range_start_position: _,
-        } = self;
-        // Ignore `range_start_position`, it's simpler to just
-        // calculate now, fine with the cache, OK? XXX actually remove
-        // range_start_position, right?
+        let Self { backing, range } = self;
         backing.position_at(range.start + offset_within_window)
     }
 }

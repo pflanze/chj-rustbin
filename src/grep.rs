@@ -202,7 +202,7 @@ pub struct ContentsWithMatchRange {
 fn t_size_contents_with_match_range() {
     assert_eq!(
         size_of::<ContentsWithMatchRange>(),
-        (4 + 2) * size_of::<usize>()
+        (3 + 2) * size_of::<usize>()
     );
 }
 

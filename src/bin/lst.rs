@@ -22,7 +22,7 @@ use chj_rustbin::{
     file_location,
     grep::{
         file_contents, file_lines_grep_via_contents, split3_line_range,
-        ContentsWithMatchRange, Position128,
+        ContentsWithMatchRange,
     },
     hack_static::hack_static,
     io::{
@@ -42,6 +42,7 @@ use chj_rustbin::{
         segmented_path::{tmp_path_buffer, SegmentedPath},
     },
     merge_trait::Merge,
+    position::Position64,
     probe,
     shared_regions::SharedRegions,
     text::yattable::{Widths, YatTable},
@@ -1196,7 +1197,7 @@ impl TableFromItems {
 
             if *pos {
                 if let Some(m) = mini_item.content_match.as_deref() {
-                    let Position128 { line, column } = m.start_position(b'\n');
+                    let Position64 { line, column } = m.start_position(b'\n');
                     row.amend_cell_fmt(format_args!(":{line}:{column}"));
                 }
             }
@@ -1574,7 +1575,7 @@ fn print_paths<
             outp.write_all(path.as_os_str().as_bytes())?;
             if *pos {
                 if let Some(m) = mini_item.content_match.as_deref() {
-                    let Position128 { line, column } = m.start_position(b'\n');
+                    let Position64 { line, column } = m.start_position(b'\n');
                     write!(outp, ":{line}:{column}")?;
                 }
             }
@@ -1596,7 +1597,7 @@ fn print_paths<
                         if *pos {
                             if let Some(m) = mini_item.content_match.as_deref()
                             {
-                                let Position128 { line, column } =
+                                let Position64 { line, column } =
                                     m.start_position(b'\n');
                                 _ = write!(alloc, ":{line}:{column}");
                                 let need_nl;

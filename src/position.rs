@@ -1,4 +1,5 @@
 use std::{
+    fmt::Display,
     num::{NonZeroU32, NonZeroU64},
     ops::Add,
 };
@@ -13,6 +14,7 @@ pub const NON_ZERO_U64_ONE: NonZeroU64 =
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Position64 {
     pub line: NonZeroU32,
+    /// Column is 0-based, but 1 is added for display
     pub column: u32,
 }
 
@@ -20,6 +22,7 @@ pub struct Position64 {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Position128 {
     pub line: NonZeroU64,
+    /// Column is 0-based, but 1 is added for display
     pub column: u64,
 }
 
@@ -60,6 +63,13 @@ macro_rules! impl_position_n {
             pub fn inc_line(&mut self) {
                 self.line = self.line.saturating_add(1);
                 self.column = 0;
+            }
+        }
+
+        impl Display for $Position {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                let Self { line, column }=self;
+                write!(f, "{line}:{}", column.saturating_add(1))
             }
         }
 

@@ -307,12 +307,12 @@ impl ContentsWithMatchRange {
 
     /// Calculate the start position by counting the line terminators
     /// in the contents before the match
-    pub fn start_position(&self, line_terminator: u8) -> Position64 {
-        self.contents.start_position()
-            + Position64::from_run_up(
-                &self.contents[0..self.match_range.start],
-                line_terminator,
-            )
+    pub fn start_position(&self) -> Position64 {
+        let Self {
+            contents,
+            match_range,
+        } = self;
+        contents.position_at(match_range.start)
     }
 }
 

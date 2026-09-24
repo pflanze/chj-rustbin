@@ -284,18 +284,27 @@ impl Contents {
             })
     }
 
+    /// Position of the start of this contents window within the
+    /// backing text
     pub fn start_position(&self) -> Position64 {
         let Self {
             backing,
             range,
             range_start_position,
         } = self;
-        range_start_position.unwrap_or_else(|| {
-            Position64::from_run_up(
-                &backing[0..range.start],
-                backing.line_terminator(),
-            )
-        })
+        range_start_position.unwrap_or_else(|| backing.position_at(range.start))
+    }
+
+    pub fn position_at(&self, offset_within_window: usize) -> Position64 {
+        let Self {
+            backing,
+            range,
+            range_start_position: _,
+        } = self;
+        // Ignore `range_start_position`, it's simpler to just
+        // calculate now, fine with the cache, OK? XXX actually remove
+        // range_start_position, right?
+        backing.position_at(range.start + offset_within_window)
     }
 }
 

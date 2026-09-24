@@ -1196,10 +1196,7 @@ impl TableFromItems {
 
             if *pos {
                 if let Some(m) = mini_item.content_match.as_deref() {
-                    row.amend_cell_fmt(format_args!(
-                        ":{}",
-                        m.start_position(b'\n')
-                    ));
+                    row.amend_cell_fmt(format_args!(":{}", m.start_position()));
                 }
             }
 
@@ -1576,7 +1573,7 @@ fn print_paths<
             outp.write_all(path.as_os_str().as_bytes())?;
             if *pos {
                 if let Some(m) = mini_item.content_match.as_deref() {
-                    write!(outp, ":{}", m.start_position(b'\n'))?;
+                    write!(outp, ":{}", m.start_position())?;
                 }
             }
             outp.write_all(&[output_record_separator])?;
@@ -1597,7 +1594,7 @@ fn print_paths<
                         if *pos {
                             if let Some(m) = mini_item.content_match.as_deref()
                             {
-                                _ = write!(alloc, ":{}", m.start_position(b'\n'));
+                                _ = write!(alloc, ":{}", m.start_position());
                                 let need_nl;
                                 if let Some(context) = context {
                                     const STYLE_CONTEXT: Style = Style::new()

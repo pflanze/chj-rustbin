@@ -7,6 +7,8 @@ use once_cell::sync::OnceCell;
 
 use crate::position::{Position64, NON_ZERO_U32_ONE};
 
+pub const DEFAULT_BLOCK_SIZE_IN_BYTES: usize = 128;
+
 /// Saturates the value (i.e. no more than u32::MAX newlines can be
 /// reflected in an input)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,7 +20,7 @@ struct TerminatorCountAtEndOfBlock(u32);
 /// is taken for one `TerminatorCountAtEndOfBlock` value.
 ///
 #[derive(Debug)]
-struct TerminatorIndex<const BLOCK_SIZE_IN_BYTES: usize = 128> {
+struct TerminatorIndex<const BLOCK_SIZE_IN_BYTES: usize> {
     line_terminator: u8,
     blocks: Box<[OnceCell<TerminatorCountAtEndOfBlock>]>,
 }
@@ -151,7 +153,7 @@ impl<const BLOCK_SIZE_IN_BYTES: usize> TerminatorIndex<BLOCK_SIZE_IN_BYTES> {
 }
 
 #[derive(Debug)]
-pub struct BackingWithIndex<const BLOCK_SIZE_IN_BYTES: usize = 128> {
+pub struct BackingWithIndex<const BLOCK_SIZE_IN_BYTES: usize> {
     content: Box<[u8]>,
     index: TerminatorIndex<BLOCK_SIZE_IN_BYTES>,
 }
@@ -185,6 +187,14 @@ impl<const BLOCK_SIZE_IN_BYTES: usize> BackingWithIndex<BLOCK_SIZE_IN_BYTES> {
         Self { content, index }
     }
 
+    pub fn to_contents(self: &Arc<Self>) -> Contents<BLOCK_SIZE_IN_BYTES> {
+        let range = 0..self.len();
+        Contents {
+            backing: self.clone(),
+            range,
+        }
+    }
+
     fn as_slice(&self) -> &[u8] {
         &self.content
     }
@@ -201,21 +211,23 @@ impl<const BLOCK_SIZE_IN_BYTES: usize> BackingWithIndex<BLOCK_SIZE_IN_BYTES> {
 /// Kind of like a slice into a contents backing storage, but
 /// "ownership-shared" via `Arc`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Contents {
-    backing: Arc<BackingWithIndex>,
+pub struct Contents<
+    const BLOCK_SIZE_IN_BYTES: usize = DEFAULT_BLOCK_SIZE_IN_BYTES,
+> {
+    backing: Arc<BackingWithIndex<BLOCK_SIZE_IN_BYTES>>,
     range: Range<usize>,
 }
 
 #[test]
 fn t_size_contents() {
-    assert_eq!(size_of::<Contents>(), 3 * size_of::<usize>());
+    assert_eq!(size_of::<Contents<100>>(), 3 * size_of::<usize>());
 }
 
 // No need, Deref works!
 // impl Index<Range<usize>> for Contents {
 // }
 
-impl Deref for Contents {
+impl<const BLOCK_SIZE_IN_BYTES: usize> Deref for Contents<BLOCK_SIZE_IN_BYTES> {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
@@ -223,7 +235,7 @@ impl Deref for Contents {
     }
 }
 
-impl Contents {
+impl<const BLOCK_SIZE_IN_BYTES: usize> Contents<BLOCK_SIZE_IN_BYTES> {
     pub fn new_full(content: Box<[u8]>, line_terminator: u8) -> Self {
         let range = 0..content.len();
         Self {
@@ -232,7 +244,7 @@ impl Contents {
         }
     }
 
-    pub fn backing(&self) -> &BackingWithIndex {
+    pub fn backing(&self) -> &Arc<BackingWithIndex<BLOCK_SIZE_IN_BYTES>> {
         &self.backing
     }
 
@@ -251,7 +263,9 @@ impl Contents {
 
     /// Returns the lines without the line endings, referencing via
     /// Arc clone into self's content.
-    pub fn lines(&self) -> impl Iterator<Item = Contents> + '_ {
+    pub fn lines(
+        &self,
+    ) -> impl Iterator<Item = Contents<BLOCK_SIZE_IN_BYTES>> + '_ {
         let Self { backing, range } = self;
         let line_terminator = backing.line_terminator();
         let mut range_start_position = self.start_position();

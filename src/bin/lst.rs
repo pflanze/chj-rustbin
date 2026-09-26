@@ -4,7 +4,7 @@ use std::{
     env::set_current_dir,
     ffi::OsString,
     io::{stdin, stdout, BufWriter, IoSlice},
-    ops::{BitXor, ControlFlow},
+    ops::BitXor,
     os::unix::prelude::OsStrExt,
     path::PathBuf,
     str::FromStr,
@@ -17,13 +17,11 @@ use anyhow::{anyhow, bail, Context, Result};
 use bstr::ByteSlice;
 use chj_rustbin::{
     bag::Bag,
+    contents::Contents,
     cpu_probe,
     efficient_regex::EfficientRegex,
     file_location,
-    grep::{
-        file_contents, file_lines_grep_via_contents, split3_line_range,
-        ContentsWithMatchRange,
-    },
+    grep::{file_contents, split3_line_range, ContentsWithMatchRange},
     hack_static::hack_static,
     io::{
         unix::unix_file_type::UnixFileTypeMask, unix_gr::GrInfoCache,
@@ -843,6 +841,68 @@ fn cmp_function<
     }
 }
 
+/// Only warns on errors, grep_kind is e.g. "file-grep"
+fn contents_of_mini_item<
+    'i,
+    'region: 'i,
+    P: PossiblySegmentedPath<'region, InlineLst> + Copy + Sync + Send + 'region,
+>(
+    grep_kind: &str,
+    mini_item: &MiniItem<'i, 'region, P>,
+) -> Option<Contents> {
+    let mut path_buf = tmp_path_buffer();
+    let path = mini_item.path.psp_to_path(&mut path_buf);
+    match file_contents(path, b'\n') {
+        Ok(contents) => Some(contents),
+        Err(e) => {
+            limited_eprintln!(
+                "{grep_kind}: ignoring file {path:?} with error: {e:#}"
+            );
+            None
+        }
+    }
+}
+
+fn contents_grep_single<
+    'i,
+    'region: 'i,
+    P: PossiblySegmentedPath<'region, InlineLst> + Copy + Sync + Send + 'region,
+>(
+    invert: bool,
+    mini_item: &MiniItem<'i, 'region, P>,
+    matches: impl InternalIterator<Item = ContentsWithMatchRange>,
+) -> Option<MiniItem<'i, 'region, P>> {
+    match matches.next() {
+        None => {
+            if invert {
+                Some(mini_item.clone())
+            } else {
+                None
+            }
+        }
+        Some(m) => {
+            if invert {
+                None
+            } else {
+                Some(mini_item.set_content_match(Some(m.into())))
+            }
+        }
+    }
+}
+
+fn contents_grep_global<
+    'i,
+    'region: 'i,
+    P: PossiblySegmentedPath<'region, InlineLst> + Copy + Sync + Send + 'region,
+>(
+    mini_item: &MiniItem<'i, 'region, P>,
+    matches: impl InternalIterator<Item = ContentsWithMatchRange>,
+) -> Vec<MiniItem<'i, 'region, P>> {
+    matches
+        .map(|m| mini_item.set_content_match(Some(m.into())))
+        .collect()
+}
+
 /// Mutates `items`. Requires a mutable sequence because sorting
 /// in-place needs to move the slots around. And it needs to be a Vec
 /// since filtering changes the size of it.
@@ -945,29 +1005,17 @@ fn run_processing_commands<
                     (&*selected_items)
                         .into_par_iter()
                         .flat_map(|mini_item| {
-                            let mut path_buf = tmp_path_buffer();
-                            let path = mini_item.path.psp_to_path(&mut path_buf);
-                            match file_lines_grep_via_contents(
-                                path,
-                                &regex.0,
-                                *invert_lines,
-                                b'\n'
-                            ) {
-                                Ok(ms) => {
-                                    let mut items = Vec::new();
-                                    _ = ms.try_for_each::<(), _>(|m| {
-                                        items.push(mini_item.set_content_match(Some(m.into())));
-                                        ControlFlow::Continue(())
-                                    });
-                                    items
-                                },
-                                Err(e) => {
-                                    limited_eprintln!(
-                                        "line-grep: ignoring file {path:?} with error: {e:#}"
-                                    );
-                                    vec![]
-                                }
-                            }
+                            contents_of_mini_item("line-grep", mini_item)
+                                .map(|contents| {
+                                    contents_grep_global(
+                                        mini_item,
+                                        contents.lines_grep(
+                                            &regex.0,
+                                            *invert_lines,
+                                        ),
+                                    )
+                                })
+                                .unwrap_or_else(Vec::new)
                         })
                         .collect()
                 } else {
@@ -976,31 +1024,17 @@ fn run_processing_commands<
                     (&*selected_items)
                         .into_par_iter()
                         .filter_map(|mini_item| {
-                            let mut path_buf = tmp_path_buffer();
-                            let path = mini_item.path.psp_to_path(&mut path_buf);
-                            match file_lines_grep_via_contents(path, &regex.0, *invert_lines, b'\n') {
-                                Ok(ms) => 
-                                    match ms.next() {
-                                        None => if invert {
-                                            Some(mini_item.clone())
-                                        } else {
-                                            None
-                                        },
-                                        Some(m) => {
-                                            if invert {
-                                                None
-                                            } else {
-                                                Some(mini_item.set_content_match(Some(m.into())))
-                                            }
-                                        },
-                                    },
-                                Err(e) => {
-                                    limited_eprintln!(
-                                        "line-grep: ignoring file {path:?} with error: {e:#}"
-                                    );
-                                    None
-                                }
-                            }
+                            contents_of_mini_item("line-grep", mini_item)
+                                .and_then(|contents| {
+                                    contents_grep_single(
+                                        invert,
+                                        mini_item,
+                                        contents.lines_grep(
+                                            &regex.0,
+                                            *invert_lines,
+                                        ),
+                                    )
+                                })
                         })
                         .collect()
                 };
@@ -1023,63 +1057,35 @@ fn run_processing_commands<
                     // Flatten-in all matches (copying `mini_item` but with
                     // separate locations (if `will_use_positions` is true))
                     (&*selected_items)
-                    .into_par_iter()
-                    .flat_map(|mini_item| {
-                        let mut path_buf = tmp_path_buffer();
-                        let path = mini_item.path.psp_to_path(&mut path_buf);
-                        match file_contents(path, b'\n') {
-                            Ok(contents) => {
-                                let ms = contents.grep(&regex.0);
-                                let items = ms.map(|m| {
-                                    mini_item.set_content_match(Some(m.into()))
-                                }).collect();
-                                items
-                            }
-                            Err(e) => {
-                                limited_eprintln!(
-                                    "file-grep: ignoring file {path:?} with error: {e:#}"
-                                );
-                                vec![]
-                            }
-                        }
-                    })
-                    .collect()
+                        .into_par_iter()
+                        .flat_map(|mini_item| -> Vec<MiniItem<_>> {
+                            contents_of_mini_item("file-grep", mini_item)
+                                .map(|contents| {
+                                    contents_grep_global(
+                                        mini_item,
+                                        contents.file_grep(&regex.0),
+                                    )
+                                })
+                                .unwrap_or_else(Vec::new)
+                        })
+                        .collect()
                 } else {
                     // Keep only the first match per `mini_item`, but
                     // add location information if possible and
                     // desired
                     (&*selected_items)
-                    .into_par_iter()
-                    .filter_map(|mini_item| {
-                        let mut path_buf = tmp_path_buffer();
-                        let path = mini_item.path.psp_to_path(&mut path_buf);
-                        match file_contents(path, b'\n') {
-                            Ok(contents) => {
-                                let ms = contents.grep(&regex.0);
-                                match ms.next() {
-                                    Some(m) => {
-                                        if invert {
-                                            None
-                                        } else {
-                                            Some(mini_item.set_content_match(Some(m.into())))
-                                        }
-                                    },
-                                    None => if invert {
-                                        Some(mini_item.clone())
-                                    } else {
-                                        None
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                limited_eprintln!(
-                                    "file-grep: ignoring file {path:?} with error: {e:#}"
-                                );
-                                None
-                            }
-                        }
-                    })
-                    .collect()
+                        .into_par_iter()
+                        .filter_map(|mini_item| {
+                            contents_of_mini_item("file-grep", mini_item)
+                                .and_then(|contents| {
+                                    contents_grep_single(
+                                        invert,
+                                        mini_item,
+                                        contents.file_grep(&regex.0),
+                                    )
+                                })
+                        })
+                        .collect()
                 };
                 *items = new_items;
                 selected_items = unsafe { hack_static(&mut **items) };

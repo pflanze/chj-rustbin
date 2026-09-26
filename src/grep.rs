@@ -76,7 +76,7 @@ pub fn file_lines_grep_via_contents<'regex>(
     invert: bool,
     line_terminator: u8,
 ) -> Result<LinesGrepContents<'regex>, std::io::Error> {
-    let lines = file_contents(path, line_terminator)?;
+    let lines: Contents = file_contents(path, line_terminator)?;
     Ok(LinesGrepContents {
         regex,
         invert,
@@ -332,7 +332,19 @@ pub fn file_contents_grep<'regex>(
 }
 
 impl Contents {
-    pub fn grep<'regex, 's>(
+    pub fn lines_grep<'regex, 's>(
+        self,
+        regex: &'regex Regex,
+        invert: bool,
+    ) -> LinesGrepContents<'regex> {
+        LinesGrepContents {
+            regex,
+            invert,
+            lines: self,
+        }
+    }
+
+    pub fn file_grep<'regex, 's>(
         self,
         regex: &'regex Regex,
     ) -> ContentsGrep<'regex> {

@@ -246,7 +246,7 @@ impl ContentsWithMatchRange {
     /// arguments are non-zero, that many more lines are included with
     /// None for the range.
     ///
-    /// (Panics for context numbers too close to MAX.)
+    /// (Panics for context numbers too close to `usize::MAX`!)
     pub fn lines_around_match(
         &self,
         context_above: usize,

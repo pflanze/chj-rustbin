@@ -867,25 +867,29 @@ fn contents_of_mini_item<
     }
 }
 
+/// `invert` is both the signal to invert and provides a clone of the
+/// contents, since that may be needed in that case.
 fn contents_grep_single<
     'i,
     'region: 'i,
     P: PossiblySegmentedPath<'region, InlineLst> + Copy + Sync + Send + 'region,
 >(
-    invert: bool,
+    invert: Option<Contents>,
     mini_item: &MiniItem<'i, 'region, P>,
     matches: impl InternalIterator<Item = ContentsWithMatchRange>,
 ) -> Option<MiniItem<'i, 'region, P>> {
     match matches.next() {
         None => {
-            if invert {
-                Some(mini_item.clone())
+            if let Some(contents) = invert {
+                Some(mini_item.set_content_match(Some(
+                    ContentsWithMatchRange::from_contents(contents).into(),
+                )))
             } else {
                 None
             }
         }
         Some(m) => {
-            if invert {
+            if let Some(_contents) = invert {
                 None
             } else {
                 Some(mini_item.set_content_match(Some(m.into())))
@@ -1031,7 +1035,11 @@ fn run_processing_commands<
                             contents_of_mini_item("line-grep", mini_item)
                                 .and_then(|contents| {
                                     contents_grep_single(
-                                        invert,
+                                        if invert {
+                                            Some(contents.clone())
+                                        } else {
+                                            None
+                                        },
                                         mini_item,
                                         contents.lines_grep(
                                             &regex.0,
@@ -1083,7 +1091,11 @@ fn run_processing_commands<
                             contents_of_mini_item("file-grep", mini_item)
                                 .and_then(|contents| {
                                     contents_grep_single(
-                                        invert,
+                                        if invert {
+                                            Some(contents.clone())
+                                        } else {
+                                            None
+                                        },
                                         mini_item,
                                         contents.file_grep(&regex.0),
                                     )

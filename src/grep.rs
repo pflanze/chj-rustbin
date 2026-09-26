@@ -221,6 +221,14 @@ pub fn split3_line_range(
 }
 
 impl ContentsWithMatchRange {
+    pub fn from_contents(contents: Contents) -> Self {
+        let match_range = contents.range_in_backing();
+        Self {
+            contents,
+            match_range,
+        }
+    }
+
     /// Just the matching area
     pub fn match_as_slice(&self) -> &[u8] {
         let Self {

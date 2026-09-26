@@ -251,7 +251,7 @@ impl ContentsWithMatchRange {
         &self,
         context_above: usize,
         context_below: usize,
-    ) -> Vec<(&[u8], Option<Range<usize>>)> {
+    ) -> Vec<(&BStr, Option<Range<usize>>)> {
         let ContentsWithMatchRange {
             contents,
             match_range,
@@ -308,7 +308,7 @@ impl ContentsWithMatchRange {
                 let line = &backing[range_line.clone()];
                 let opt_range =
                     range_within(range_in_backing.clone(), range_line);
-                (line, opt_range)
+                (line.as_bstr(), opt_range)
             })
             .collect()
     }
@@ -433,11 +433,11 @@ mod tests {
 
             let l = m.lines_around_match(1, 55);
             assert_eq!(l.len(), 3);
-            assert_eq!(l[0].0, b"There.");
+            assert_eq!(l[0].0, B("There."));
             assert_eq!(l[0].1, None);
-            assert_eq!(l[1].0, b"Line 3.");
+            assert_eq!(l[1].0, B("Line 3."));
             assert_eq!(l[1].1, Some(2..4));
-            assert_eq!(l[2].0, b"Line 4");
+            assert_eq!(l[2].0, B("Line 4"));
             assert_eq!(l[2].1, None);
         }
 

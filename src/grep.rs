@@ -220,6 +220,67 @@ pub fn split3_line_range(
     )
 }
 
+/// Returns the range of the function intro match within `pre`, and
+/// the position of the first newline after it, if any, if any.
+/// `is_function` is given a slice into `pre` from the start of a
+/// suspected function definition, if it returns false, the search is
+/// continued.
+pub fn find_function_intro(
+    pre: &BStr,
+    is_function: impl Fn(&BStr) -> bool,
+) -> Option<(Range<usize>, Option<usize>)> {
+    let mut last_open_curly = None;
+    let mut last_newline = None;
+    let mut newline_after_curly = None;
+    // Excluding newlines
+    let mut last_char_was_whitespace = true;
+
+    macro_rules! end_condition {
+        { $i:expr } => {
+            (!last_char_was_whitespace) && is_function(pre[$i+1..].as_bstr())
+        }
+    }
+
+    for i in (0..pre.len()).rev() {
+        let b = pre[i];
+        match b {
+            b'{' => {
+                last_open_curly = Some(i);
+                newline_after_curly = last_newline;
+            }
+            b'\n' => {
+                if end_condition!(i) {
+                    return Some((
+                        i + 1
+                            ..last_open_curly
+                                .map(|pos| pos + 1)
+                                .unwrap_or(pre.len()),
+                        newline_after_curly,
+                    ));
+                }
+                last_newline = Some(i);
+            }
+            b' ' | b'\t' => last_char_was_whitespace = true,
+            _ => last_char_was_whitespace = false,
+        }
+    }
+    if end_condition!(0) {
+        return Some((
+            0..last_open_curly.map(|pos| pos + 1).unwrap_or(pre.len()),
+            newline_after_curly,
+        ));
+    }
+    None
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ContextLineKind {
+    FunctionIntro,
+    Gap,
+    Context,
+    Match(Range<usize>),
+}
+
 impl ContentsWithMatchRange {
     pub fn from_contents(contents: Contents) -> Self {
         let match_range = contents.range_in_backing();
@@ -244,14 +305,20 @@ impl ContentsWithMatchRange {
     /// The whole line(s) in which the match lies, and the area of
     /// each line that is part of the match. If the `context_*`
     /// arguments are non-zero, that many more lines are included with
-    /// None for the range.
+    /// None for the range. If `is_function` is given (which is give a
+    /// slice into the text from the start of the line suspected to be
+    /// a function definition, and return true if it's OK), the
+    /// nearest part of the file that starts with non-whitespace on a
+    /// new line and extends to the nearest '{' is also included, with
+    /// a ".."  line added if there is a gap.
     ///
     /// (Panics for context numbers too close to `usize::MAX`!)
-    pub fn lines_around_match(
+    pub fn lines_around_match<F: Fn(&BStr) -> bool>(
         &self,
+        is_function: Option<F>,
         context_above: usize,
         context_below: usize,
-    ) -> Vec<(&BStr, Option<Range<usize>>)> {
+    ) -> Vec<(&BStr, ContextLineKind)> {
         let ContentsWithMatchRange {
             contents,
             match_range,
@@ -265,9 +332,7 @@ impl ContentsWithMatchRange {
         let (contents, range) = ((), ());
 
         let pre = &backing[0..range_in_backing.start];
-        // Need to register the lines within the match range, too,
-        // thus don't skip it!
-        let onwards = &backing[range_in_backing.start..];
+
         let mut line_starts: Vec<usize> = pre
             .iter()
             .enumerate()
@@ -287,6 +352,10 @@ impl ContentsWithMatchRange {
             .filter(|b| **b == line_terminator)
             .count();
 
+        // Need to register the lines within the match range, too,
+        // thus don't skip it!
+        let onwards = &backing[range_in_backing.start..];
+
         line_starts.extend(
             onwards
                 .iter()
@@ -299,18 +368,74 @@ impl ContentsWithMatchRange {
             // + 1 for a "virtual" line terminator to subtract later
             line_starts.push(backing.len() + 1);
         }
-        line_starts
-            .iter()
-            .copied()
-            .zip(line_starts.iter().copied().skip(1))
-            .map(|(line_start, line_end)| {
-                let range_line = line_start..line_end - 1;
-                let line = &backing[range_line.clone()];
-                let opt_range =
-                    range_within(range_in_backing.clone(), range_line);
-                (line.as_bstr(), opt_range)
+
+        let function_intro_range = if let Some(is_function) = is_function {
+            find_function_intro(pre.as_bstr(), is_function)
+        } else {
+            None
+        };
+        let mut lines: Vec<(&BStr, ContextLineKind)> = function_intro_range
+            .map(|(function_intro_range, opt_newline_pos)| {
+                if let Some(newline_pos) = opt_newline_pos {
+                    let already_shown_start = line_starts[0];
+                    if newline_pos + 1 >= already_shown_start {
+                        if function_intro_range.start < already_shown_start {
+                            // intro is a gap-less extension of already-shown part
+                            pre[function_intro_range.start
+                                ..already_shown_start.saturating_sub(1)]
+                                .as_bstr()
+                                .lines()
+                                .map(|line| {
+                                    (
+                                        line.as_bstr(),
+                                        ContextLineKind::FunctionIntro,
+                                    )
+                                })
+                                .collect()
+                        } else {
+                            // intro is within already-shown part
+                            vec![]
+                        }
+                    } else {
+                        // Have a gap
+                        let mut lines: Vec<(&BStr, ContextLineKind)> = pre
+                            [function_intro_range.start..newline_pos]
+                            .as_bstr()
+                            .lines()
+                            .map(|line| {
+                                (line.as_bstr(), ContextLineKind::FunctionIntro)
+                            })
+                            .collect();
+                        lines.push(("..".as_ref(), ContextLineKind::Gap));
+                        lines
+                    }
+                } else {
+                    vec![]
+                }
             })
-            .collect()
+            .unwrap_or_else(Vec::new);
+
+        lines.extend(
+            // Convert line starts to line slices
+            line_starts
+                .iter()
+                .copied()
+                .zip(line_starts.iter().copied().skip(1))
+                .map(|(line_start, line_end)| {
+                    let range_line = line_start..line_end - 1;
+                    let line = &backing[range_line.clone()];
+                    let kind = match range_within(
+                        range_in_backing.clone(),
+                        range_line,
+                    ) {
+                        Some(range) => ContextLineKind::Match(range),
+                        None => ContextLineKind::Context,
+                    };
+                    (line.as_bstr(), kind)
+                }),
+        );
+
+        lines
     }
 
     /// Calculate the start position by counting the line terminators
@@ -402,7 +527,46 @@ pub fn file_contents(
 mod tests {
     use bstr::{ByteSlice, B};
 
+    use crate::text::bstr_parseutil::starts_with_word;
+
     use super::*;
+
+    #[test]
+    fn t_starts_with_word() {
+        let sww =
+            |s: &str, word: &str| starts_with_word(s.as_ref(), word.as_ref());
+        assert!(sww("", ""));
+        assert!(sww("foo ", "foo"));
+        assert!(!sww("foob ", "foo"));
+        assert!(!sww("foo ", "foob"));
+        assert!(!sww(" foo ", "foo"));
+        assert!(!sww("xfoo ", "foo"));
+    }
+
+    #[test]
+    fn t_find_function_intro() {
+        let t = |s: &str| {
+            find_function_intro(s.as_ref(), |s| {
+                !starts_with_word(s, "where".as_ref())
+            })
+        };
+        assert_eq!(t(""), None); // OK?
+        assert_eq!(t(" foo"), None);
+        assert_eq!(t("foo"), Some((0..3, None)));
+        assert_eq!(t("\nfoo"), Some((1..4, None)));
+        assert_eq!(t("\nfoo {\n  hello\n  world"), Some((1..6, Some(6))));
+        assert_eq!(t("\nfoo \n  hello { \n  world"), Some((1..15, Some(16))));
+        assert_eq!(t("\nfoo \n  hello \n { world"), Some((1..17, None)));
+        assert_eq!(t("\nwhere \n  hello \n { world"), None);
+        assert_eq!(
+            t("\nwhereabouts \n  hello \n { world"),
+            Some((1..25, None))
+        );
+        assert_eq!(
+            t("\nimpl \nwhere| \n  hello \n { world"),
+            Some((1..26, None))
+        );
+    }
 
     #[test]
     fn t_lines_around_match() {
@@ -426,19 +590,19 @@ mod tests {
             };
             assert_eq!(m.match_as_slice(), b"ne");
 
-            let l = m.lines_around_match(0, 0);
+            let l = m.lines_around_match::<fn(&BStr) -> bool>(None, 0, 0);
             assert_eq!(l.len(), 1);
             assert_eq!(l[0].0.as_bstr(), B("Line 3.").as_bstr());
-            assert_eq!(l[0].1, Some(2..4));
+            assert_eq!(l[0].1, ContextLineKind::Match(2..4));
 
-            let l = m.lines_around_match(1, 55);
+            let l = m.lines_around_match::<fn(&BStr) -> bool>(None, 1, 55);
             assert_eq!(l.len(), 3);
             assert_eq!(l[0].0, B("There."));
-            assert_eq!(l[0].1, None);
+            assert_eq!(l[0].1, ContextLineKind::Context);
             assert_eq!(l[1].0, B("Line 3."));
-            assert_eq!(l[1].1, Some(2..4));
+            assert_eq!(l[1].1, ContextLineKind::Match(2..4));
             assert_eq!(l[2].0, B("Line 4"));
-            assert_eq!(l[2].1, None);
+            assert_eq!(l[2].1, ContextLineKind::Context);
         }
 
         {
@@ -449,12 +613,12 @@ mod tests {
             };
             assert_eq!(m.match_as_slice().as_bstr(), B("here.\nLin").as_bstr());
 
-            let l = m.lines_around_match(0, 0);
+            let l = m.lines_around_match::<fn(&BStr) -> bool>(None, 0, 0);
             // assert_eq!(l.len(), 2);
             assert_eq!(l[0].0.as_bstr(), B("There.").as_bstr());
-            assert_eq!(l[0].1, Some(1..6));
+            assert_eq!(l[0].1, ContextLineKind::Match(1..6));
             assert_eq!(l[1].0.as_bstr(), B("Line 3.").as_bstr());
-            assert_eq!(l[1].1, Some(0..3));
+            assert_eq!(l[1].1, ContextLineKind::Match(0..3));
         }
     }
 }

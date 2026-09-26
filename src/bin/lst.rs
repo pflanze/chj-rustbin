@@ -14,14 +14,17 @@ use std::{
 
 use anstyle::{AnsiColor, Color, Style};
 use anyhow::{anyhow, bail, Context, Result};
-use bstr::ByteSlice;
+use bstr::{BStr, ByteSlice};
 use chj_rustbin::{
     bag::Bag,
     contents::Contents,
     cpu_probe,
     efficient_regex::EfficientRegex,
     file_location,
-    grep::{file_contents, split3_line_range, ContentsWithMatchRange},
+    grep::{
+        file_contents, split3_line_range, ContentsWithMatchRange,
+        ContextLineKind,
+    },
     hack_static::hack_static,
     io::{
         unix::unix_file_type::UnixFileTypeMask, unix_gr::GrInfoCache,
@@ -42,7 +45,10 @@ use chj_rustbin::{
     merge_trait::Merge,
     probe,
     shared_regions::SharedRegions,
-    text::yattable::{Widths, YatTable},
+    text::{
+        bstr_parseutil::starts_with_word,
+        yattable::{Widths, YatTable},
+    },
     time::age_at::AgeAt,
 };
 use chrono::{DateTime, Datelike, Local, Timelike};
@@ -105,6 +111,11 @@ struct PrintOpts {
     /// used.
     #[clap(long, default_value = "# ")]
     show_matches_prefix: String,
+
+    /// Show the nearest "function" intro (non-whitespace line start,
+    /// up to the next '{') above a match
+    #[clap(short = 'p', long)]
+    show_function: bool,
 }
 
 #[derive(clap::Parser, Debug)]
@@ -1582,6 +1593,7 @@ fn print_paths<
         show_matches,
         show_matches_prefix,
         context,
+        show_function,
     } = opts;
 
     use std::io::Write;
@@ -1625,10 +1637,18 @@ fn print_paths<
                                     const STYLE_MATCH: Style = Style::new()
                                         .bold()
                                         .fg_color(Some(Color::Ansi(AnsiColor::Red)));
+                                    // HACK for Rust source code, add options?
+                                    let is_function = if *show_function {
+                                        Some(
+                                            |s: &BStr| !starts_with_word(s, "where".as_ref())
+                                        )
+                                    } else {
+                                        None
+                                    };
                                     for (line, opt_range) in
-                                        m.lines_around_match(*context, *context)
+                                        m.lines_around_match(is_function, *context, *context)
                                     {
-                                        if let Some(range) = opt_range {
+                                        if let ContextLineKind::Match(range) = opt_range {
                                             let (a, b, c) =
                                                 split3_line_range(line, range);
                                             _ = write!(

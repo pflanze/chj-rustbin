@@ -850,15 +850,19 @@ fn contents_of_mini_item<
     grep_kind: &str,
     mini_item: &MiniItem<'i, 'region, P>,
 ) -> Option<Contents> {
-    let mut path_buf = tmp_path_buffer();
-    let path = mini_item.path.psp_to_path(&mut path_buf);
-    match file_contents(path, b'\n') {
-        Ok(contents) => Some(contents),
-        Err(e) => {
-            limited_eprintln!(
-                "{grep_kind}: ignoring file {path:?} with error: {e:#}"
-            );
-            None
+    if let Some(cwmr) = mini_item.content_match.as_ref() {
+        Some(cwmr.contents.backing().to_contents())
+    } else {
+        let mut path_buf = tmp_path_buffer();
+        let path = mini_item.path.psp_to_path(&mut path_buf);
+        match file_contents(path, b'\n') {
+            Ok(contents) => Some(contents),
+            Err(e) => {
+                limited_eprintln!(
+                    "{grep_kind}: ignoring file {path:?} with error: {e:#}"
+                );
+                None
+            }
         }
     }
 }

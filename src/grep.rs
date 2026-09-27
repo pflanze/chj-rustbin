@@ -252,12 +252,6 @@ pub fn find_function_intro(
     position: usize,
     is_function: impl Fn(&BStr) -> bool,
 ) -> Option<FunctionIntro> {
-    let position = if contents.get(position) == Some(&b'\n') {
-        position + 1
-    } else {
-        position
-    };
-
     struct CurlyState {
         last_open_curly: usize,
         newline_after_curly: Option<usize>,

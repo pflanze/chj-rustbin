@@ -1640,7 +1640,10 @@ fn print_paths<
                                     // HACK for Rust source code, add options?
                                     let is_function = if *show_function {
                                         Some(
-                                            |s: &BStr| !starts_with_word(s, "where".as_ref())
+                                            |s: &BStr| s.first()
+                                                .map(|c| c.is_ascii_alphabetic()).unwrap_or_default()
+                                                &&
+                                                !starts_with_word(s, "where".as_ref())
                                         )
                                     } else {
                                         None

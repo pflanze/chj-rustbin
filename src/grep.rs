@@ -124,16 +124,22 @@ impl<'regex, Lines: ByTmpRefIterator<Item = [u8], Error = std::io::Error>>
             Err(e) => return f(Err(e)),
         } {
             let trimmed = trim_line_terminator(line, line_terminator);
-            let m = regex.find(trimmed);
-            let is_match = m.is_some();
+            let opt_cs = regex.captures(trimmed);
+            let is_match = opt_cs.is_some();
             if is_match.bitxor(invert) {
                 let position = {
                     let line = unsafe {
                         // Safe because the addition guarantees that the value is never zero
                         NonZeroU64::new_unchecked(line_no.saturating_add(1))
                     };
-                    let column =
-                        if let Some(m) = m { m.start() as u64 } else { 0 };
+                    let column = if let Some(cs) = opt_cs {
+                        let m = cs.get(1).unwrap_or_else(|| {
+                            cs.get(0).expect("docs promises to always succeed")
+                        });
+                        m.start() as u64
+                    } else {
+                        0
+                    };
                     Position128 { line, column }
                 };
 
@@ -174,10 +180,13 @@ impl<'regex> InternalIterator for LinesGrepContents<'regex> {
 
         for contents in lines.lines() {
             let trimmed = contents.as_slice();
-            let opt_m = regex.find(trimmed);
+            let opt_m = regex.captures(trimmed);
             let is_match = opt_m.is_some();
             if is_match.bitxor(invert) {
-                let match_range = if let Some(m) = opt_m {
+                let match_range = if let Some(cs) = opt_m {
+                    let m = cs.get(1).unwrap_or_else(|| {
+                        cs.get(0).expect("docs promises to always succeed")
+                    });
                     m.start()..m.end()
                 } else {
                     0..trimmed.len()
@@ -586,7 +595,10 @@ impl<'regex> InternalIterator for ContentsGrep<'regex> {
     {
         let Self { regex, contents } = self;
 
-        for m in regex.find_iter(&contents) {
+        for cs in regex.captures_iter(&contents) {
+            let m = cs.get(1).unwrap_or_else(|| {
+                cs.get(0).expect("docs promises to always succeed")
+            });
             let match_range = m.start()..m.end();
             f(ContentsWithMatchRange {
                 contents: contents.clone(),

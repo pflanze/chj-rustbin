@@ -1,5 +1,13 @@
 use bstr::BStr;
 
+#[macro_export]
+macro_rules! bstr {
+    { $bchar:expr } => { {
+        use bstr::ByteSlice;
+        bstr::B(&[ $bchar ]).as_bstr()
+    } }
+}
+
 pub fn is_ascii_word(c: u8) -> bool {
     c.is_ascii_alphanumeric()
         || match c {

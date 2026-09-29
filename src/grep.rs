@@ -9,7 +9,6 @@ use std::{
 
 use bstr::{BStr, ByteSlice};
 use internal_iterator::InternalIterator;
-use once_cell::sync::OnceCell;
 use regex::bytes::Regex;
 
 use crate::{
@@ -20,6 +19,7 @@ use crate::{
     },
     position::{Position128, Position64},
     range::{range_add, range_within},
+    syntax::{self, ContentWithPosition, Syntax},
     text::bstr_parseutil::find_byte_position,
 };
 
@@ -232,12 +232,10 @@ pub fn split3_line_range(
 }
 
 /// The end of the range can be after the `position` value that
-/// was given to `find_function_intro`, in which case
-/// `curly_is_after_position` is true.
+/// was given to `find_function_intro`.
 #[derive(Debug, PartialEq, Eq)]
 pub struct FunctionIntro {
     pub match_range: Range<usize>,
-    pub curly_is_after_position: bool,
     pub nearest_newline_after_start_of_match: Option<usize>,
     pub nearest_newline_after_end_of_match: Option<usize>,
 }
@@ -257,69 +255,53 @@ pub struct FunctionIntro {
 /// `FunctionIntro.match_range` can extend into the part after
 /// `position`.
 pub fn find_function_intro(
+    syntax: impl Syntax,
     contents: &BStr,
     position: usize,
     is_function: impl Fn(&BStr) -> bool,
 ) -> Option<FunctionIntro> {
-    struct CurlyState {
-        last_open_curly: usize,
-        newline_after_curly: Option<usize>,
-    }
+    let opt_end =
+        |match_start: usize,
+         last_char_was_whitespace: bool,
+         nearest_newline_after_start_of_match: Option<usize>| {
+            #[allow(unused)]
+            let position = ();
 
-    let opt_end = {
-        let curly_position_after = OnceCell::new();
-
-        move |curly_state: &Option<CurlyState>,
-              match_start: usize,
-              last_char_was_whitespace: bool,
-              nearest_newline_after_start_of_match: Option<usize>| {
+            // dbg!(match_start);
             if last_char_was_whitespace
                 || !is_function(contents[match_start..].as_bstr())
             {
                 return None;
             }
 
-            let (
-                match_end,
-                curly_is_after_position,
-                nearest_newline_after_end_of_match,
-            );
-            match curly_state {
-                Some(CurlyState {
-                    last_open_curly,
-                    newline_after_curly,
-                }) => {
-                    curly_is_after_position = false;
-                    match_end = last_open_curly + 1;
-                    nearest_newline_after_end_of_match = newline_after_curly
-                        .or_else(|| {
-                            find_byte_position(contents, match_end, b'\n')
-                        });
+            let match_end = match syntax.skip_until_in_level(
+                ContentWithPosition {
+                    content: contents,
+                    position: match_start,
+                },
+                |cwp| {
+                    syntax
+                        .skip_whitespace(cwp)
+                        .map(|cwp| cwp.get(0) == Some(b'{'))
+                        .unwrap_or(false)
+                },
+            ) {
+                Ok(v) => v.map(|cwp| cwp.position),
+                Err(_e) => {
+                    // eprintln!("skip err: {_e}");
+                    None
                 }
-                None => {
-                    curly_is_after_position = true;
-                    // look for '{' *after* position
-                    if let Some(m) = curly_position_after.get_or_init(|| {
-                        find_byte_position(contents, position, b'{')
-                    }) {
-                        match_end = *m;
-                    } else {
-                        return None;
-                    }
-                    nearest_newline_after_end_of_match =
-                        find_byte_position(contents, match_end, b'\n');
-                }
-            };
+            }?;
+
+            let nearest_newline_after_end_of_match =
+                find_byte_position(contents, match_end, b'\n');
             Some(FunctionIntro {
                 match_range: match_start..match_end,
-                curly_is_after_position,
                 nearest_newline_after_start_of_match,
                 nearest_newline_after_end_of_match,
             })
-        }
-    };
+        };
 
-    let mut curly_state = None;
     let mut last_newline = None;
     // Including newlines, for the `opt_end(.., 0, ..)` case
     let mut last_char_was_whitespace = contents
@@ -330,19 +312,10 @@ pub fn find_function_intro(
     for i in (0..position).rev() {
         let b = contents[i];
         match b {
-            b'{' => {
-                curly_state = Some(CurlyState {
-                    last_open_curly: i,
-                    newline_after_curly: last_newline,
-                });
-            }
             b'\n' => {
-                if let Some(res) = opt_end(
-                    &curly_state,
-                    i + 1,
-                    last_char_was_whitespace,
-                    last_newline,
-                ) {
+                if let Some(res) =
+                    opt_end(i + 1, last_char_was_whitespace, last_newline)
+                {
                     return Some(res);
                 }
                 last_newline = Some(i);
@@ -352,7 +325,7 @@ pub fn find_function_intro(
             _ => last_char_was_whitespace = false,
         }
     }
-    opt_end(&curly_state, 0, last_char_was_whitespace, last_newline)
+    opt_end(0, last_char_was_whitespace, last_newline)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -385,14 +358,18 @@ impl ContentsWithMatchRange {
     // manipulation stuff (incl. xmlhub)
 
     /// The whole line(s) in which the match lies, and the area of
-    /// each line that is part of the match. If the `context_*`
-    /// arguments are non-zero, that many more lines are included with
-    /// None for the range. If `is_function` is given (which is give a
-    /// slice into the text from the start of the line suspected to be
-    /// a function definition, and return true if it's OK), the
-    /// nearest part of the file that starts with non-whitespace on a
-    /// new line and extends to the nearest '{' is also included, with
-    /// a ".."  line added if there is a gap.
+    /// each line that is part of the match.
+    ///
+    /// If the `context_*` arguments are non-zero, that many more
+    /// lines are included with None for the range.
+    ///
+    /// If `is_function` is given (which is given the text from the
+    /// start of the line suspected to be a function definition, and
+    /// is to return true if it's an acceptable find), the nearest
+    /// "function" (or similar) context up to the nearest '{' (outside
+    /// nested scopes and comments) (but only up to the match itself)
+    /// is also included, with a ".."  line added if there is a gap
+    /// between it and the match.
     ///
     /// (Panics for context numbers too close to `usize::MAX`!)
     pub fn lines_around_match<F: Fn(&BStr) -> bool>(
@@ -448,11 +425,14 @@ impl ContentsWithMatchRange {
         );
         if line_starts.len() - num_line_starts_before <= context_below {
             // + 1 for a "virtual" line terminator to subtract later
+            // dbg!(backing.as_bstr());
             line_starts.push(backing.len() + 1);
         }
 
         let opt_function_intro = if let Some(is_function) = is_function {
             find_function_intro(
+                // XX todo: make configurable or derive from file suffix
+                syntax::rust::Rust,
                 backing.as_bstr(),
                 range_in_backing.start,
                 is_function,
@@ -643,7 +623,7 @@ mod tests {
     fn t_find_function_intro() {
         // Assume the search start position is at the end of `s`
         let t = |s: &str| {
-            find_function_intro(s.as_ref(), s.len(), |s| {
+            find_function_intro(syntax::rust::Rust, s.as_ref(), s.len(), |s| {
                 !starts_with_word(s, "where".as_ref())
             })
         };
@@ -662,8 +642,7 @@ mod tests {
         assert_eq!(
             t("\nfoo {\n  hello\n  world"),
             Some(FunctionIntro {
-                match_range: 1..6,
-                curly_is_after_position: false,
+                match_range: 1..4,
                 nearest_newline_after_start_of_match: Some(6),
                 nearest_newline_after_end_of_match: Some(6)
             })
@@ -671,8 +650,7 @@ mod tests {
         assert_eq!(
             t("\nfoo \n  hello { \n  world"),
             Some(FunctionIntro {
-                match_range: 1..15,
-                curly_is_after_position: false,
+                match_range: 1..13,
                 nearest_newline_after_start_of_match: Some(5),
                 nearest_newline_after_end_of_match: Some(16)
             })
@@ -680,10 +658,19 @@ mod tests {
         assert_eq!(
             t("\nfoo \n  hello \n { world"),
             Some(FunctionIntro {
-                match_range: 1..17,
-                curly_is_after_position: false,
+                match_range: 1..13,
                 nearest_newline_after_start_of_match: Some(5),
-                nearest_newline_after_end_of_match: None
+                // Because now the whitespace-then-'{' part is not
+                // included in the match, it finds the \n
+                nearest_newline_after_end_of_match: Some(14),
+            })
+        );
+        assert_eq!(
+            t("\nfoo \n  hello  { world"),
+            Some(FunctionIntro {
+                match_range: 1..13,
+                nearest_newline_after_start_of_match: Some(5),
+                nearest_newline_after_end_of_match: None,
             })
         );
         // No match because "where" is excluded
@@ -693,20 +680,18 @@ mod tests {
         assert_eq!(
             t("\nwhereabouts \n  hello \n { world"),
             Some(FunctionIntro {
-                match_range: 1..25,
-                curly_is_after_position: false,
+                match_range: 1..21,
                 nearest_newline_after_start_of_match: Some(13),
-                nearest_newline_after_end_of_match: None
+                nearest_newline_after_end_of_match: Some(22),
             })
         );
         // Find "impl" not "where"
         assert_eq!(
             t("\nimpl \nwhere| \n  hello \n { world"),
             Some(FunctionIntro {
-                match_range: 1..26,
-                curly_is_after_position: false,
+                match_range: 1..22,
                 nearest_newline_after_start_of_match: Some(6),
-                nearest_newline_after_end_of_match: None
+                nearest_newline_after_end_of_match: Some(23),
             })
         );
     }

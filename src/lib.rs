@@ -37,6 +37,7 @@ pub mod range;
 pub mod region;
 pub mod sequences;
 pub mod shared_regions;
+pub mod syntax;
 pub mod text;
 pub mod time;
 pub mod unsafe_util;

@@ -10,7 +10,7 @@ edition = "2021"
 opt-level = "s"
 
 [profile.dev]
-panic = "abort"
+#panic = "abort"
 
 [profile.release]
 opt-level = "s"

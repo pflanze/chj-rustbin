@@ -23,7 +23,7 @@ pub struct Position128 {
 }
 
 macro_rules! impl_position_n {
-    { $Position:tt, $NonZeroU:ty, $NON_ZERO_U_ONE:expr, $u:ty } => {
+    { $Position:tt, $NonZeroU:ty, $u:ty } => {
 
         impl $Position {
             /// Not called `ZERO` because it starts at line 1
@@ -76,7 +76,7 @@ macro_rules! impl_position_n {
             ///
             /// Never panics, does saturating adds.
             fn add(self, rhs: Self) -> Self::Output {
-                if rhs.line == $NON_ZERO_U_ONE {
+                if rhs.line == <$NonZeroU>::ONE {
                     let Self { line, column } = self;
                     Self {
                         line,
@@ -93,8 +93,8 @@ macro_rules! impl_position_n {
     }
 }
 
-impl_position_n!(Position64, NonZeroU32, NonZeroU32::ONE, u32);
-impl_position_n!(Position128, NonZeroU64, NonZeroU64::ONE, u64);
+impl_position_n!(Position64, NonZeroU32, u32);
+impl_position_n!(Position128, NonZeroU64, u64);
 
 #[test]
 fn t_position_size() {

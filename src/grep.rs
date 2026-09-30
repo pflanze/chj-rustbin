@@ -17,6 +17,7 @@ use crate::{
     lines_by_tmp_ref::{
         trim_line_terminator, ContentLinesByTmpRef, ReadLinesByTmpRef,
     },
+    non_zero_utils::NonZeroUtils,
     position::{Position128, Position64},
     range::{range_add, range_within},
     syntax::{self, ContentWithPosition, Syntax},
@@ -128,10 +129,7 @@ impl<'regex, Lines: ByTmpRefIterator<Item = [u8], Error = std::io::Error>>
             let is_match = opt_cs.is_some();
             if is_match.bitxor(invert) {
                 let position = {
-                    let line = unsafe {
-                        // Safe because the addition guarantees that the value is never zero
-                        NonZeroU64::new_unchecked(line_no.saturating_add(1))
-                    };
+                    let line = NonZeroU64::new_inc(line_no);
                     let column = if let Some(cs) = opt_cs {
                         let m = cs.get(1).unwrap_or_else(|| {
                             cs.get(0).expect("docs promises to always succeed")

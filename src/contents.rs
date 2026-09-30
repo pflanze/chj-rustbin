@@ -1,11 +1,12 @@
 use std::{
+    num::NonZeroU32,
     ops::{Deref, Range},
     sync::Arc,
 };
 
 use once_cell::sync::OnceCell;
 
-use crate::position::{Position64, NON_ZERO_U32_ONE};
+use crate::{non_zero_utils::NonZeroUtils, position::Position64};
 
 pub const DEFAULT_BLOCK_SIZE_IN_BYTES: usize = 128;
 
@@ -135,7 +136,7 @@ impl<const BLOCK_SIZE_IN_BYTES: usize> TerminatorIndex<BLOCK_SIZE_IN_BYTES> {
                 })
                 .unwrap_or((TerminatorCountAtEndOfBlock(0), Some(0)));
 
-        let prev_column = if pos_within_sl.line == NON_ZERO_U32_ONE {
+        let prev_column = if pos_within_sl.line == NonZeroU32::ONE {
             // Need previous column value
             opt_prev_column.unwrap_or_else(|| {
                 self.column_at_end_of_block(block_index - 1, content) as u32
@@ -145,7 +146,7 @@ impl<const BLOCK_SIZE_IN_BYTES: usize> TerminatorIndex<BLOCK_SIZE_IN_BYTES> {
             0
         };
         Position64 {
-            line: NON_ZERO_U32_ONE
+            line: NonZeroU32::ONE
                 .saturating_add(terminator_count_at_end_of_previous_block.0),
             column: prev_column,
         } + pos_within_sl

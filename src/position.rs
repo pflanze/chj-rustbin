@@ -4,11 +4,7 @@ use std::{
     ops::Add,
 };
 
-// Safe because 1 is non-zero.
-pub const NON_ZERO_U32_ONE: NonZeroU32 =
-    unsafe { NonZeroU32::new_unchecked(1) };
-pub const NON_ZERO_U64_ONE: NonZeroU64 =
-    unsafe { NonZeroU64::new_unchecked(1) };
+use crate::non_zero_utils::NonZeroUtils;
 
 /// Position within a file, limited to 32-bit values
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -27,15 +23,12 @@ pub struct Position128 {
 }
 
 macro_rules! impl_position_n {
-    { $Position:tt, $NonZeroU:ty, $NON_ZERO_U_ONE:ident, $u:ty } => {
+    { $Position:tt, $NonZeroU:ty, $NON_ZERO_U_ONE:expr, $u:ty } => {
 
         impl $Position {
             /// Not called `ZERO` because it starts at line 1
             pub const TOP_LEFT: $Position = $Position {
-                line: unsafe {
-                    // 1 is NonZero
-                    <$NonZeroU>::new_unchecked(1)
-                },
+                line:  <$NonZeroU>::ONE,
                 column: 0,
             };
 
@@ -100,8 +93,8 @@ macro_rules! impl_position_n {
     }
 }
 
-impl_position_n!(Position64, NonZeroU32, NON_ZERO_U32_ONE, u32);
-impl_position_n!(Position128, NonZeroU64, NON_ZERO_U64_ONE, u64);
+impl_position_n!(Position64, NonZeroU32, NonZeroU32::ONE, u32);
+impl_position_n!(Position128, NonZeroU64, NonZeroU64::ONE, u64);
 
 #[test]
 fn t_position_size() {

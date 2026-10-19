@@ -11,6 +11,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context, Result};
+use bstr::BString;
 use which::which;
 
 use crate::util::format_string_list;
@@ -31,13 +32,13 @@ pub trait ResponseStorage {
 pub struct ResponseToVec;
 
 impl ResponseStorage for ResponseToVec {
-    type Output = Vec<u8>;
+    type Output = BString;
 
     fn into_output_file(self) -> Option<File> {
         None
     }
     fn make_output(v: Vec<u8>) -> Self::Output {
-        v
+        v.into()
     }
 }
 

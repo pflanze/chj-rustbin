@@ -23,6 +23,7 @@ external-webget = { path = "libs/external-webget" }
 ref-cons-list = { path = "libs/ref-cons-list" }
 
 # External
+cj-path-util = { version = "0.3.0", features = ["unix"] }
 #clap-with-warnings = { path = "../clap-with-warnings/clap-with-warnings" }
 # removed for Debian bookworm:
 #clap-with-warnings = "0.1.1"

@@ -115,6 +115,7 @@ dependencies = [
  "bstr",
  "bstr_parse",
  "chrono",
+ "cj-path-util",
  "clap",
  "derive_arbitrary",
  "enumn",
@@ -156,6 +157,19 @@ dependencies = [
  "time",
  "wasm-bindgen",
  "winapi",
+]
+
+[[package]]
+name = "cj-path-util"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "00c8606eb5dfb088cb1965dd17ccb210737f4aa64d8f4312b3d242c2f18354ff"
+dependencies = [
+ "anyhow",
+ "lazy_static",
+ "log",
+ "nix",
+ "thiserror 1.0.37",
 ]
 
 [[package]]
@@ -518,6 +532,12 @@ name = "kstring"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b310ccceade8121d7d77fee406160e457c2f4e7c7982d589da3499bc7ea4526"
+
+[[package]]
+name = "lazy_static"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 
 [[package]]
 name = "libc"

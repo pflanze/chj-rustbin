@@ -1,6 +1,19 @@
 all:
 	cargo build --release
 
+# Build without involving rustup, using Debian's packages (`apt
+# install rustc cargo rust-src musl-dev musl-tools
+# libunwind-22-dev`). Needs `panic = "abort"` (not totally clear why,
+# now that the llvm-libunwind can actually be used; a compile time
+# assert in std fails).
+all-musl:
+	RUSTC_BOOTSTRAP=1 \
+	CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc \
+	RUSTFLAGS="-C link-self-contained=no -L native=/usr/lib/llvm-22/lib -C link-arg=-lc" \
+	cargo -Z build-std=std,panic_abort \
+	      -Z build-std-features=panic_immediate_abort,system-llvm-libunwind \
+	      build --release --target x86_64-unknown-linux-musl
+
 test_intersection: target/release/intersection
 	test/intersection-run
 
@@ -42,13 +55,17 @@ target/release/%: src/bin/%.rs src/*.rs src/io/*.rs src/parse/*.rs src/text/*.rs
 # a src/*.rs file; and then running make as root again runs cargo
 # again, which is rebuilding everything.
 
-/usr/local/bin/lastitem: target/release/lastitem
-	install target/release/lastitem /usr/local/bin/lastitem
+target/x86_64-unknown-linux-musl/release/%: src/bin/%.rs src/*.rs src/io/*.rs src/parse/*.rs src/text/*.rs src/time/*.rs src/util/*.rs
+	make all-musl
+	touch $@
+
+/usr/local/bin/lastitem: target/$(TARGET)/release/lastitem
+	install target/$(TARGET)/release/lastitem /usr/local/bin/lastitem
 	rm -f /usr/local/bin/lastfile && ln -s -r /usr/local/bin/lastitem /usr/local/bin/lastfile
 	rm -f /usr/local/bin/lastdir && ln -s -r /usr/local/bin/lastitem /usr/local/bin/lastdir
 
-/usr/local/bin/e: target/release/e
-	install target/release/e /usr/local/bin/e
+/usr/local/bin/e: target/$(TARGET)/release/e
+	install target/$(TARGET)/release/e /usr/local/bin/e
 	rm -f /usr/local/bin/ew && ln -s -r /usr/local/bin/e /usr/local/bin/ew
 	rm -f /usr/local/bin/eg && ln -s -r /usr/local/bin/e /usr/local/bin/eg
 	rm -f /usr/local/bin/g && ln -s -r /usr/local/bin/e /usr/local/bin/g
@@ -57,7 +74,7 @@ target/release/%: src/bin/%.rs src/*.rs src/io/*.rs src/parse/*.rs src/text/*.rs
 	rm -f /usr/local/bin/f && ln -s -r /usr/local/bin/e /usr/local/bin/f
 	rm -f /usr/local/bin/fw && ln -s -r /usr/local/bin/e /usr/local/bin/fw
 
-/usr/local/bin/%: target/release/%
+/usr/local/bin/%: target/$(TARGET)/release/%
 	install $< $@
 
 
@@ -70,5 +87,8 @@ install: /usr/local/bin/duu
 install: /usr/local/bin/lst
 install: /usr/local/bin/onthemove
 install: /usr/local/bin/debian-version
+
+install-musl:
+	TARGET=x86_64-unknown-linux-musl make install
 
 .PHONY: test test_intersection

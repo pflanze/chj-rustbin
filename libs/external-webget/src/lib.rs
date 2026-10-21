@@ -42,6 +42,13 @@ impl ResponseStorage for ResponseToVec {
     }
 }
 
+/// Write the response to a file
+///
+/// Note: if you have a `cj_path_util::TempFile`, use its
+/// `into_constituents` method to get the `File`.
+///
+// NOTE: it's not possible to (mutably) borrow File:
+// `command.stdout(..)` in the code requires moving the `File`.
 pub struct ResponseToFile(pub File);
 
 impl ResponseStorage for ResponseToFile {

@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use cj_path_util::tempfile_utils::tempfile_unbuffered;
+use cj_path_util::temp_file::unbuffered_temp_file_for;
 use clap::Parser;
 
 use external_webget::{
@@ -51,9 +51,10 @@ fn main() -> Result<()> {
         headers,
     };
     if let Some(path) = &opts.file {
-        let (tmpfile, file) = tempfile_unbuffered(path.clone(), true)?;
+        let temp_file = unbuffered_temp_file_for(path.clone(), None)?;
+        let (temp_path, file) = temp_file.into_constituents();
         let () = webget.request(&request, ResponseToFile(file))?;
-        tmpfile.finish()?;
+        temp_path.persist()?;
     } else {
         let response = webget.request(&request, ResponseToVec)?;
         let mut out = stdout().lock();

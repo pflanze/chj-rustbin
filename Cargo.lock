@@ -161,9 +161,9 @@ dependencies = [
 
 [[package]]
 name = "cj-path-util"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00c8606eb5dfb088cb1965dd17ccb210737f4aa64d8f4312b3d242c2f18354ff"
+checksum = "306289ccbc14f919c0ba5a062cfc01ea0b2bbdc148860abafb31d4351fa0d654"
 dependencies = [
  "anyhow",
  "lazy_static",

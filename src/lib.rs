@@ -37,6 +37,7 @@ pub mod path_util;
 pub mod position;
 pub mod range;
 pub mod region;
+pub mod script_tools;
 pub mod sequences;
 pub mod shared_regions;
 pub mod syntax;

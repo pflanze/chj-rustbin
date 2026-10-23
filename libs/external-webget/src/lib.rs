@@ -6,8 +6,8 @@
 pub mod util;
 
 use std::{
-    borrow::Cow, fs::File, os::unix::process::ExitStatusExt, path::PathBuf,
-    process::Command, str::FromStr,
+    borrow::Cow, fs::File, os::unix::process::ExitStatusExt, path::Path,
+    process::Command, str::FromStr, sync::Arc,
 };
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -155,16 +155,42 @@ impl WebGetCommand {
 #[derive(Clone, PartialEq, Debug)]
 pub struct WebGet {
     command: WebGetCommand,
-    command_path: PathBuf,
+    command_path: Arc<Path>,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("command {:?} with arguments {:?} exited with {} (stderr: {:?})",
+        .web_get.command_path,
+        .args,
+        .what,
+        .stderr
+)]
+pub struct OtherRequestError {
+    web_get: WebGet,
+    args: Vec<Box<str>>,
+    what: String,
+    stderr: String,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RequestError {
+    #[error("404 not found")]
+    NotFound,
+    #[error("running the external web get command: {0}")]
+    RunningCommand(anyhow::Error),
+    #[error("{0}")]
+    Other(Box<OtherRequestError>),
 }
 
 impl WebGet {
     /// Use the given command
     pub fn new(command: WebGetCommand) -> Result<Self> {
         let command_name = command.command_name();
-        let command_path = which(command_name).with_context(|| {
-            anyhow!("could not find command {command_name:?}")
-        })?;
+        let command_path = which(command_name)
+            .with_context(|| {
+                anyhow!("could not find command {command_name:?}")
+            })?
+            .into();
         Ok(WebGet {
             command,
             command_path,
@@ -180,7 +206,7 @@ impl WebGet {
                 Ok(command_path) => {
                     return Ok(WebGet {
                         command: *command,
-                        command_path,
+                        command_path: command_path.into(),
                     })
                 }
                 Err(_) => (),
@@ -204,7 +230,7 @@ impl WebGet {
         &self,
         request: &Request,
         output: O,
-    ) -> Result<O::Output> {
+    ) -> Result<O::Output, RequestError> {
         // Can't use Cow<str> in args as that doesn't cast to OsStr, bummer.
         let mut args: Vec<&str> = vec![];
 
@@ -222,16 +248,23 @@ impl WebGet {
             self.command.add_header(header.as_ref(), &mut args);
         }
 
-        let mut command = Command::new(&self.command_path);
+        let mut command = Command::new(&*self.command_path);
         command.args(&args);
 
         if let Some(output_file) = output.into_output_file() {
             command.stdout(output_file);
         }
 
-        let output = command.output().with_context(|| {
-            anyhow!("running {:?} with arguments {:?}", self.command_path, args)
-        })?;
+        let output = command
+            .output()
+            .with_context(|| {
+                anyhow!(
+                    "running {:?} with arguments {:?}",
+                    self.command_path,
+                    args
+                )
+            })
+            .map_err(RequestError::RunningCommand)?;
 
         if output.status.success() {
             Ok(O::make_output(output.stdout))
@@ -244,12 +277,15 @@ impl WebGet {
                 format!("unknown??")
             };
             let stderr = output.stderr;
-            bail!(
-                "command {:?} with arguments {:?} exited with {what} (stderr: {:?})",
-                self.command_path,
-                args,
-                String::from_utf8_lossy(&stderr)
-            )
+            Err(RequestError::Other(
+                OtherRequestError {
+                    web_get: self.clone(),
+                    args: args.iter().map(|v| (*v).into()).collect(),
+                    what,
+                    stderr: String::from_utf8_lossy(&stderr).into(),
+                }
+                .into(),
+            ))
         }
     }
 }

@@ -11,6 +11,7 @@ pub mod contents;
 pub mod cpu_probe;
 pub mod debian_version;
 pub mod duu;
+pub mod easy_webget;
 pub mod efficient_regex;
 pub mod filtered;
 pub mod fp;

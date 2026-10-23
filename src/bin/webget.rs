@@ -29,7 +29,7 @@ struct Opts {
     follow: bool,
 
     /// Output file
-    #[clap(long)]
+    #[clap(short = 'o', long)]
     file: Option<PathBuf>,
 
     /// URL to retrieve

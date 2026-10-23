@@ -1,7 +1,11 @@
-//! A wrapper around the `curl`, `wget`, or `GET` utilities to
+//! A wrapper around the `curl`, `wget` (or previously `GET`) utilities to
 //! retrieve web pages. To save on code size (i.e. to avoid linking
 //! tokio, reqwest, a system ssl library (probably openssl) which
 //! reqwest does statically hence never security-updated).
+//!
+//! (Support for `GET` has been removed as it cannot signal what kind
+//! of server error happened other than via `-s` to stdout, at which
+//! point streaming to a file is not possible anymore.)
 
 pub mod util;
 
@@ -11,7 +15,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context, Result};
-use bstr::BString;
+use bstr::{BStr, BString, ByteSlice};
 use which::which;
 
 use crate::util::format_string_list;
@@ -67,7 +71,6 @@ impl ResponseStorage for ResponseToFile {
 pub enum WebGetCommand {
     Curl,
     Wget,
-    GET,
 }
 
 impl FromStr for WebGetCommand {
@@ -78,33 +81,34 @@ impl FromStr for WebGetCommand {
         match s {
             "curl" => Ok(Curl),
             "wget" => Ok(Wget),
-            "GET" => Ok(GET),
-            _ => bail!(
-                "unsupported command, needs to be one of curl | wget | GET"
-            ),
+            _ => bail!("unsupported command, needs to be one of curl | wget"),
         }
     }
+}
+
+enum RequestErrorReason {
+    NotFound,
+    Other,
 }
 
 impl WebGetCommand {
     pub const LIST: &'static [WebGetCommand] = {
         use WebGetCommand::*;
-        &[Curl, Wget, GET]
+        &[Curl, Wget]
     };
 
     pub fn command_name(self) -> &'static str {
         match self {
             WebGetCommand::Curl => "curl",
             WebGetCommand::Wget => "wget",
-            WebGetCommand::GET => "GET",
         }
     }
 
+    /// Fixed options always used
     pub fn request_options(self) -> &'static [&'static str] {
         match self {
-            WebGetCommand::Curl => &["--silent", "--show-error"],
+            WebGetCommand::Curl => &["--silent", "--show-error", "--fail"],
             WebGetCommand::Wget => &["--no-verbose", "-O", "-"],
-            WebGetCommand::GET => &[],
         }
     }
 
@@ -132,7 +136,6 @@ impl WebGetCommand {
                     &["--max-redirect=0"]
                 }
             }
-            WebGetCommand::GET => &[], // XX? follows by default, can't be turned off?
         }
     }
 
@@ -144,9 +147,29 @@ impl WebGetCommand {
                 arguments.push("--header".into());
                 arguments.push(header.into());
             }
-            WebGetCommand::GET => {
-                arguments.push("-H".into());
-                arguments.push(header.into());
+        }
+    }
+
+    fn error_reason(self, exit_code: i32, stderr: &BStr) -> RequestErrorReason {
+        match self {
+            WebGetCommand::Curl => match exit_code {
+                22 => {
+                    // HTTP  page  not retrieved. The requested URL was not found or returned another error with the
+                    // HTTP error code being 400 or above. This return code only appears if -f, --fail is used.
+                    if stderr.contains_str(b"error: 404") {
+                        RequestErrorReason::NotFound
+                    } else {
+                        RequestErrorReason::Other
+                    }
+                }
+                _ => RequestErrorReason::Other,
+            },
+            WebGetCommand::Wget => {
+                if stderr.contains_str(b"ERROR 404: Not Found") {
+                    RequestErrorReason::NotFound
+                } else {
+                    RequestErrorReason::Other
+                }
             }
         }
     }
@@ -269,20 +292,25 @@ impl WebGet {
         if output.status.success() {
             Ok(O::make_output(output.stdout))
         } else {
+            let stderr = &output.stderr;
             let what = if let Some(code) = output.status.code() {
-                format!("exit code {code}")
+                match self.command.error_reason(code, stderr.as_bstr()) {
+                    RequestErrorReason::NotFound => {
+                        return Err(RequestError::NotFound)
+                    }
+                    RequestErrorReason::Other => format!("exit code {code}"),
+                }
             } else if let Some(signal) = output.status.signal() {
                 format!("signal {signal}")
             } else {
                 format!("unknown??")
             };
-            let stderr = output.stderr;
             Err(RequestError::Other(
                 OtherRequestError {
                     web_get: self.clone(),
                     args: args.iter().map(|v| (*v).into()).collect(),
                     what,
-                    stderr: String::from_utf8_lossy(&stderr).into(),
+                    stderr: String::from_utf8_lossy(stderr).into(),
                 }
                 .into(),
             ))

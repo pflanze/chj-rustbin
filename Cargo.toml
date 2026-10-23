@@ -17,10 +17,15 @@ opt-level = "s"
 # bummer, have to do that for musl builds using Debian's host musl
 panic = "abort"
 
+[features]
+only_static_path_strings = []
+
 [dependencies]
 # Local
 external-webget = { path = "libs/external-webget" }
 ref-cons-list = { path = "libs/ref-cons-list" }
+into-cow-path = { path = "libs/into-cow-path" }
+maybe-expand-tilde = { path = "libs/maybe-expand-tilde" }
 
 # External
 cj-path-util = { version = "0.4.0", features = ["unix"] }

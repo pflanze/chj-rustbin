@@ -9,3 +9,4 @@ license = "MIT OR Apache-2.0"
 anyhow = "1.0"
 bstr = { version = "1.10.0", default-features = false, features = ["std", "alloc"] }
 which = { version = "3.1.1", default-features = false, features = [] }
+thiserror = "1.0.37"

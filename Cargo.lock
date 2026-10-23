@@ -436,6 +436,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "bstr",
+ "thiserror 1.0.37",
  "which",
 ]
 

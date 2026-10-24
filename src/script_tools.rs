@@ -129,3 +129,50 @@ pub fn cmd_capturing_stderr<A: AsRef<OsStr>>(
         }
     }
 }
+
+/// Run prog with args, capturing both its stdout and stderr,
+/// returning them in that order.
+pub fn cmd_capturing_both<A: AsRef<OsStr>>(
+    prog: &str,
+    args: impl IntoIterator<Item = A>,
+    acceptable_exit_codes: &[i32],
+) -> Result<(BString, BString)> {
+    let mut cmd = Command::new(prog);
+    cmd.args(args);
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+
+    let mut child = cmd.spawn()?;
+
+    let child_stdout = child.stdout.as_mut().expect("asked for it above");
+    let child_stderr = child.stderr.as_mut().expect("asked for it above");
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+
+    let (r1, r2) = rayon::join(
+        || child_stdout.read_to_end(&mut stdout),
+        || child_stderr.read_to_end(&mut stderr),
+    );
+    r1?;
+    r2?;
+
+    let status = child.wait()?;
+
+    let stdout = stdout.into();
+    let stderr = stderr.into();
+
+    if status.success() {
+        Ok((stdout, stderr))
+    } else {
+        if let Some(code) = status.code() {
+            if acceptable_exit_codes.contains(&code) {
+                Ok((stdout, stderr))
+            } else {
+                bail!("{prog:?} exited with code {code} after printing {stderr:?}")
+            }
+        } else {
+            let signal = status.signal();
+            bail!("{prog:?} exited via signal {signal:?} after printing {stderr:?}")
+        }
+    }
+}

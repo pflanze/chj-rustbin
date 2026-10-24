@@ -95,3 +95,37 @@ pub fn cmd_backtick<A: AsRef<OsStr>>(
         }
     }
 }
+
+/// Run prog with args, capturing its stderr, but letting it inherit
+/// stdout.
+pub fn cmd_capturing_stderr<A: AsRef<OsStr>>(
+    prog: &str,
+    args: impl IntoIterator<Item = A>,
+    acceptable_exit_codes: &[i32],
+) -> Result<BString> {
+    let mut cmd = Command::new(prog);
+    cmd.args(args);
+    cmd.stderr(Stdio::piped());
+
+    let mut child = cmd.spawn()?;
+    let out = child.stderr.as_mut().expect("asked for it above");
+    let mut output = Vec::new();
+    out.read_to_end(&mut output)?;
+    let output = output.into();
+    let status = child.wait()?;
+
+    if status.success() {
+        Ok(output)
+    } else {
+        if let Some(code) = status.code() {
+            if acceptable_exit_codes.contains(&code) {
+                Ok(output)
+            } else {
+                bail!("{prog:?} exited with code {code} after printing {output:?}")
+            }
+        } else {
+            let signal = status.signal();
+            bail!("{prog:?} exited via signal {signal:?} after printing {output:?}")
+        }
+    }
+}

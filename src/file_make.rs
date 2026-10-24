@@ -66,7 +66,11 @@ where
                         )
                     })
                     .map_err(MakeError::FileHandling)?;
-                if dependency_modified >= target_modified {
+                // Do not use `>=` as that fails when hard-linking (or
+                // cp -a) files, them having identical mtime. Be
+                // careful, though, overwrites to the dependency would
+                // also update the target!
+                if dependency_modified > target_modified {
                     build()?;
                     break;
                 }

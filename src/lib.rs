@@ -16,6 +16,7 @@ pub mod efficient_regex;
 pub mod filtered;
 pub mod fp;
 pub mod get_terminal_width;
+pub mod gpg;
 pub mod grep;
 pub mod hack_static;
 pub mod index_map;

@@ -2,6 +2,7 @@ use std::{
     ffi::OsStr,
     io::Read,
     os::unix::process::ExitStatusExt,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
 };
 
@@ -175,4 +176,15 @@ pub fn cmd_capturing_both<A: AsRef<OsStr>>(
             bail!("{prog:?} exited via signal {signal:?} after printing {stderr:?}")
         }
     }
+}
+
+/// Get a list of the paths to all items in `dir`, sorted by path
+pub fn ls_paths(dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut items = dir
+        .read_dir()
+        .context("opening dir")?
+        .map(|item| Ok(item.context("getting item")?.path()))
+        .collect::<Result<Vec<PathBuf>>>()?;
+    items.sort();
+    Ok(items)
 }

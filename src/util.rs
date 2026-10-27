@@ -4,6 +4,7 @@ pub mod let_format_or;
 pub mod limited_warn;
 pub mod link_rename;
 pub mod map_trait;
+pub mod num_hardware_threads;
 pub mod pad;
 pub mod range_utils;
 pub mod scope;

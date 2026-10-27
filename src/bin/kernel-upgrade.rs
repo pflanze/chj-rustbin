@@ -15,7 +15,7 @@ use chj_rustbin::{
     easy_webget::{EasyWebget, GetToFileError},
     file_make::{file_make, MakeError},
     gpg::Gpg,
-    script_tools::{cmd, CmdCwd, SetX},
+    script_tools::{cmd, touch, CmdCwd, SetX},
     scripting::{kernel_version::KernelVersion, sha256sum::sha256sum},
     util::{
         anyhow::AnyhowError, link_rename::link_rename,
@@ -43,14 +43,14 @@ struct Opts {
     num_cores: Option<NonZeroUsize>,
 
     /// Path to the base directory containing a "linux" subdir with the kernel
-    /// sources. "patches" and "hashes" subdirs will be created.
+    /// sources. "hashes", "patches" and "stamps" subdirs will be created.
     base_dir: PathBuf,
 }
 
 /// Map a relative path to the SHA-256 hash hex string
 struct PathFileHashes(HashMap<OsString, BString>);
 
-def_subdirs! {Dirs => patches, linux, hashes}
+def_subdirs! {Dirs => linux, hashes, patches, stamps}
 
 #[derive(Debug)]
 struct KernelWorker {
@@ -169,15 +169,34 @@ struct Kernel<'worker> {
 }
 
 impl<'worker> Kernel<'worker> {
-    fn build(&self, num_cores: NonZeroUsize) -> Result<()> {
-        // (XX todo: redirect into a file? All of the program's output, right,
-        // i.e. set stdout and stderr temporarily?)
-        let j = &format!("-j{num_cores}");
-        let _cwd = CmdCwd::new(self.worker.dirs.linux().clone());
-        cmd("make", ["oldconfig"])?;
-        cmd("make", [j])?;
-        cmd("make", [j, "modules"])?;
-        Ok(())
+    fn stamp_path(&self) -> PathBuf {
+        self.worker.dirs.stamps().append(self.version.to_string())
+    }
+
+    /// (Returns the path to the stamp file)
+    fn build(
+        &self,
+        num_cores: NonZeroUsize,
+    ) -> Result<Arc<Path>, MakeError<AnyhowError>> {
+        let linux_path = self.worker.dirs.linux();
+        file_make(
+            self.stamp_path(),
+            &[&linux_path.append("vmlinux")],
+            |target, _dependencies| {
+                {
+                    // (XX todo: redirect into a file? All of the program's output, right,
+                    // i.e. set stdout and stderr temporarily?)
+
+                    let j = &format!("-j{num_cores}");
+                    let _cwd = CmdCwd::new(linux_path.clone());
+                    cmd("make", ["oldconfig"])?;
+                    cmd("make", [j])?;
+                    cmd("make", [j, "modules"])?;
+                }
+                touch(target)?;
+                Ok(())
+            },
+        )
     }
 
     fn the_patch_to_next_point_version(&self) -> KernelPatch<'worker> {

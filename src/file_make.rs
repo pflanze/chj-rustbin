@@ -26,7 +26,7 @@ where
 {
     let target = target.into_arc_path();
     let build = || {
-        eprintln!("making {target:?}");
+        eprintln!("making target {target:?}");
         build_action(&target, dependencies).map_err(MakeError::BuildAction)
     };
     match target.symlink_metadata() {
@@ -43,37 +43,39 @@ where
                     anyhow!("getting modified for target {target:?}")
                 })
                 .map_err(MakeError::FileHandling)?;
-
-            for dependency in dependencies {
-                let dependency_metadata = dependency
-                    .metadata()
-                    .with_context(|| {
-                        anyhow!(
+            'check_dependency_times: {
+                for dependency in dependencies {
+                    let dependency_metadata = dependency
+                        .metadata()
+                        .with_context(|| {
+                            anyhow!(
                             "can't get metadata of dependency {dependency:?}"
                         )
-                    })
-                    .map_err(MakeError::FileHandling)?;
-                if dependency_metadata.is_symlink() {
-                    Err(MakeError::FileHandling(anyhow!(
+                        })
+                        .map_err(MakeError::FileHandling)?;
+                    if dependency_metadata.is_symlink() {
+                        Err(MakeError::FileHandling(anyhow!(
                         "dependency path exists but is a symlink: {dependency:?}"
                     )))?
-                }
-                let dependency_modified = dependency_metadata
-                    .modified()
-                    .with_context(|| {
-                        anyhow!(
+                    }
+                    let dependency_modified = dependency_metadata
+                        .modified()
+                        .with_context(|| {
+                            anyhow!(
                             "getting modified for dependency {dependency:?}"
                         )
-                    })
-                    .map_err(MakeError::FileHandling)?;
-                // Do not use `>=` as that fails when hard-linking (or
-                // cp -a) files, them having identical mtime. Be
-                // careful, though, overwrites to the dependency would
-                // also update the target!
-                if dependency_modified > target_modified {
-                    build()?;
-                    break;
+                        })
+                        .map_err(MakeError::FileHandling)?;
+                    // Do not use `>=` as that fails when hard-linking (or
+                    // cp -a) files, them having identical mtime. Be
+                    // careful, though, overwrites to the dependency would
+                    // also update the target!
+                    if dependency_modified > target_modified {
+                        build()?;
+                        break 'check_dependency_times;
+                    }
                 }
+                eprintln!("target {target:?} is up to date");
             }
         }
         Err(e) => match e.kind() {

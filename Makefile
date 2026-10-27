@@ -1,17 +1,13 @@
 all:
 	cargo build --release
 
-# Build without involving rustup, using Debian's packages (`apt
-# install rustc cargo rust-src musl-dev musl-tools
-# libunwind-22-dev`). Needs `panic = "abort"` (not totally clear why,
-# now that the llvm-libunwind can actually be used; a compile time
-# assert in std fails).
+# Build without involving rustup, using Debian's packages (`apt install rustc
+# cargo rust-src musl-dev musl-tools`).
 all-musl:
 	RUSTC_BOOTSTRAP=1 \
 	CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc \
 	RUSTFLAGS="-C link-self-contained=no -L native=$$HOME/opt/libunwind-musl/lib -C link-arg=-lunwind -C link-arg=-lc" \
-	cargo -Z build-std=std,panic_abort \
-	      -Z build-std-features=panic_immediate_abort \
+	cargo -Z build-std=std \
 	      build --release --target x86_64-unknown-linux-musl
 
 test_intersection: target/release/intersection

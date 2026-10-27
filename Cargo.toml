@@ -14,8 +14,6 @@ opt-level = "s"
 
 [profile.release]
 opt-level = "s"
-# bummer, have to do that for musl builds using Debian's host musl
-panic = "abort"
 
 [features]
 only_static_path_strings = []

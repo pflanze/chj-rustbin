@@ -9,9 +9,9 @@ all:
 all-musl:
 	RUSTC_BOOTSTRAP=1 \
 	CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc \
-	RUSTFLAGS="-C link-self-contained=no -L native=/usr/lib/llvm-22/lib -C link-arg=-lc" \
+	RUSTFLAGS="-C link-self-contained=no -L native=$$HOME/opt/libunwind-musl/lib -C link-arg=-lunwind -C link-arg=-lc" \
 	cargo -Z build-std=std,panic_abort \
-	      -Z build-std-features=panic_immediate_abort,system-llvm-libunwind \
+	      -Z build-std-features=panic_immediate_abort \
 	      build --release --target x86_64-unknown-linux-musl
 
 test_intersection: target/release/intersection

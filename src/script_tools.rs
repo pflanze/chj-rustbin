@@ -1,11 +1,13 @@
 use std::{
-    cell::Cell,
+    cell::{Cell, RefCell},
+    collections::BTreeMap,
     ffi::OsStr,
     io::Read,
     marker::PhantomData,
     os::unix::process::ExitStatusExt,
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::Arc,
 };
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -39,6 +41,45 @@ impl Drop for SetX {
     }
 }
 
+thread_local! {
+    static CWD: RefCell<BTreeMap<u64, Arc<Path>>> = BTreeMap::new().into();
+    /// Running id used in the above set
+    static CWD_ID: Cell<u64> = 0.into();
+}
+
+/// Construction, until dropped, defines the directory within which subsequent
+/// commands are executed.
+pub struct CmdCwd(u64);
+
+impl CmdCwd {
+    /// Directory from which to execute commands, until dropped.
+    ///
+    /// This only registers the given path, which can be relative, for future
+    /// `cmd_*` executions--it does not change the current directory of the
+    /// current process (the parent process of the future commands), nor is the
+    /// given path canonicalized at the time of registration. Dropping removes
+    /// the registration again, meaning previous still active registrations will
+    /// be used. Careful: the registration is resolved at the time of running a
+    /// command, thus changing the actual current dir while relative
+    /// registrations are active may not lead to the outcome that you want.
+    pub fn new(path: Arc<Path>) -> Self {
+        let id = CWD_ID.get();
+        CWD_ID.set(id + 1);
+        CWD.with_borrow_mut(|b| {
+            b.insert(id, path);
+        });
+        CmdCwd(id)
+    }
+}
+
+impl Drop for CmdCwd {
+    fn drop(&mut self) {
+        CWD.with_borrow_mut(|b| {
+            b.remove(&self.0);
+        });
+    }
+}
+
 pub fn cmd_acceptable<A: AsRef<OsStr>>(
     prog: &str,
     args: impl IntoIterator<Item = A>,
@@ -46,6 +87,11 @@ pub fn cmd_acceptable<A: AsRef<OsStr>>(
 ) -> Result<i32> {
     let mut cmd = Command::new(prog);
     cmd.args(args);
+    CWD.with_borrow(|b| {
+        if let Some((_, path)) = b.last_key_value() {
+            cmd.current_dir(path);
+        }
+    });
     if tracing() {
         eprintln!("+ {cmd:?}");
     }
@@ -108,6 +154,11 @@ pub fn cmd_backtick<A: AsRef<OsStr>>(
     let mut cmd = Command::new(prog);
     cmd.args(args);
     cmd.stdout(Stdio::piped());
+    CWD.with_borrow(|b| {
+        if let Some((_, path)) = b.last_key_value() {
+            cmd.current_dir(path);
+        }
+    });
     if tracing() {
         eprintln!("+ `{cmd:?}`");
     }
@@ -144,6 +195,11 @@ pub fn cmd_capturing_stderr<A: AsRef<OsStr>>(
     let mut cmd = Command::new(prog);
     cmd.args(args);
     cmd.stderr(Stdio::piped());
+    CWD.with_borrow(|b| {
+        if let Some((_, path)) = b.last_key_value() {
+            cmd.current_dir(path);
+        }
+    });
     if tracing() {
         eprintln!("+ `{cmd:?}`2");
     }
@@ -182,6 +238,11 @@ pub fn cmd_capturing_both<A: AsRef<OsStr>>(
     cmd.args(args);
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
+    CWD.with_borrow(|b| {
+        if let Some((_, path)) = b.last_key_value() {
+            cmd.current_dir(path);
+        }
+    });
     if tracing() {
         eprintln!("+ `{cmd:?} 2>&1`");
     }

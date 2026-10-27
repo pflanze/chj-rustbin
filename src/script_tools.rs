@@ -1,6 +1,8 @@
 use std::{
+    cell::Cell,
     ffi::OsStr,
     io::Read,
+    marker::PhantomData,
     os::unix::process::ExitStatusExt,
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -11,6 +13,32 @@ use anyhow::{anyhow, bail, Context, Result};
 use bstr::BString;
 use maybe_expand_tilde::{let_path_expand_tilde, MaybeExpandTilde};
 
+// 0 = silent, 1+ = set -x style command tracing
+thread_local! {
+    static TRACE: Cell<u32> = 0.into();
+}
+
+fn tracing() -> bool {
+    TRACE.get() > 0
+}
+
+/// Constructing enables tracing, dropping disables it (unless other `SetX`
+/// instances still exist)
+pub struct SetX(PhantomData<()>);
+
+impl SetX {
+    pub fn new() -> Self {
+        TRACE.set(TRACE.get() + 1);
+        SetX(PhantomData)
+    }
+}
+
+impl Drop for SetX {
+    fn drop(&mut self) {
+        TRACE.set(TRACE.get() - 1);
+    }
+}
+
 pub fn cmd_acceptable<A: AsRef<OsStr>>(
     prog: &str,
     args: impl IntoIterator<Item = A>,
@@ -18,6 +46,9 @@ pub fn cmd_acceptable<A: AsRef<OsStr>>(
 ) -> Result<i32> {
     let mut cmd = Command::new(prog);
     cmd.args(args);
+    if tracing() {
+        eprintln!("+ {cmd:?}");
+    }
     let status = cmd
         .status()
         .with_context(|| anyhow!("running external command {prog:?}"))?;
@@ -60,6 +91,9 @@ pub fn catfile<'t>(path: impl MaybeExpandTilde<'t>) -> Result<String> {
 
 pub fn cd<'t>(path: impl MaybeExpandTilde<'t>) -> Result<()> {
     let_path_expand_tilde!(path);
+    if tracing() {
+        eprintln!("+ cd {path:?}");
+    }
     std::env::set_current_dir(&path).with_context(|| anyhow!("cd {path:?}"))
 }
 
@@ -74,6 +108,9 @@ pub fn cmd_backtick<A: AsRef<OsStr>>(
     let mut cmd = Command::new(prog);
     cmd.args(args);
     cmd.stdout(Stdio::piped());
+    if tracing() {
+        eprintln!("+ `{cmd:?}`");
+    }
 
     let mut child = cmd.spawn()?;
     let stdout = child.stdout.as_mut().expect("asked for it above");
@@ -107,6 +144,9 @@ pub fn cmd_capturing_stderr<A: AsRef<OsStr>>(
     let mut cmd = Command::new(prog);
     cmd.args(args);
     cmd.stderr(Stdio::piped());
+    if tracing() {
+        eprintln!("+ `{cmd:?}`2");
+    }
 
     let mut child = cmd.spawn()?;
     let out = child.stderr.as_mut().expect("asked for it above");
@@ -142,6 +182,9 @@ pub fn cmd_capturing_both<A: AsRef<OsStr>>(
     cmd.args(args);
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
+    if tracing() {
+        eprintln!("+ `{cmd:?} 2>&1`");
+    }
 
     let mut child = cmd.spawn()?;
 

@@ -2,6 +2,7 @@ use std::{
     cell::{Cell, RefCell},
     collections::BTreeMap,
     ffi::OsStr,
+    fs::File,
     io::Read,
     marker::PhantomData,
     os::unix::process::ExitStatusExt,
@@ -291,4 +292,25 @@ pub fn ls_paths(dir: &Path) -> Result<Vec<PathBuf>> {
         .collect::<Result<Vec<PathBuf>>>()?;
     items.sort();
     Ok(items)
+}
+
+/// Create the file at `path` or update its modification time if it
+/// exists.
+///
+/// Careful: gives an error for directories. Follows symlinks. Currently only
+/// manually tested, only on Linux.
+pub fn touch(path: &Path) -> Result<()> {
+    File::create(path).with_context(|| anyhow!("touch {path:?}"))?;
+    Ok(())
+}
+
+#[test]
+fn t_touch() -> Result<()> {
+    // touch("fun".as_ref())?;
+    // touch("fun".as_ref())?;
+    // touch("/bar".as_ref())?;
+    // touch("/usr".as_ref())?;
+    // touch("/lib".as_ref())?;
+    // touch("/opt/chj/bin/concentrate".as_ref())?;
+    Ok(())
 }

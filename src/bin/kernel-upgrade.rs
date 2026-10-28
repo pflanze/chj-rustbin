@@ -245,7 +245,7 @@ impl<'worker> Kernel<'worker> {
         )
     }
 
-    fn the_patch_to_next_point_version(&self) -> KernelPatch<'worker> {
+    fn the_patch_to_the_next_point_version(&self) -> KernelPatch<'worker> {
         KernelPatch {
             worker: self.worker,
             from_version: self.version.clone(),
@@ -431,9 +431,9 @@ fn main() -> Result<()> {
             current_kernel.make_oldconfig()?;
         }
 
-        let patch = current_kernel.the_patch_to_next_point_version();
+        let patch = current_kernel.the_patch_to_the_next_point_version();
         current_kernel = match patch.get_and_apply() {
-            Ok(patch) => patch,
+            Ok(kernel) => kernel,
             Err(e) => match &e {
                 GetAndApplyError::GetCheckedError(MakeError::BuildAction(
                     GetCheckedError::GetUnchecked(MakeError::BuildAction(

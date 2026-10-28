@@ -89,12 +89,12 @@ impl KernelWorker {
     ) -> Result<Arc<Path>, MakeError<AnyhowError>> {
         file_make(
             self.dirs.hashes().append("sha256sums"),
-            &[&self
+            [self
                 .get_hashes_asc(newer_than_paths)
                 .map_err(anyhow::Error::from)
                 .map_err(AnyhowError)?],
             |target, dependencies| -> Result<(), AnyhowError> {
-                let source = dependencies[0];
+                let [source] = dependencies;
                 let err =
                     Gpg::default().verify_unpack(source, target).with_context(
                         || anyhow!("verifying signature on {source:?}"),
@@ -189,16 +189,16 @@ impl<'worker> Kernel<'worker> {
         let linux_path = self.worker.dirs.linux();
         file_make(
             self.config_backup_path(),
-            &[
+            [
                 // Make sure there is an initial file, or `make oldconfig` will
                 // generate a default config which is not going to be useful!
-                &self.worker.dirs.linux().append(".config"),
+                self.worker.dirs.linux().append(".config"),
                 // (No need to depend on the mtime of anything else like the
                 // Makefile, since the target is versioned and won't exist from
                 // before updating to this kernel version.)
             ],
             |target, dependencies| {
-                let dependency = dependencies[0];
+                let [dependency] = dependencies;
                 {
                     // (Should this region be redirected into a file? All of the
                     // program's output, right, i.e. set stdout and stderr
@@ -227,7 +227,7 @@ impl<'worker> Kernel<'worker> {
         let linux_path = self.worker.dirs.linux();
         file_make(
             self.stamp_path(),
-            &[&self.make_oldconfig()?],
+            [self.make_oldconfig()?],
             |target, _dependencies| {
                 {
                     // (Should this region be redirected into a file? All of the
@@ -280,7 +280,7 @@ impl<'worker> KernelPatch<'worker> {
         file_make(
             add_extension(self.file_path(), "-unchecked")
                 .expect("file_path is non-empty"),
-            &[],
+            (),
             |target, _| self.worker.webget.get_to_file(&self.url(), target),
         )
     }
@@ -298,11 +298,9 @@ impl<'worker> KernelPatch<'worker> {
     fn get_checked(&self) -> Result<Arc<Path>, MakeError<GetCheckedError>> {
         file_make(
             self.file_path(),
-            &[&self.get_unchecked().map_err(GetCheckedError::from)?],
+            [self.get_unchecked().map_err(GetCheckedError::from)?],
             |target, dependencies| -> Result<(), GetCheckedError> {
-                let [source] = dependencies else {
-                    unreachable!()
-                };
+                let [source] = dependencies;
 
                 let target_filename = target.file_name().ok_or_else(|| {
                     anyhow!("can't get file_name for {target:?}")

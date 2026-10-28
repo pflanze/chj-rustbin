@@ -14,20 +14,44 @@ pub enum MakeError<E: std::error::Error + Send + Sync + 'static> {
     FileHandling(anyhow::Error),
 }
 
-pub fn file_make<TP, E, A>(
-    target: TP,
-    dependencies: &[&Path],
-    build_action: A,
+pub trait IntoPathIterator {
+    fn into_path_iterator(&self) -> impl Iterator<Item = &Path>;
+}
+
+impl<P: AsRef<Path>> IntoPathIterator for &[P] {
+    fn into_path_iterator(&self) -> impl Iterator<Item = &Path> {
+        self.iter().map(|p| p.as_ref())
+    }
+}
+
+impl<const N: usize, P: AsRef<Path>> IntoPathIterator for [P; N] {
+    fn into_path_iterator(&self) -> impl Iterator<Item = &Path> {
+        self.iter().map(|p| p.as_ref())
+    }
+}
+
+impl IntoPathIterator for () {
+    fn into_path_iterator(&self) -> impl Iterator<Item = &Path> {
+        let paths: &'static [&'static Path] = &[];
+        paths.iter().copied()
+    }
+}
+
+pub fn file_make<'path, TargetPath, Dependencies, E, F>(
+    target: TargetPath,
+    dependencies: Dependencies,
+    build_action: F,
 ) -> Result<Arc<Path>, MakeError<E>>
 where
-    TP: IntoArcPath,
+    TargetPath: IntoArcPath,
+    Dependencies: IntoPathIterator,
     E: std::error::Error + Send + Sync + 'static,
-    A: Fn(&Arc<Path>, &[&Path]) -> Result<(), E>,
+    F: Fn(&Arc<Path>, &Dependencies) -> Result<(), E>,
 {
     let target = target.into_arc_path();
     let build = || {
         eprintln!("making target {target:?}");
-        build_action(&target, dependencies).map_err(MakeError::BuildAction)
+        build_action(&target, &dependencies).map_err(MakeError::BuildAction)
     };
     match target.symlink_metadata() {
         Ok(target_metadata) => {
@@ -46,7 +70,7 @@ where
 
             let mut needs_build = false;
 
-            for dependency in dependencies {
+            for dependency in dependencies.into_path_iterator() {
                 let dependency_metadata = dependency
                     .metadata()
                     .with_context(|| {

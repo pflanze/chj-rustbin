@@ -459,6 +459,9 @@ fn run(opts: &Opts) -> Result<(ReportKind, String)> {
 
         if opts.make_oldconfig || opts.build {
             current_kernel.make_oldconfig()?;
+        } else {
+            eprintln!("skipping `make oldconfig` since neither --build nor --make-oldconfig \
+                       has been given");
         }
 
         let patch = current_kernel.the_patch_to_the_next_point_version();

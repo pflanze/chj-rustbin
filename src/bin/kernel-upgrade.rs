@@ -34,7 +34,14 @@ const KERNEL_KEY_GPG_MESSAGE: &str =
 #[clap(next_line_help = true)]
 /// Upgrade the kernel on the system
 struct Opts {
-    /// Build the kernel after updating it
+    /// Run `make oldconfig` to update the `.config` file for each point update;
+    /// this is recommended to potentially improve the precision of the config
+    /// updates (the default is false, though, as a secure default). This is
+    /// implied by `--build`.
+    #[clap(short, long)]
+    make_oldconfig: bool,
+
+    /// Build the kernel after updating it (default: false)
     #[clap(short, long)]
     build: bool,
 
@@ -43,14 +50,15 @@ struct Opts {
     num_cores: Option<NonZeroUsize>,
 
     /// Path to the base directory containing a "linux" subdir with the kernel
-    /// sources. "hashes", "patches" and "stamps" subdirs will be created.
+    /// sources. "hashes", "patches", "configs" and "stamps" subdirs will be
+    /// created.
     base_dir: PathBuf,
 }
 
 /// Map a relative path to the SHA-256 hash hex string
 struct PathFileHashes(HashMap<OsString, BString>);
 
-def_subdirs! {Dirs => linux, hashes, patches, stamps}
+def_subdirs! {Dirs => linux, hashes, patches, configs, stamps}
 
 #[derive(Debug)]
 struct KernelWorker {
@@ -169,6 +177,44 @@ struct Kernel<'worker> {
 }
 
 impl<'worker> Kernel<'worker> {
+    fn config_backup_path(&self) -> PathBuf {
+        self.worker
+            .dirs
+            .configs()
+            .append(format!("config-{}", self.version.to_string()))
+    }
+
+    /// Returns the path to the backed up config file
+    fn make_oldconfig(&self) -> Result<Arc<Path>, MakeError<AnyhowError>> {
+        let linux_path = self.worker.dirs.linux();
+        file_make(
+            self.config_backup_path(),
+            &[
+                // Make sure there is an initial file, or `make oldconfig` will
+                // generate a default config which is not going to be useful!
+                &self.worker.dirs.linux().append(".config"),
+                // (No need to depend on the mtime of anything else like the
+                // Makefile, since the target is versioned and won't exist from
+                // before updating to this kernel version.)
+            ],
+            |target, dependencies| {
+                let dependency = dependencies[0];
+                {
+                    // (Should this region be redirected into a file? All of the
+                    // program's output, right, i.e. set stdout and stderr
+                    // temporarily?)
+
+                    let _cwd = CmdCwd::new(linux_path.clone());
+                    cmd("make", ["oldconfig"])?;
+                }
+                std::fs::copy(dependency, target).with_context(|| {
+                    anyhow!("copying {dependency:?} to {target:?}")
+                })?;
+                Ok(())
+            },
+        )
+    }
+
     fn stamp_path(&self) -> PathBuf {
         self.worker.dirs.stamps().append(self.version.to_string())
     }
@@ -181,15 +227,15 @@ impl<'worker> Kernel<'worker> {
         let linux_path = self.worker.dirs.linux();
         file_make(
             self.stamp_path(),
-            &[&linux_path.append("vmlinux")],
+            &[&self.make_oldconfig()?],
             |target, _dependencies| {
                 {
-                    // (XX todo: redirect into a file? All of the program's output, right,
-                    // i.e. set stdout and stderr temporarily?)
+                    // (Should this region be redirected into a file? All of the
+                    // program's output, right, i.e. set stdout and stderr
+                    // temporarily?)
 
                     let j = &format!("-j{num_cores}");
                     let _cwd = CmdCwd::new(linux_path.clone());
-                    cmd("make", ["oldconfig"])?;
                     cmd("make", [j])?;
                     cmd("make", [j, "modules"])?;
                 }
@@ -380,6 +426,10 @@ fn main() -> Result<()> {
 
     loop {
         eprintln!("current kernel = {}", current_kernel.version);
+
+        if opts.make_oldconfig || opts.build {
+            current_kernel.make_oldconfig()?;
+        }
 
         let patch = current_kernel.the_patch_to_next_point_version();
         current_kernel = match patch.get_and_apply() {

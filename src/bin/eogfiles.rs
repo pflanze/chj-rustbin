@@ -100,7 +100,16 @@ fn main() -> Result<()> {
 
         let _x = if verbose { Some(SetX::new()) } else { None };
 
-        cmd("eog", &eog_path_args)?;
+        let mut eog_args: Vec<&OsStr> = vec![
+            "--fullscreen".as_ref(),
+            "--disable-gallery".as_ref(),
+            "--new-instance".as_ref(),
+        ];
+        eog_args.extend(
+            eog_path_args.iter().map(|path| -> &OsStr { path.as_ref() }),
+        );
+
+        cmd("eog", eog_args)?;
     }
 
     Ok(())

@@ -74,6 +74,10 @@ target/x86_64-unknown-linux-musl/release/%: src/bin/%.rs src/*.rs src/io/*.rs sr
 	install $< $@
 
 
+# NOTE: `install` does not have a dependency on `all` to avoid root re-running
+# `cargo` (from scratch again) for no reason; this setup is meant to first run
+# `make` as non-root user, then `make install` as root.
+
 install: /usr/local/bin/lastitem
 install: /usr/local/bin/symlinks-index
 install: /usr/local/bin/e

@@ -22,13 +22,37 @@ struct Args {
     verbose: bool,
 
     /// Read the list of paths from standard input
-    #[clap(short, long)]
+    #[clap(long)]
     stdin: bool,
 
     /// When reading the list of paths (`--stdin`), use the null-byte as entry
     /// terminator instead of the newline. Implies `--stdin` for now.
     #[clap(short, long)]
     z: bool,
+
+    /// Passed to `eog` (Open in fullscreen mode)
+    #[clap(short, long)]
+    fullscreen: bool,
+
+    /// Passed to `eog` (Disable image gallery)
+    #[clap(short = 'g', long)]
+    disable_gallery: bool,
+
+    /// Passed to `eog` (Open in slideshow mode)
+    #[clap(short, long)]
+    slide_show: bool,
+
+    /// Passed to `eog` (Start a new instance instead of reusing an existing one)
+    #[clap(short, long)]
+    new_instance: bool,
+
+    /// Passed to `eog` (Open in a single window, if multiple windows are open the first one is used)
+    #[clap(short = 'w', long)]
+    single_window: bool,
+
+    /// Passed to `eog` (X display to use)
+    #[clap(long)]
+    display: Option<String>,
 
     /// The paths to the files to show, in the order in which they should be
     /// shown. Conflicts with `--stdin`.
@@ -41,6 +65,12 @@ fn main() -> Result<()> {
         stdin: use_stdin,
         z,
         files,
+        fullscreen,
+        disable_gallery,
+        slide_show,
+        new_instance,
+        single_window,
+        display,
     } = Args::parse();
 
     let files = if use_stdin || z {
@@ -100,11 +130,27 @@ fn main() -> Result<()> {
 
         let _x = if verbose { Some(SetX::new()) } else { None };
 
-        let mut eog_args: Vec<&OsStr> = vec![
-            "--fullscreen".as_ref(),
-            "--disable-gallery".as_ref(),
-            "--new-instance".as_ref(),
-        ];
+        let mut eog_args: Vec<&OsStr> = vec![];
+
+        if fullscreen {
+            eog_args.push("--fullscreen".as_ref())
+        }
+        if disable_gallery {
+            eog_args.push("--disable-gallery".as_ref())
+        }
+        if slide_show {
+            eog_args.push("--slide-show".as_ref())
+        }
+        if new_instance {
+            eog_args.push("--new-instance".as_ref())
+        }
+        if single_window {
+            eog_args.push("--single-window".as_ref())
+        }
+        if let Some(display) = &display {
+            eog_args.push("--display".as_ref());
+            eog_args.push(display.as_ref());
+        }
         eog_args.extend(
             eog_path_args.iter().map(|path| -> &OsStr { path.as_ref() }),
         );

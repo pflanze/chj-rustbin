@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{anyhow, bail, Context, Result};
 use bstr::{ByteSlice, ByteVec};
-use chj_rustbin::script_tools::cmd;
+use chj_rustbin::script_tools::{cmd, SetX};
 use cj_path_util::path_util::AppendToPath;
 use clap::Parser;
 use tempfile::tempdir;
@@ -17,6 +17,10 @@ use tempfile::tempdir;
 /// Wrapper around the `eog` (Eyes Of Gnome?) image viewer to show a number of
 /// files in the given order instead of sorting by path
 struct Args {
+    /// Say some things about what is done
+    #[clap(short, long)]
+    verbose: bool,
+
     /// Read the list of paths from standard input
     #[clap(short, long)]
     stdin: bool,
@@ -33,6 +37,7 @@ struct Args {
 
 fn main() -> Result<()> {
     let Args {
+        verbose,
         stdin: use_stdin,
         z,
         files,
@@ -59,6 +64,10 @@ fn main() -> Result<()> {
     } else {
         files
     };
+
+    if verbose {
+        dbg!(&files);
+    }
 
     if !files.is_empty() {
         let temp = tempdir()?;
@@ -88,6 +97,8 @@ fn main() -> Result<()> {
             })?;
             eog_path_args.push(source);
         }
+
+        let _x = if verbose { Some(SetX::new()) } else { None };
 
         cmd("eog", &eog_path_args)?;
     }

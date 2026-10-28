@@ -67,6 +67,10 @@ fn main() -> Result<()> {
         let mut eog_path_args = Vec::new();
 
         for (i, file) in files.iter().enumerate() {
+            if !file.is_file() {
+                continue;
+            }
+
             let target = file
                 .canonicalize()
                 .with_context(|| anyhow!("canonicalizing path {file:?}"))?;

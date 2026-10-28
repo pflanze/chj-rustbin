@@ -40,41 +40,46 @@ where
             let target_modified = target_metadata
                 .modified()
                 .with_context(|| {
-                    anyhow!("getting modified for target {target:?}")
+                    anyhow!("getting modified time for target {target:?}")
                 })
                 .map_err(MakeError::FileHandling)?;
-            'check_dependency_times: {
-                for dependency in dependencies {
-                    let dependency_metadata = dependency
-                        .metadata()
-                        .with_context(|| {
-                            anyhow!(
+
+            let mut needs_build = false;
+
+            for dependency in dependencies {
+                let dependency_metadata = dependency
+                    .metadata()
+                    .with_context(|| {
+                        anyhow!(
                             "can't get metadata of dependency {dependency:?}"
                         )
-                        })
-                        .map_err(MakeError::FileHandling)?;
-                    if dependency_metadata.is_symlink() {
-                        Err(MakeError::FileHandling(anyhow!(
+                    })
+                    .map_err(MakeError::FileHandling)?;
+                if dependency_metadata.is_symlink() {
+                    Err(MakeError::FileHandling(anyhow!(
                         "dependency path exists but is a symlink: {dependency:?}"
                     )))?
-                    }
-                    let dependency_modified = dependency_metadata
-                        .modified()
-                        .with_context(|| {
-                            anyhow!(
-                            "getting modified for dependency {dependency:?}"
-                        )
-                        })
-                        .map_err(MakeError::FileHandling)?;
-                    // Do not use `>=` as that fails when hard-linking (or
-                    // cp -a) files, them having identical mtime. Be
-                    // careful, though, overwrites to the dependency would
-                    // also update the target!
-                    if dependency_modified > target_modified {
-                        build()?;
-                        break 'check_dependency_times;
-                    }
                 }
+                let dependency_modified = dependency_metadata
+                    .modified()
+                    .with_context(|| {
+                        anyhow!(
+                            "getting modified time for dependency {dependency:?}"
+                        )
+                    })
+                    .map_err(MakeError::FileHandling)?;
+                // Do not use `>=` as that fails when hard-linking (or
+                // cp -a) files, them having identical mtime. Be
+                // careful, though, overwrites to the dependency would
+                // also update the target!
+                if dependency_modified > target_modified {
+                    needs_build = true;
+                }
+            }
+
+            if needs_build {
+                build()?;
+            } else {
                 eprintln!("target {target:?} is up to date");
             }
         }

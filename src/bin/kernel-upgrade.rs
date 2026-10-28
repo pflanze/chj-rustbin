@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     ffi::{OsStr, OsString},
+    fmt::Display,
     io::{stderr, Write},
     num::NonZeroUsize,
     path::{Path, PathBuf},
@@ -30,6 +31,21 @@ use external_webget::{RequestError, WebGet};
 const KERNEL_KEY_GPG_MESSAGE: &str =
     "using RSA key B8868C80BA62A1FFFAF5FDA9632D3A06589DA6B1";
 
+enum ReportKind {
+    NoChange,
+    NewKernelReady,
+}
+
+impl Display for ReportKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let msg = match self {
+            ReportKind::NoChange => "no-change",
+            ReportKind::NewKernelReady => "new-kernel-ready",
+        };
+        f.write_str(msg)
+    }
+}
+
 #[derive(clap::Parser, Debug)]
 #[clap(next_line_help = true)]
 /// Upgrade the kernel on the system
@@ -48,6 +64,16 @@ struct Opts {
     /// Number of cores to use (default: try to determine automatically)
     #[clap(short = 'j', long)]
     num_cores: Option<NonZeroUsize>,
+
+    /// Write a report consisting of a first line that is one of the strings
+    /// `no-change`, `new-kernel-ready`, `error`, and then in the latter cases
+    /// some more information (the kernel version and path, or the error
+    /// message). This is in addition to the normal reporting via stdout/stderr
+    /// (but that might be redirected to a log file, hence this option), but the
+    /// exit code is changed to always be 0 when the program manages to finish
+    /// writing the report file.
+    #[clap(long)]
+    report_to: Option<PathBuf>,
 
     /// Path to the base directory containing a "linux" subdir with the kernel
     /// sources. "hashes", "patches", "configs" and "stamps" subdirs will be
@@ -404,12 +430,11 @@ impl<'worker> KernelPatch<'worker> {
     }
 }
 
-fn main() -> Result<()> {
-    let opts: Opts = Opts::parse();
-
+/// Returns a success report kind and statement
+fn run(opts: &Opts) -> Result<(ReportKind, String)> {
     let _x = SetX::new();
 
-    let dirs = Dirs::new(opts.base_dir);
+    let dirs = Dirs::new(opts.base_dir.clone());
 
     if !dirs.linux().exists() {
         // https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-{version}.tar.xz
@@ -463,5 +488,34 @@ fn main() -> Result<()> {
 
     println!("kernel-upgrade: done, executed {num_updates} steps of patch version updates.");
 
-    Ok(())
+    Ok(if num_updates == 0 {
+        (ReportKind::NoChange, "".into())
+    } else {
+        (
+            ReportKind::NewKernelReady,
+            format!(
+                "{}\n{}",
+                current_kernel.version,
+                current_kernel.worker.dirs.linux().display()
+            ),
+        )
+    })
+}
+
+fn main() -> Result<()> {
+    let opts: Opts = Opts::parse();
+
+    if let Some(report_path) = &opts.report_to {
+        let report = match run(&opts) {
+            Ok((report_kind, success_statement)) => {
+                format!("{report_kind}\n{success_statement}")
+            }
+            Err(e) => format!("error\n{e:#?}"),
+        };
+        std::fs::write(report_path, report)
+            .with_context(|| anyhow!("writing report to {report_path:?}"))
+    } else {
+        run(&opts)?;
+        Ok(())
+    }
 }

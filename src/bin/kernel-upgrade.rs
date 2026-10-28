@@ -382,14 +382,21 @@ impl<'worker> KernelPatch<'worker> {
             .spawn()
             .context("starting 'patch'")?;
 
+        let mut errors = Vec::new();
         let xzcat_status = xzcat.wait().context("waiting for xzcat")?;
         if !xzcat_status.success() {
-            Err(anyhow!("xzcat failed: {xzcat_status}"))?
+            errors.push(format!("xzcat failed: {xzcat_status}"));
         }
-
         let patch_status = patch.wait().context("waiting for patch")?;
         if !patch_status.success() {
-            Err(anyhow!("patch failed: {patch_status}"))?
+            errors.push(format!("patch failed: {patch_status}"));
+        }
+        if !errors.is_empty() {
+            Err(anyhow!(
+                "applying {:?}: {}",
+                self.file_path(),
+                errors.join(", ")
+            ))?;
         }
 
         Ok(Kernel {

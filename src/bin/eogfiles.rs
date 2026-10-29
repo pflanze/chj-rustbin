@@ -99,35 +99,35 @@ fn main() -> Result<()> {
         dbg!(&files);
     }
 
-    if !files.is_empty() {
-        let temp = tempdir()?;
-        let temp_path = temp.path();
+    let temp = tempdir()?;
+    let temp_path = temp.path();
 
-        let mut eog_path_args = Vec::new();
+    let mut eog_path_args = Vec::new();
 
-        for (i, file) in files.iter().enumerate() {
-            if !file.is_file() {
-                continue;
-            }
-
-            let target = file
-                .canonicalize()
-                .with_context(|| anyhow!("canonicalizing path {file:?}"))?;
-
-            let mut filename: Vec<u8> = format!("{i:04}-").into_bytes();
-            filename.push_str(
-                file.file_name()
-                    .ok_or_else(|| anyhow!("path has no filename: {file:?}"))?
-                    .as_encoded_bytes(),
-            );
-            let filename = filename.to_os_str()?;
-            let source = temp_path.append(&filename);
-            symlink(&target, &source).with_context(|| {
-                anyhow!("creating symlink for {target:?} at {source:?}")
-            })?;
-            eog_path_args.push(source);
+    for (i, file) in files.iter().enumerate() {
+        if !file.is_file() {
+            continue;
         }
 
+        let target = file
+            .canonicalize()
+            .with_context(|| anyhow!("canonicalizing path {file:?}"))?;
+
+        let mut filename: Vec<u8> = format!("{i:04}-").into_bytes();
+        filename.push_str(
+            file.file_name()
+                .ok_or_else(|| anyhow!("path has no filename: {file:?}"))?
+                .as_encoded_bytes(),
+        );
+        let filename = filename.to_os_str()?;
+        let source = temp_path.append(&filename);
+        symlink(&target, &source).with_context(|| {
+            anyhow!("creating symlink for {target:?} at {source:?}")
+        })?;
+        eog_path_args.push(source);
+    }
+
+    if !eog_path_args.is_empty() {
         let _x = if verbose { Some(SetX::new()) } else { None };
 
         let mut eog_args: Vec<&OsStr> = vec![];

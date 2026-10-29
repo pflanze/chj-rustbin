@@ -46,6 +46,25 @@ impl Display for ReportKind {
     }
 }
 
+enum RebootNeeded {
+    None,
+    Upgrade {
+        from: KernelVersion,
+        to: KernelVersion,
+    },
+}
+
+impl Display for RebootNeeded {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RebootNeeded::None => f.write_str("no-reboot-needed"),
+            RebootNeeded::Upgrade { from, to } => {
+                write!(f, "need-reboot from {from} to {to}")
+            }
+        }
+    }
+}
+
 #[derive(clap::Parser, Debug)]
 #[clap(next_line_help = true)]
 /// Upgrade the kernel on the system
@@ -66,12 +85,14 @@ struct Opts {
     num_cores: Option<NonZeroUsize>,
 
     /// Write a report consisting of a first line that is one of the strings
-    /// `no-change`, `new-kernel-ready`, `error`, and then in the latter cases
-    /// some more information (the kernel version and path, or the error
-    /// message). This is in addition to the normal reporting via stdout/stderr
-    /// (but that might be redirected to a log file, hence this option), but the
-    /// exit code is changed to always be 0 when the program manages to finish
-    /// writing the report file.
+    /// `no-change`, `new-kernel-ready`, `error`, a second line
+    /// `no-reboot-needed` or `need-reboot ` followed by the running and
+    /// ready-to-install version, and then in the latter cases some more
+    /// information (the kernel version and path, or the error message). This is
+    /// in addition to the normal reporting via stdout/stderr (but that might be
+    /// redirected to a log file, hence this option), but the exit code is
+    /// changed to always be 0 when the program manages to finish writing the
+    /// report file.
     #[clap(long)]
     report_to: Option<PathBuf>,
 
@@ -431,7 +452,7 @@ impl<'worker> KernelPatch<'worker> {
 }
 
 /// Returns a success report kind and statement
-fn run(opts: &Opts) -> Result<(ReportKind, String)> {
+fn run(opts: &Opts) -> Result<(ReportKind, RebootNeeded, String)> {
     let _x = SetX::new();
 
     let dirs = Dirs::new(opts.base_dir.clone());
@@ -491,11 +512,22 @@ fn run(opts: &Opts) -> Result<(ReportKind, String)> {
 
     println!("kernel-upgrade: done, executed {num_updates} steps of patch version updates.");
 
+    let running_kernel_version = KernelVersion::of_running_kernel()?;
+    let reboot_needed = if current_kernel.version > running_kernel_version {
+        RebootNeeded::Upgrade {
+            from: running_kernel_version,
+            to: current_kernel.version.clone(),
+        }
+    } else {
+        RebootNeeded::None
+    };
+
     Ok(if num_updates == 0 {
-        (ReportKind::NoChange, "".into())
+        (ReportKind::NoChange, reboot_needed, "".into())
     } else {
         (
             ReportKind::NewKernelReady,
+            reboot_needed,
             format!(
                 "{}\n{}",
                 current_kernel.version,
@@ -510,8 +542,8 @@ fn main() -> Result<()> {
 
     if let Some(report_path) = &opts.report_to {
         let report = match run(&opts) {
-            Ok((report_kind, success_statement)) => {
-                format!("{report_kind}\n{success_statement}")
+            Ok((report_kind, reboot_needed, success_statement)) => {
+                format!("{report_kind}\n{reboot_needed}\n{success_statement}")
             }
             Err(e) => format!("error\n{e:#?}"),
         };

@@ -9,9 +9,10 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context, Result};
+use bstr::ByteSlice;
 use cj_path_util::path_util::AppendToPath;
 
-use crate::script_tools::catfile;
+use crate::script_tools::{catfile, cmd_backtick};
 
 /// XX TODO: PartialOrd is probably not correct if extraversion is
 /// non-`Null`
@@ -21,6 +22,36 @@ pub struct KernelVersion {
     pub patchlevel: u16,
     pub sublevel: u16,
     pub extraversion: Option<String>,
+}
+
+impl FromStr for KernelVersion {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim_end();
+        let (version_str, rest) = s.split_once('.').ok_or_else(|| {
+            anyhow!("missing dot after 'version' number in {s:?}")
+        })?;
+        let (patchlevel_str, rest) = rest.split_once('.').ok_or_else(|| {
+            anyhow!("missing dot after 'patchlevel' number in {s:?}")
+        })?;
+        let (sublevel_str, extraversion) = match rest.split_once('-') {
+            Some((s, r)) => (s, Some(r)),
+            None => (rest, None),
+        };
+        Ok(Self {
+            version: version_str.parse().with_context(|| {
+                anyhow!("parsing 'version' number in {s:?}")
+            })?,
+            patchlevel: patchlevel_str.parse().with_context(|| {
+                anyhow!("parsing 'patchlevel' number in {s:?}")
+            })?,
+            sublevel: sublevel_str.parse().with_context(|| {
+                anyhow!("parsing 'sublevel' number in {s:?}")
+            })?,
+            extraversion: extraversion.map(ToOwned::to_owned),
+        })
+    }
 }
 
 impl Display for KernelVersion {
@@ -100,6 +131,12 @@ impl KernelVersion {
             sublevel,
             extraversion,
         })
+    }
+
+    /// Gets the version of the running Linux kernel via `uname -r`
+    pub fn of_running_kernel() -> Result<Self> {
+        let version = cmd_backtick("uname", ["-r"], &[])?;
+        Self::from_str(version.to_str()?)
     }
 
     pub fn sublevel_add(&self, sublevel_increment: u16) -> Self {

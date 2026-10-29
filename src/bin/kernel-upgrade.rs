@@ -251,7 +251,7 @@ impl<'worker> Kernel<'worker> {
                     // program's output, right, i.e. set stdout and stderr
                     // temporarily?)
 
-                    let _cwd = CmdCwd::new(linux_path.clone());
+                    let _cwd = CmdCwd::new(Some(linux_path.clone()));
                     cmd("make", ["oldconfig"])?;
                 }
                 std::fs::copy(dependency, target).with_context(|| {
@@ -282,7 +282,7 @@ impl<'worker> Kernel<'worker> {
                     // temporarily?)
 
                     let j = &format!("-j{num_cores}");
-                    let _cwd = CmdCwd::new(linux_path.clone());
+                    let _cwd = CmdCwd::new(Some(linux_path.clone()));
                     cmd("make", [j])?;
                     cmd("make", [j, "modules"])?;
                 }
@@ -453,7 +453,7 @@ impl<'worker> KernelPatch<'worker> {
 
 /// Returns a success report kind and statement
 fn run(opts: &Opts) -> Result<(ReportKind, RebootNeeded, String)> {
-    let _x = SetX::new();
+    let _x = SetX::new(true);
 
     let dirs = Dirs::new(opts.base_dir.clone());
 

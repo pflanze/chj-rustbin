@@ -8,4 +8,5 @@ pub mod num_hardware_threads;
 pub mod pad;
 pub mod range_utils;
 pub mod scope;
+pub mod scoped_setting;
 pub mod vec_by_len;

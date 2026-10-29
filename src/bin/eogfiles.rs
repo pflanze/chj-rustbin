@@ -141,7 +141,7 @@ fn main() -> Result<()> {
     }
 
     if !eog_path_args.is_empty() {
-        let _x = if verbose { Some(SetX::new()) } else { None };
+        let _x = SetX::new(verbose);
 
         let mut eog_args: Vec<&OsStr> = vec![];
 

@@ -12,7 +12,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use bstr::ByteSlice;
 use cj_path_util::path_util::AppendToPath;
 
-use crate::script_tools::{catfile, cmd_backtick};
+use crate::script_tools::{catfile, cmd_backtick, SetX};
 
 /// XX TODO: PartialOrd is probably not correct if extraversion is
 /// non-`Null`
@@ -135,6 +135,7 @@ impl KernelVersion {
 
     /// Gets the version of the running Linux kernel via `uname -r`
     pub fn of_running_kernel() -> Result<Self> {
+        let _x = SetX::new(false); // disable tracing
         let version = cmd_backtick("uname", ["-r"], &[])?;
         Self::from_str(version.to_str()?)
     }

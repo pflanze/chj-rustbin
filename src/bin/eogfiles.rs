@@ -102,7 +102,7 @@ fn main() -> Result<()> {
     let temp = tempdir()?;
     let temp_path = temp.path();
 
-    let mut eog_path_args = Vec::new();
+    let mut have_paths = false;
 
     for (i, file) in files.iter().enumerate() {
         match file.metadata() {
@@ -137,10 +137,10 @@ fn main() -> Result<()> {
         symlink(&target, &source).with_context(|| {
             anyhow!("creating symlink for {target:?} at {source:?}")
         })?;
-        eog_path_args.push(source);
+        have_paths = true;
     }
 
-    if !eog_path_args.is_empty() {
+    if have_paths {
         let _x = SetX::new(verbose);
 
         let mut eog_args: Vec<&OsStr> = vec![];
@@ -164,9 +164,7 @@ fn main() -> Result<()> {
             eog_args.push("--display".as_ref());
             eog_args.push(display.as_ref());
         }
-        eog_args.extend(
-            eog_path_args.iter().map(|path| -> &OsStr { path.as_ref() }),
-        );
+        eog_args.push(temp_path.as_ref());
 
         cmd("eog", eog_args)?;
     }

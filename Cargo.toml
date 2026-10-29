@@ -15,9 +15,6 @@ opt-level = "s"
 [profile.release]
 opt-level = "s"
 
-[features]
-only_static_path_strings = []
-
 [dependencies]
 # Local
 external-webget = { path = "libs/external-webget" }

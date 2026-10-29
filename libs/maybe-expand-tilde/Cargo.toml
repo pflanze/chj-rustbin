@@ -3,5 +3,8 @@ name = "maybe-expand-tilde"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+only_static_path_strings = []
+
 [dependencies]
 into-cow-path = { path = "../into-cow-path" }

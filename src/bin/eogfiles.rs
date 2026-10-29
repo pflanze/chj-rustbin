@@ -105,8 +105,21 @@ fn main() -> Result<()> {
     let mut eog_path_args = Vec::new();
 
     for (i, file) in files.iter().enumerate() {
-        if !file.is_file() {
-            continue;
+        match file.metadata() {
+            Ok(m) => {
+                if !m.is_file() {
+                    continue;
+                }
+            }
+            Err(e) => match e.kind() {
+                std::io::ErrorKind::NotFound => {
+                    eprintln!("skipping non-existing path {file:?}");
+                    continue;
+                }
+                _ => Err(e).with_context(|| {
+                    anyhow!("getting metadata for path {file:?}")
+                })?,
+            },
         }
 
         let target = file

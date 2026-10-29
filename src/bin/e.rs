@@ -20,6 +20,8 @@ use nix::errno::Errno;
 use nix::fcntl::{open, OFlag};
 use nix::sys::signal::Signal;
 use nix::sys::stat::{mode_t, Mode};
+// See note below
+#[allow(deprecated)]
 use nix::sys::time::time_t;
 use nix::sys::wait::{wait, waitpid, WaitStatus};
 use nix::time::{clock_gettime, ClockId};
@@ -81,6 +83,13 @@ fn string_remove_start<'ts>(s: &'ts str, pat: &str) -> &'ts str {
     }
 }
 
+// "use of deprecated type alias `libc::time_t`: This type is changed to 64-bit
+// in musl 1.2.0, we'll follow that change in the future release. See #1848 for
+// more info." #1848 where? Surely not
+// https://github.com/nix-rust/nix/pull/1848? None on musl repo
+// https://github.com/kraj/musl/issues?q=1848; Does the deprecation mean to just
+// use i64? But why not let the type alias be?
+#[allow(deprecated)]
 fn time() -> Result<time_t> {
     Ok(clock_gettime(ClockId::CLOCK_REALTIME)?.tv_sec())
 }

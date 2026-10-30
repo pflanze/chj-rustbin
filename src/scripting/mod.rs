@@ -1,2 +1,2 @@
-pub mod kernel_version;
+pub mod linux;
 pub mod sha256sum;

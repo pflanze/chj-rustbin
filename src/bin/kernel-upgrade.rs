@@ -17,7 +17,7 @@ use chj_rustbin::{
     file_make::{file_make, MakeError},
     gpg::Gpg,
     script_tools::{cmd, touch, CmdCwd, SetX},
-    scripting::{kernel_version::KernelVersion, sha256sum::sha256sum},
+    scripting::{linux::kernel_version::KernelVersion, sha256sum::sha256sum},
     util::{
         anyhow::AnyhowError, link_rename::link_rename,
         num_hardware_threads::num_hardware_threads,

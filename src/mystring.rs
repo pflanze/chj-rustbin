@@ -3,7 +3,11 @@
 /// Currently cannot represent the zero (`'\0'`) characters; i.e. only
 /// good for file system paths and similar.
 // ~Just for fun.
-use std::{fmt::Display, mem::transmute, ops::Deref};
+use std::{
+    fmt::{Debug, Display},
+    mem::transmute,
+    ops::Deref,
+};
 
 #[derive(Clone, Debug)]
 enum MyStringInner<const N: usize> {
@@ -12,12 +16,18 @@ enum MyStringInner<const N: usize> {
     Long(Box<str>),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct MyString<const N: usize>(MyStringInner<N>);
 
 pub type MyString23 = MyString<23>;
 pub type MyString31 = MyString<31>;
 pub type MyString39 = MyString<39>;
+
+impl<const N: usize> Debug for MyString<N> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self.as_ref(), f)
+    }
+}
 
 impl<const N: usize, const N2: usize> PartialEq<MyString<N2>> for MyString<N> {
     fn eq(&self, other: &MyString<N2>) -> bool {
@@ -112,7 +122,7 @@ impl<const N: usize> Deref for MyString<N> {
 
 impl<const N: usize> Display for MyString<N> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.as_ref().fmt(f)
+        std::fmt::Display::fmt(self.as_ref(), f)
     }
 }
 

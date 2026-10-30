@@ -5,14 +5,14 @@
 // ~Just for fun.
 use std::{fmt::Display, mem::transmute, ops::Deref};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum MyStringInner<const N: usize> {
     /// A string terminated by NUL or the end of the array
     Short([u8; N]),
     Long(Box<str>),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct MyString<const N: usize>(MyStringInner<N>);
 
 pub type MyString23 = MyString<23>;

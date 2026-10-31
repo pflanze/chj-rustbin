@@ -156,21 +156,21 @@ impl<const N: usize, T: Into<Arc<str>> + AsRef<str>> From<T> for MyString<N> {
         let s: &str = t.as_ref();
         let len = s.len();
         if len < N {
-            {
-                let mut stats = STATS.get();
-                stats.immediate_count = stats.immediate_count.wrapping_add(1);
-                STATS.set(stats);
-            }
+            // {
+            //     let mut stats = STATS.get();
+            //     stats.immediate_count = stats.immediate_count.wrapping_add(1);
+            //     STATS.set(stats);
+            // }
             let mut storage = [0; N];
             (&mut storage[0..len]).copy_from_slice(s.as_bytes());
             storage[N - 1] = len as u8;
             MyString { storage }
         } else {
-            {
-                let mut stats = STATS.get();
-                stats.alloc_count = stats.alloc_count.wrapping_add(1);
-                STATS.set(stats);
-            }
+            // {
+            //     let mut stats = STATS.get();
+            //     stats.alloc_count = stats.alloc_count.wrapping_add(1);
+            //     STATS.set(stats);
+            // }
             let mut storage = [0; N];
             let boxed: ManuallyDrop<Arc<str>> = ManuallyDrop::new(s.into());
             // "Move" the boxed data into storage

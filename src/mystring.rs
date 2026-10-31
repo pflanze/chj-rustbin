@@ -6,7 +6,6 @@
 use std::{
     cell::Cell,
     fmt::{Debug, Display},
-    mem::transmute,
     ops::Deref,
 };
 
@@ -52,16 +51,9 @@ impl<const N: usize, const N2: usize> PartialEq<MyString<N2>> for MyString<N> {
         if N == N2 {
             match &self.0 {
                 MyStringInner::Short(a) => match &other.0 {
-                    MyStringInner::Short(b) => {
-                        // Would rustc optimize `&a[0..N] == &b[0..N]`
-                        // so that transmute isn't needed?
-                        let bn = unsafe {
-                            // Safe because N2 == N as the if
-                            // statement above verified
-                            transmute::<&[u8; N2], &[u8; N]>(b)
-                        };
-                        a == bn
-                    }
+                    // XX does rustc optimize this back to fixed-size
+                    // array comparisons, or should we use transmute?
+                    MyStringInner::Short(b) => &a[0..N] == &b[0..N],
                     MyStringInner::Long(_) => false,
                 },
                 MyStringInner::Long(a) => match &other.0 {

@@ -8,7 +8,7 @@ use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 
 use chj_rustbin::{
-    io::unix::unix_file_content_key::UnixFileContentKey, mystring::MyString31,
+    io::unix::unix_file_content_key::UnixFileContentKey, mystring::MyString32,
 };
 use log::debug;
 
@@ -127,7 +127,7 @@ struct Opt {
 fn check(
     dir: &Path,
     newer_than_time: Option<u64>,
-) -> Result<Vec<(u64, MyString31)>> {
+) -> Result<Vec<(u64, MyString32)>> {
     let dir = std::fs::read_dir(&dir)?;
     let mut items = Vec::new();
     for item in dir {
@@ -170,7 +170,7 @@ fn main() -> Result<()> {
     env_logger::init();
 
     let mut found = if opt.poll {
-        if let Some(found) = (|| -> Result<Option<Vec<(u64, MyString31)>>> {
+        if let Some(found) = (|| -> Result<Option<Vec<(u64, MyString32)>>> {
             let start = SystemTime::now();
             // The 'key' is used to tell whether anything has changed
             let mut last_key: Option<(UnixFileContentKey, Option<u64>)> = None;
@@ -248,9 +248,9 @@ fn main() -> Result<()> {
 
 #[test]
 fn t_size() {
-    use chj_rustbin::mystring::{MyString23, MyString31};
+    use chj_rustbin::mystring::{MyString24, MyString32};
     use std::mem::size_of;
-    assert_eq!(size_of::<(u64, MyString23)>(), 4 * 8);
-    assert_eq!(size_of::<(u64, MyString31)>(), 5 * 8);
-    assert_eq!(size_of::<[(u64, MyString31); 10]>(), 10 * 5 * 8);
+    assert_eq!(size_of::<(u64, MyString24)>(), 4 * 8);
+    assert_eq!(size_of::<(u64, MyString32)>(), 5 * 8);
+    assert_eq!(size_of::<[(u64, MyString32); 10]>(), 10 * 5 * 8);
 }

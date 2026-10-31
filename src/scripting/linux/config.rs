@@ -12,7 +12,7 @@ use std::{
 
 use anyhow::{anyhow, bail, Context, Result};
 
-use crate::mystring::MyString23;
+use crate::mystring::MyString24;
 
 /// A present value ("is not set" is outside this type's scope)
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -21,7 +21,7 @@ pub enum ConfigValue {
     Y,
     /// "m" (module)
     M,
-    String(MyString23),
+    String(MyString24),
     Integer(i128),
     IntegerHex(u64),
 }
@@ -64,7 +64,7 @@ impl FromStr for ConfigValue {
 
 pub struct Config {
     /// `None` means, a config entry is present but "is not set"
-    pub settings: BTreeMap<MyString23, Option<ConfigValue>>,
+    pub settings: BTreeMap<MyString24, Option<ConfigValue>>,
 }
 
 impl Config {
@@ -79,7 +79,7 @@ impl Config {
     pub fn from_file(path: &Path, file: impl Read) -> Result<Self> {
         let mut inp = BufReader::new(file);
 
-        let mut settings: BTreeMap<MyString23, Option<ConfigValue>> =
+        let mut settings: BTreeMap<MyString24, Option<ConfigValue>> =
             Default::default();
         let mut add = |key, val, line_no| -> Result<()> {
             match settings.entry(key) {
@@ -112,7 +112,7 @@ impl Config {
                     if let Some(rest) = line.strip_prefix("# CONFIG_") {
                         if let Some((key, rest)) = rest.split_once(' ') {
                             if rest.starts_with("is not set") {
-                                add(MyString23::from(key), None, line_no)?;
+                                add(MyString24::from(key), None, line_no)?;
                             } else {
                                 bail!(
                                     "expecting 'is not set' after space after CONFIG_* \
@@ -135,7 +135,7 @@ impl Config {
                                     )
                                 },
                             )?;
-                            add(MyString23::from(key), Some(val), line_no)?;
+                            add(MyString24::from(key), Some(val), line_no)?;
                         }
                     } else {
                         bail!(
@@ -261,7 +261,7 @@ impl Config {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ConfigDiff {
-    pub name: MyString23,
+    pub name: MyString24,
     pub diff: ConfigValueDiff,
 }
 

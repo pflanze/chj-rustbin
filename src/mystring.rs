@@ -3,8 +3,9 @@
 use std::{
     cell::Cell,
     fmt::{Debug, Display},
-    mem::ManuallyDrop,
+    mem::{transmute, ManuallyDrop},
     ops::Deref,
+    ptr::copy_nonoverlapping,
 };
 
 /// The counters wrap around
@@ -24,44 +25,66 @@ pub fn get_stats() -> Stats {
     STATS.get()
 }
 
-union Storage<const N: usize> {
-    inline: [u8; N],
-    // XX should use Arc<str> instead?
-    boxed: ManuallyDrop<Box<str>>,
-}
-
 const TAG_BOXED: u8 = 255;
 
-// XX do *not* say packed, that just means pack *into* another struct is
-// unaligned? But why does align(1) not lead to error or warning?
-#[repr(C)]
+// XX see Git history for previous attempts
+#[repr(align(8))]
 pub struct MyString<const N: usize> {
-    storage: Storage<N>,
-    /// Distinguishes between inline storage and boxed, and in the first case,
-    /// indicates the length (255 = boxed)
-    tag: u8,
+    storage: [u8; N],
 }
 
-pub type MyString23 = MyString<23>;
-pub type MyString31 = MyString<31>;
-pub type MyString39 = MyString<39>;
+pub type MyString24 = MyString<24>;
+pub type MyString32 = MyString<32>;
+pub type MyString40 = MyString<40>;
+
+impl<const N: usize> MyString<N> {
+    #[inline]
+    fn tag(&self) -> u8 {
+        self.storage[N - 1]
+    }
+
+    /// Only defined if `self.tag() == TAG_BOXED`
+    // XX use Arc<str> instead?
+    unsafe fn boxed(&self) -> &Box<str> {
+        unsafe {
+            // Safe because:
+            // - boxed data is at the beginning
+            transmute(&self.storage)
+        }
+    }
+
+    /// Only defined if `self.tag() == TAG_BOXED`
+    // XX use Arc<str> instead?
+    unsafe fn boxed_mut(&mut self) -> &mut ManuallyDrop<Box<str>> {
+        unsafe {
+            // Safe because:
+            // - boxed data is at the beginning
+            transmute(&mut self.storage)
+        }
+    }
+
+    /// Only defined if `self.tag() != TAG_BOXED` and the tag value is passed as len
+    unsafe fn inline(&self, len: u8) -> &str {
+        unsafe { std::str::from_utf8_unchecked(&self.storage[0..len as usize]) }
+    }
+
+    #[inline]
+    pub fn is_short(&self) -> bool {
+        self.tag() != TAG_BOXED
+    }
+}
 
 impl<const N: usize> Clone for MyString<N> {
     fn clone(&self) -> Self {
-        let Self { storage, tag } = self;
-        if *tag == TAG_BOXED {
+        if self.tag() == TAG_BOXED {
+            let _b = ManuallyDrop::new(unsafe { self.boxed() }.clone());
+            // XX OK?
             Self {
-                storage: Storage {
-                    boxed: unsafe { storage.boxed.clone() },
-                },
-                tag: *tag,
+                storage: self.storage.clone(),
             }
         } else {
             Self {
-                storage: Storage {
-                    inline: unsafe { storage.inline.clone() },
-                },
-                tag: *tag,
+                storage: self.storage.clone(),
             }
         }
     }
@@ -69,10 +92,10 @@ impl<const N: usize> Clone for MyString<N> {
 
 impl<const N: usize> Drop for MyString<N> {
     fn drop(&mut self) {
-        if self.tag == TAG_BOXED {
+        if self.tag() == TAG_BOXED {
             unsafe {
                 // Drop is guaranteed to only run once (right?)
-                drop(ManuallyDrop::take(&mut self.storage.boxed));
+                drop(ManuallyDrop::take(self.boxed_mut()));
             }
         }
     }
@@ -88,16 +111,19 @@ impl<const N: usize, const N2: usize> PartialEq<MyString<N2>> for MyString<N> {
     #[inline]
     fn eq(&self, other: &MyString<N2>) -> bool {
         if N == N2 {
-            if self.tag == TAG_BOXED && other.tag == TAG_BOXED {
-                unsafe {
-                    // Safe as both tags indicate Inline
-                    self.storage.inline.as_slice()
-                        == other.storage.inline.as_slice()
-                }
-            } else if self.tag != TAG_BOXED && other.tag != TAG_BOXED {
+            let t1 = self.tag();
+            let t2 = other.tag();
+            if t1 == TAG_BOXED && t2 == TAG_BOXED {
                 unsafe {
                     // Safe as both tags indicate Boxed
-                    self.storage.boxed == other.storage.boxed
+                    self.boxed() == other.boxed()
+                }
+            } else if t1 != TAG_BOXED && t2 != TAG_BOXED {
+                // XX optim? Lengths are the same:
+                // if t1 == t2 {
+                unsafe {
+                    // Safe as both tags indicate Inline
+                    self.inline(t1) == other.inline(t2)
                 }
             } else {
                 false
@@ -124,46 +150,51 @@ impl<const N: usize> PartialOrd for MyString<N> {
 
 impl<const N: usize, T: Into<Box<str>> + AsRef<str>> From<T> for MyString<N> {
     fn from(t: T) -> Self {
-        const { assert!(N < 255) }
+        const {
+            assert!(N <= 255); // len up to 254, last byte for the tag
+            assert!(N > size_of::<Box<str>>())
+        }
         let s: &str = t.as_ref();
         let len = s.len();
-        if len <= N {
+        if len < N {
             {
                 let mut stats = STATS.get();
                 stats.immediate_count = stats.immediate_count.wrapping_add(1);
                 STATS.set(stats);
             }
-            let mut inline = [0; N];
-            (&mut inline[0..len]).copy_from_slice(s.as_bytes());
-            MyString {
-                storage: Storage { inline },
-                tag: len as u8,
-            }
+            let mut storage = [0; N];
+            (&mut storage[0..len]).copy_from_slice(s.as_bytes());
+            storage[N - 1] = len as u8;
+            MyString { storage }
         } else {
             {
                 let mut stats = STATS.get();
                 stats.alloc_count = stats.alloc_count.wrapping_add(1);
                 STATS.set(stats);
             }
-            let boxed = ManuallyDrop::new(s.into());
-            MyString {
-                storage: Storage { boxed },
-                tag: TAG_BOXED,
+            let mut storage = [0; N];
+            let boxed: ManuallyDrop<Box<str>> = ManuallyDrop::new(s.into());
+            // "Move" the boxed data into storage
+            unsafe {
+                copy_nonoverlapping(
+                    &boxed as *const _ as *const u8,
+                    storage.as_mut_ptr(),
+                    size_of_val(&boxed),
+                );
             }
+            storage[N - 1] = TAG_BOXED;
+            MyString { storage }
         }
     }
 }
 
 impl<const N: usize> AsRef<str> for MyString<N> {
     fn as_ref(&self) -> &str {
-        if self.tag == TAG_BOXED {
-            unsafe { &self.storage.boxed }
+        let t = self.tag();
+        if t == TAG_BOXED {
+            unsafe { self.boxed() }
         } else {
-            unsafe {
-                std::str::from_utf8_unchecked(
-                    &self.storage.inline[0..self.tag as usize],
-                )
-            }
+            unsafe { self.inline(t) }
         }
     }
 }
@@ -182,13 +213,6 @@ impl<const N: usize> Display for MyString<N> {
     }
 }
 
-impl<const N: usize> MyString<N> {
-    #[inline]
-    pub fn is_short(&self) -> bool {
-        self.tag != TAG_BOXED
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::mem::{size_of, size_of_val};
@@ -198,21 +222,21 @@ mod tests {
     #[test]
     fn t_size() {
         assert_eq!(size_of::<MyString<23>>(), 24);
-        assert_eq!(size_of::<MyString<24>>(), 32);
-        // assert_eq!(size_of::<MyString<15>>(), 16);
-        assert_eq!(size_of::<MyString<15>>(), 24);
-        assert_eq!(size_of::<MyString<10>>(), 24); // bummer
-        assert_eq!(size_of::<MyString<16>>(), 24);
+        assert_eq!(size_of::<MyString<24>>(), 24);
+        assert_eq!(size_of::<MyString<25>>(), 32);
+        _ = MyString::<24>::from("foo");
+        // _ = MyString::<16>::from("foo"); -- assertion failed: N > size_of::<Box<str>>()
+        _ = MyString::<17>::from("foo");
+        // The type can still be used, though. Bummer, can I put a
+        // const panic somewhere to disallow this?
+        assert_eq!(size_of::<MyString<16>>(), 16);
 
-        assert_eq!(size_of::<MyString23>(), 24);
-        assert_eq!(size_of::<MyString31>(), 32);
-        assert_eq!(size_of::<MyString39>(), 40);
-
-        assert_eq!(size_of::<MyString<38>>(), 40);
-        assert_eq!(size_of::<MyString<40>>(), 48);
+        assert_eq!(size_of::<MyString24>(), 24);
+        assert_eq!(size_of::<MyString32>(), 32);
+        assert_eq!(size_of::<MyString40>(), 40);
     }
 
-    fn m(s: &str) -> MyString<23> {
+    fn m(s: &str) -> MyString<24> {
         s.into()
     }
 
@@ -267,21 +291,21 @@ mod tests {
 
     #[test]
     fn t_eq() {
+        // 23 -> inline
         let a = m("01234567890123456789012");
         let a2 = m("01234567890123456789012");
+        // 24 -> boxed
         let b = m("012345678901234567890123");
         let b2 = m("012345678901234567890123");
-        assert!(a == a2);
-        assert!(b == b2);
+        assert_eq!(a, a2);
+        assert_eq!(b, b2);
         assert!(!(a == b));
 
         let a = m("012345678901234567890\0\0");
         let a2 = m("012345678901234567890");
-        // Currently those are in fact equal
-        assert!(a == a2);
+        assert!(!(a == a2));
         let a = m("012345678901234567890123\0\0");
         let a2 = m("012345678901234567890123");
-        // But once above the immediate size, they aren't anymore
         assert!(!(a == a2));
     }
 }

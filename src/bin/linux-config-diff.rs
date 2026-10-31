@@ -3,6 +3,10 @@ use std::path::PathBuf;
 use anyhow::Result;
 use chj_rustbin::scripting::linux::config::Config;
 use clap::Parser;
+use mimalloc::MiMalloc;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 #[derive(clap::Parser, Debug)]
 #[clap(next_line_help = true)]

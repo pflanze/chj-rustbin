@@ -20,6 +20,11 @@ struct Opt {
 }
 
 fn main() -> Result<()> {
+    if cfg!(miri) {
+        eprintln!("skipping test-bag since running under miri");
+        return Ok(());
+    }
+
     cpu_probe::init()?;
 
     let Opt {

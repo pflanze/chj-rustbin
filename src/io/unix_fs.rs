@@ -77,6 +77,11 @@ mod tests {
 
     #[test]
     fn t_filetype() -> Result<()> {
+        if cfg!(miri) {
+            eprintln!("skipping t_filetype since running under miri (stat not supported)");
+            return Ok(());
+        }
+
         fn t(f: fn(&CStr) -> bool, s: &str, expected: bool) {
             // "implementation of `std::fmt::Debug` is not general enough" on Debian bookworm
             // eprintln!("{f:?} {s:} {expected:?}");

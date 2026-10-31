@@ -137,6 +137,11 @@ impl Contributors {
 
 #[test]
 fn t_contributors() {
+    if cfg!(miri) {
+        eprintln!("skipping t_contributors since running under miri");
+        return;
+    }
+
     let c = Contributors::new();
     assert!(c.all.len() > 100 && c.all.len() < 10000);
     // panic!("{c:#?}");

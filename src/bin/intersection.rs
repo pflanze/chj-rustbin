@@ -1,6 +1,7 @@
 use anyhow::{anyhow, bail, Context, Error, Result};
 use clap::Parser;
 use kstring::KString;
+use mimalloc::MiMalloc;
 use std::cmp::Ordering;
 use std::collections::{HashSet, VecDeque};
 use std::fs::File;
@@ -12,6 +13,9 @@ use thiserror::Error;
 use chj_rustbin::io::readwithcontext::{
     easy_read_line, open_file, ReadWithContext,
 };
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 #[derive(clap::Parser, Debug)]
 /// Print the lines that occur in all input files. By default, files

@@ -4,10 +4,28 @@
 /// good for file system paths and similar.
 // ~Just for fun.
 use std::{
+    cell::Cell,
     fmt::{Debug, Display},
     mem::transmute,
     ops::Deref,
 };
+
+/// The counters wrap around
+#[derive(Debug, Clone, Copy)]
+pub struct Stats {
+    /// Number of MyString creations that put the string inline
+    pub immediate_count: u32,
+    /// Number of MyString creations that put the string into a Box
+    pub alloc_count: u32,
+}
+
+thread_local! {
+    static STATS: Cell<Stats> = Stats { immediate_count: 0, alloc_count: 0 }.into();
+}
+
+pub fn get_stats() -> Stats {
+    STATS.get()
+}
 
 #[derive(Clone, Debug)]
 enum MyStringInner<const N: usize> {
@@ -76,10 +94,20 @@ impl<const N: usize, T: Into<Box<str>> + AsRef<str>> From<T> for MyString<N> {
         let s: &str = t.as_ref();
         let len = s.len();
         if len <= N {
+            {
+                let mut stats = STATS.get();
+                stats.immediate_count = stats.immediate_count.wrapping_add(1);
+                STATS.set(stats);
+            }
             let mut arr = [0; N];
             (&mut arr[0..len]).copy_from_slice(s.as_bytes());
             MyString(MyStringInner::Short(arr))
         } else {
+            {
+                let mut stats = STATS.get();
+                stats.alloc_count = stats.alloc_count.wrapping_add(1);
+                STATS.set(stats);
+            }
             MyString(MyStringInner::Long(t.into()))
         }
     }

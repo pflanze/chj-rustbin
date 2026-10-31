@@ -23,11 +23,11 @@ test: test_intersection test_priorities test_bag
 	cargo test --release
 	git status > /dev/null || true
 
-miri: miri-bag miri-shared_region miri-lst-segmented miri-lst
+miri: miri-bag miri-shared-regions miri-lst-segmented miri-lst
 
-miri-shared_region:
+miri-shared-regions:
 	RUST_LOG=trace MIRIFLAGS='-Zmiri-tree-borrows -Zmiri-disable-isolation' \
-	   cargo +nightly miri run --bin test-shared_region
+	   cargo +nightly miri run --bin test-shared-regions
 
 miri-bag:
 	RUST_LOG=trace MIRIFLAGS='-Zmiri-tree-borrows -Zmiri-disable-isolation' \

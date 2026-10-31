@@ -1,11 +1,9 @@
 /// Yet another small string implementation, with more optimized space than KString offers.
-///
-/// Currently cannot represent the zero (`'\0'`) characters; i.e. only
-/// good for file system paths and similar.
 // ~Just for fun.
 use std::{
     cell::Cell,
     fmt::{Debug, Display},
+    mem::ManuallyDrop,
     ops::Deref,
 };
 
@@ -26,19 +24,59 @@ pub fn get_stats() -> Stats {
     STATS.get()
 }
 
-#[derive(Clone, Debug)]
-enum MyStringInner<const N: usize> {
-    /// A string terminated by NUL or the end of the array
-    Short([u8; N]),
-    Long(Box<str>),
+union Storage<const N: usize> {
+    inline: [u8; N],
+    // XX should use Arc<str> instead?
+    boxed: ManuallyDrop<Box<str>>,
 }
 
-#[derive(Clone)]
-pub struct MyString<const N: usize>(MyStringInner<N>);
+const TAG_BOXED: u8 = 255;
+
+// XX do *not* say packed, that just means pack *into* another struct is
+// unaligned? But why does align(1) not lead to error or warning?
+#[repr(C)]
+pub struct MyString<const N: usize> {
+    storage: Storage<N>,
+    /// Distinguishes between inline storage and boxed, and in the first case,
+    /// indicates the length (255 = boxed)
+    tag: u8,
+}
 
 pub type MyString23 = MyString<23>;
 pub type MyString31 = MyString<31>;
 pub type MyString39 = MyString<39>;
+
+impl<const N: usize> Clone for MyString<N> {
+    fn clone(&self) -> Self {
+        let Self { storage, tag } = self;
+        if *tag == TAG_BOXED {
+            Self {
+                storage: Storage {
+                    boxed: unsafe { storage.boxed.clone() },
+                },
+                tag: *tag,
+            }
+        } else {
+            Self {
+                storage: Storage {
+                    inline: unsafe { storage.inline.clone() },
+                },
+                tag: *tag,
+            }
+        }
+    }
+}
+
+impl<const N: usize> Drop for MyString<N> {
+    fn drop(&mut self) {
+        if self.tag == TAG_BOXED {
+            unsafe {
+                // Drop is guaranteed to only run once (right?)
+                drop(ManuallyDrop::take(&mut self.storage.boxed));
+            }
+        }
+    }
+}
 
 impl<const N: usize> Debug for MyString<N> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -47,19 +85,22 @@ impl<const N: usize> Debug for MyString<N> {
 }
 
 impl<const N: usize, const N2: usize> PartialEq<MyString<N2>> for MyString<N> {
+    #[inline]
     fn eq(&self, other: &MyString<N2>) -> bool {
         if N == N2 {
-            match &self.0 {
-                MyStringInner::Short(a) => match &other.0 {
-                    // XX does rustc optimize this back to fixed-size
-                    // array comparisons, or should we use transmute?
-                    MyStringInner::Short(b) => &a[0..N] == &b[0..N],
-                    MyStringInner::Long(_) => false,
-                },
-                MyStringInner::Long(a) => match &other.0 {
-                    MyStringInner::Short(_) => false,
-                    MyStringInner::Long(b) => a == b,
-                },
+            if self.tag == TAG_BOXED && other.tag == TAG_BOXED {
+                unsafe {
+                    // Safe as both tags indicate Inline
+                    self.storage.inline.as_slice()
+                        == other.storage.inline.as_slice()
+                }
+            } else if self.tag != TAG_BOXED && other.tag != TAG_BOXED {
+                unsafe {
+                    // Safe as both tags indicate Boxed
+                    self.storage.boxed == other.storage.boxed
+                }
+            } else {
+                false
             }
         } else {
             self.as_ref() == other.as_ref()
@@ -83,6 +124,7 @@ impl<const N: usize> PartialOrd for MyString<N> {
 
 impl<const N: usize, T: Into<Box<str>> + AsRef<str>> From<T> for MyString<N> {
     fn from(t: T) -> Self {
+        const { assert!(N < 255) }
         let s: &str = t.as_ref();
         let len = s.len();
         if len <= N {
@@ -91,43 +133,37 @@ impl<const N: usize, T: Into<Box<str>> + AsRef<str>> From<T> for MyString<N> {
                 stats.immediate_count = stats.immediate_count.wrapping_add(1);
                 STATS.set(stats);
             }
-            let mut arr = [0; N];
-            (&mut arr[0..len]).copy_from_slice(s.as_bytes());
-            MyString(MyStringInner::Short(arr))
+            let mut inline = [0; N];
+            (&mut inline[0..len]).copy_from_slice(s.as_bytes());
+            MyString {
+                storage: Storage { inline },
+                tag: len as u8,
+            }
         } else {
             {
                 let mut stats = STATS.get();
                 stats.alloc_count = stats.alloc_count.wrapping_add(1);
                 STATS.set(stats);
             }
-            MyString(MyStringInner::Long(t.into()))
+            let boxed = ManuallyDrop::new(s.into());
+            MyString {
+                storage: Storage { boxed },
+                tag: TAG_BOXED,
+            }
         }
     }
-}
-
-fn array_len<const N: usize>(a: &[u8; N]) -> usize {
-    let mut len = 0;
-    for b in a {
-        if *b == 0 {
-            break;
-        }
-        len += 1;
-    }
-    len
 }
 
 impl<const N: usize> AsRef<str> for MyString<N> {
     fn as_ref(&self) -> &str {
-        match &self.0 {
-            MyStringInner::Short(a) => {
-                let len = array_len(a);
-                unsafe {
-                    // Safe because it was generated from a str (and
-                    // we exclude the unused part)
-                    std::str::from_utf8_unchecked(&a[0..len])
-                }
+        if self.tag == TAG_BOXED {
+            unsafe { &self.storage.boxed }
+        } else {
+            unsafe {
+                std::str::from_utf8_unchecked(
+                    &self.storage.inline[0..self.tag as usize],
+                )
             }
-            MyStringInner::Long(b) => b.as_ref(),
         }
     }
 }
@@ -147,11 +183,9 @@ impl<const N: usize> Display for MyString<N> {
 }
 
 impl<const N: usize> MyString<N> {
+    #[inline]
     pub fn is_short(&self) -> bool {
-        match &self.0 {
-            MyStringInner::Short(_) => true,
-            MyStringInner::Long(_) => false,
-        }
+        self.tag != TAG_BOXED
     }
 }
 

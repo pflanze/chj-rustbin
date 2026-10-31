@@ -89,6 +89,7 @@ install: /usr/local/bin/onthemove
 install: /usr/local/bin/debian-version
 install: /usr/local/bin/kernel-upgrade
 install: /usr/local/bin/eogfiles
+install: /usr/local/bin/linux-config-diff
 
 install-musl:
 	TARGET=x86_64-unknown-linux-musl make install

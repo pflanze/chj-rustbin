@@ -6,6 +6,7 @@ use std::{
     mem::{transmute, ManuallyDrop},
     ops::Deref,
     ptr::copy_nonoverlapping,
+    sync::Arc,
 };
 
 /// The counters wrap around
@@ -13,7 +14,7 @@ use std::{
 pub struct Stats {
     /// Number of MyString creations that put the string inline
     pub immediate_count: u32,
-    /// Number of MyString creations that put the string into a Box
+    /// Number of MyString creations that put the string into an Arc<str>
     pub alloc_count: u32,
 }
 
@@ -44,8 +45,7 @@ impl<const N: usize> MyString<N> {
     }
 
     /// Only defined if `self.tag() == TAG_BOXED`
-    // XX use Arc<str> instead?
-    unsafe fn boxed(&self) -> &Box<str> {
+    unsafe fn boxed(&self) -> &Arc<str> {
         unsafe {
             // Safe because:
             // - boxed data is at the beginning
@@ -54,8 +54,7 @@ impl<const N: usize> MyString<N> {
     }
 
     /// Only defined if `self.tag() == TAG_BOXED`
-    // XX use Arc<str> instead?
-    unsafe fn boxed_mut(&mut self) -> &mut ManuallyDrop<Box<str>> {
+    unsafe fn boxed_mut(&mut self) -> &mut ManuallyDrop<Arc<str>> {
         unsafe {
             // Safe because:
             // - boxed data is at the beginning
@@ -115,7 +114,7 @@ impl<const N: usize, const N2: usize> PartialEq<MyString<N2>> for MyString<N> {
             let t2 = other.tag();
             if t1 == TAG_BOXED && t2 == TAG_BOXED {
                 unsafe {
-                    // Safe as both tags indicate Boxed
+                    // Safe as both tags indicate boxed
                     self.boxed() == other.boxed()
                 }
             } else if t1 != TAG_BOXED && t2 != TAG_BOXED {
@@ -148,11 +147,11 @@ impl<const N: usize> PartialOrd for MyString<N> {
     }
 }
 
-impl<const N: usize, T: Into<Box<str>> + AsRef<str>> From<T> for MyString<N> {
+impl<const N: usize, T: Into<Arc<str>> + AsRef<str>> From<T> for MyString<N> {
     fn from(t: T) -> Self {
         const {
             assert!(N <= 255); // len up to 254, last byte for the tag
-            assert!(N > size_of::<Box<str>>())
+            assert!(N > size_of::<Arc<str>>())
         }
         let s: &str = t.as_ref();
         let len = s.len();
@@ -173,7 +172,7 @@ impl<const N: usize, T: Into<Box<str>> + AsRef<str>> From<T> for MyString<N> {
                 STATS.set(stats);
             }
             let mut storage = [0; N];
-            let boxed: ManuallyDrop<Box<str>> = ManuallyDrop::new(s.into());
+            let boxed: ManuallyDrop<Arc<str>> = ManuallyDrop::new(s.into());
             // "Move" the boxed data into storage
             unsafe {
                 copy_nonoverlapping(
@@ -225,7 +224,7 @@ mod tests {
         assert_eq!(size_of::<MyString<24>>(), 24);
         assert_eq!(size_of::<MyString<25>>(), 32);
         _ = MyString::<24>::from("foo");
-        // _ = MyString::<16>::from("foo"); -- assertion failed: N > size_of::<Box<str>>()
+        // _ = MyString::<16>::from("foo"); -- assertion failed: N > size_of::<Arc<str>>()
         _ = MyString::<17>::from("foo");
         // The type can still be used, though. Bummer, can I put a
         // const panic somewhere to disallow this?

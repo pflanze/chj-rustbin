@@ -6,7 +6,6 @@ use std::{
     hash::Hash,
     mem::{transmute, ManuallyDrop},
     ops::Deref,
-    ptr::copy_nonoverlapping,
     sync::Arc,
 };
 
@@ -47,10 +46,12 @@ impl<const N: usize> MyString<N> {
 
     /// Only defined if `self.tag() == TAG_BOXED`
     unsafe fn boxed(&self) -> &Arc<str> {
+        let storage_ptr: *const [u8] = &self.storage;
+        let arc_ptr: *const Arc<str> = storage_ptr as *const Arc<str>;
         unsafe {
             // Safe because:
             // - boxed data is at the beginning
-            transmute(&self.storage)
+            &*arc_ptr
         }
     }
 
@@ -177,16 +178,22 @@ impl<const N: usize, T: Into<Arc<str>> + AsRef<str>> From<T> for MyString<N> {
             //     stats.alloc_count = stats.alloc_count.wrapping_add(1);
             //     STATS.set(stats);
             // }
-            let mut storage = [0; N];
+            let mut storage = [0u8; N];
             let boxed: ManuallyDrop<Arc<str>> = ManuallyDrop::new(s.into());
             // "Move" the boxed data into storage
+            let store_ptr: *mut [u8; size_of::<ManuallyDrop<Arc<str>>>()] = unsafe {
+                transmute(
+                    storage[0..size_of::<ManuallyDrop<Arc<str>>>()]
+                        .as_mut_ptr(),
+                )
+            };
             unsafe {
-                copy_nonoverlapping(
-                    &boxed as *const _ as *const u8,
-                    storage.as_mut_ptr(),
-                    size_of_val(&boxed),
-                );
-            }
+                *store_ptr = *transmute::<
+                    &ManuallyDrop<Arc<str>>,
+                    &[u8; size_of::<ManuallyDrop<Arc<str>>>()],
+                >(&boxed)
+            };
+
             storage[N - 1] = TAG_BOXED;
             MyString { storage }
         }

@@ -321,12 +321,17 @@ fn priority_level_for(time_weeks: f32, task_size_weeks: f32) -> f32 {
 #[cfg(test)]
 #[test]
 fn t_priority_level() {
-    assert_eq!(priority_level_for(1., 1.), 1.);
-    assert_eq!(priority_level_for(2., 1.), 3.);
-    assert_eq!(priority_level_for(4., 1.), 5.);
-    assert_eq!(priority_level_for(8., 1.), 7.);
-    assert_eq!(priority_level_for(16., 2.), 7.);
-    assert_eq!(priority_level_for(1., 2.), -1.);
+    // Verify results 1000x multiplied and rounded to avoid mismatches
+    // under Miri.
+    let milli = |x: f32| -> f32 { (x * 1000.).round() };
+    let t = |a, b| milli(priority_level_for(a, b));
+
+    assert_eq!(t(1., 1.), 1000.);
+    assert_eq!(t(2., 1.), 3000.);
+    assert_eq!(t(4., 1.), 5000.);
+    assert_eq!(t(8., 1.), 7000.);
+    assert_eq!(t(16., 2.), 7000.);
+    assert_eq!(t(1., 2.), -1000.);
 }
 
 // Rough, hack. UTC. good enough when distance in days are the main thing I want.

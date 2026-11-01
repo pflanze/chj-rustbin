@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail, Context, Error, Result};
+use chj_rustbin::mystring::MyString24;
 use clap::Parser;
-use kstring::KString;
 use mimalloc::MiMalloc;
 use std::cmp::Ordering;
 use std::collections::{HashSet, VecDeque};
@@ -13,6 +13,8 @@ use thiserror::Error;
 use chj_rustbin::io::readwithcontext::{
     easy_read_line, open_file, ReadWithContext,
 };
+
+type Strng = MyString24;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -455,7 +457,7 @@ fn main() -> Result<()> {
             }
         }
         Mode::Set | Mode::SetThenLinear => {
-            let mut set: HashSet<KString> = HashSet::new();
+            let mut set: HashSet<Strng> = HashSet::new();
             let mut tmpline = String::new();
 
             let last_path = match mode {
@@ -481,7 +483,7 @@ fn main() -> Result<()> {
                 let path = first_path;
                 let mut inp = ReadWithContext::open_path(&path)?;
                 while inp.easy_read_line(&mut tmpline)? {
-                    set.insert(KString::from(&tmpline));
+                    set.insert(Strng::from(&*tmpline));
                 }
             }
 
@@ -492,7 +494,7 @@ fn main() -> Result<()> {
                 let mut inp = ReadWithContext::open_path(&path)?;
                 let mut newset = HashSet::new();
                 while inp.easy_read_line(&mut tmpline)? {
-                    let line = KString::from(&tmpline);
+                    let line = Strng::from(&*tmpline);
                     if set.contains(&line) {
                         newset.insert(line);
                     }
@@ -503,7 +505,7 @@ fn main() -> Result<()> {
             let mut out = BufWriter::new(stdout());
             match mode {
                 Mode::Set => {
-                    let mut v: Vec<KString> = set.into_iter().collect();
+                    let mut v: Vec<Strng> = set.into_iter().collect();
                     v.sort();
                     for line in v {
                         tmpline.clear();
@@ -515,7 +517,7 @@ fn main() -> Result<()> {
                     let path = last_path.unwrap();
                     let mut inp = ReadWithContext::open_path(&path)?;
                     while inp.easy_read_line(&mut tmpline)? {
-                        if set.contains(&KString::from(&tmpline)) {
+                        if set.contains(&Strng::from(&*tmpline)) {
                             println(&mut out, &tmpline)?;
                         }
                     }

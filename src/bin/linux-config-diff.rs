@@ -27,10 +27,8 @@ struct Args {
 fn main() -> Result<()> {
     let Args { less, file1, file2 } = Args::parse();
 
-    let (config1, config2) =
-        rayon::join(|| Config::from_path(&file1), || Config::from_path(&file2));
-    let config1 = config1?;
-    let config2 = config2?;
+    let config1 = Config::from_path(&file1)?;
+    let config2 = Config::from_path(&file2)?;
 
     let differences = config1.diff(&config2);
 

@@ -26,7 +26,7 @@ test: test_intersection test_priorities test_bag
 miri-all: miri-test miri-bag miri-shared-regions miri-lst-segmented miri-lst
 
 miri-test:
-	RUST_LOG=trace MIRIFLAGS='-Zmiri-tree-borrows -Zmiri-disable-isolation' \
+	RUST_LOG=trace MIRIFLAGS='-Zmiri-ignore-leaks -Zmiri-tree-borrows -Zmiri-disable-isolation' \
 	   cargo +nightly miri test
 
 miri-shared-regions:

@@ -457,13 +457,16 @@ fn main() -> Result<()> {
             }
         }
         Mode::Set | Mode::SetThenLinear => {
+            let unreachable =
+                || -> ! { unreachable!("limited by pattern match above") };
+
             let mut set: HashSet<Strng> = HashSet::new();
             let mut tmpline = String::new();
 
             let last_path = match mode {
                 Mode::Set => None,
                 Mode::SetThenLinear => Some(paths.pop_back().unwrap()),
-                _ => panic!(),
+                _ => unreachable(),
             };
 
             let mut paths_meta: VecDeque<(PathBuf, u64)> = paths
@@ -522,7 +525,7 @@ fn main() -> Result<()> {
                         }
                     }
                 }
-                _ => panic!(),
+                _ => unreachable(),
             }
             out.flush()?;
         }

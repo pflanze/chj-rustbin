@@ -218,7 +218,7 @@ impl Inputs {
             .max_by(|a, b| {
                 sortorder.compare(a.1.current_line(), b.1.current_line())
             })
-            .unwrap()
+            .expect("guaranteed by min_paths_len?")
             .0;
         // eprintln!("largest_input_index() = {} {:?}", res,
         //           self.inputs[res].current_line().string);
@@ -260,6 +260,7 @@ impl Mode {
             Mode::StructSizes => "--structsizes",
         }
     }
+
     fn min_paths_len(&self) -> usize {
         match self {
             Mode::SetThenLinear => 2,
@@ -465,7 +466,9 @@ fn main() -> Result<()> {
 
             let last_path = match mode {
                 Mode::Set => None,
-                Mode::SetThenLinear => Some(paths.pop_back().unwrap()),
+                Mode::SetThenLinear => {
+                    Some(paths.pop_back().expect("guaranteed by min_paths_len"))
+                }
                 _ => unreachable(),
             };
 
@@ -481,7 +484,10 @@ fn main() -> Result<()> {
                 .collect::<Result<_>>()?;
             paths_meta.make_contiguous().sort_by_key(|x| x.1);
 
-            let first_path = paths_meta.pop_front().unwrap().0;
+            let first_path = paths_meta
+                .pop_front()
+                .expect("guaranteed by min_paths_len")
+                .0;
             {
                 let path = first_path;
                 let mut inp = ReadWithContext::open_path(&path)?;
@@ -517,7 +523,7 @@ fn main() -> Result<()> {
                     }
                 }
                 Mode::SetThenLinear => {
-                    let path = last_path.unwrap();
+                    let path = last_path.expect("guaranteed by min_paths_len");
                     let mut inp = ReadWithContext::open_path(&path)?;
                     while inp.easy_read_line(&mut tmpline)? {
                         if set.contains(&Strng::from(&*tmpline)) {

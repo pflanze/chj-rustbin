@@ -42,5 +42,8 @@ fn main() -> Result<()> {
 
     dbg!(get_stats());
 
+    let status = std::fs::read_to_string("/proc/self/status")?;
+    eprintln!("status:\n\n{status}\n");
+
     Ok(())
 }

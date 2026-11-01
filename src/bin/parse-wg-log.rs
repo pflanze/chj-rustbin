@@ -3,7 +3,6 @@ use chj_rustbin::util::div::{hashmap_add, hashmap_get_mut_vivify};
 use chrono::{Datelike, NaiveDate, Timelike};
 use clap::Parser;
 use genawaiter::rc::Gen;
-use mimalloc::MiMalloc;
 use std::collections::HashMap;
 use std::io::Write;
 use std::ops::Add;
@@ -22,8 +21,9 @@ use chj_rustbin::{
     time::tai::{parse_timestamp, Tai64Format},
 };
 
+#[cfg(not(miri))]
 #[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[derive(clap::Parser, Debug)]
 /// Parse a log file consisting of repeated output of `wg` (wireguard

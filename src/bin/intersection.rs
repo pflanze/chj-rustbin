@@ -1,7 +1,6 @@
 use anyhow::{anyhow, bail, Context, Error, Result};
 use chj_rustbin::mystring::MyString32;
 use clap::Parser;
-use mimalloc::MiMalloc;
 use std::cmp::Ordering;
 use std::collections::{HashSet, VecDeque};
 use std::fs::File;
@@ -16,8 +15,9 @@ use chj_rustbin::io::readwithcontext::{
 
 type Strng = MyString32;
 
+#[cfg(not(miri))]
 #[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[derive(clap::Parser, Debug)]
 /// Print the lines that occur in all input files. By default, files

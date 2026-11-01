@@ -55,7 +55,6 @@ use chrono::{DateTime, Datelike, Local, Timelike};
 use clap::Parser;
 use internal_iterator::InternalIterator;
 use log::info;
-use mimalloc::MiMalloc;
 use rand::{rngs::ThreadRng, Rng};
 use rayon::{
     iter::{IntoParallelIterator, ParallelBridge},
@@ -1268,7 +1267,7 @@ impl TableFromItems {
 
 #[cfg(not(miri))]
 #[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 fn main() -> Result<()> {
     cpu_probe::init()?;

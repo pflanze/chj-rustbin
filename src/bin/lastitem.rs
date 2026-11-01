@@ -13,7 +13,6 @@ use std::time::SystemTime;
 use anyhow::{anyhow, bail, Context, Result};
 use chj_rustbin::region::Region;
 use clap::Parser;
-use mimalloc::MiMalloc;
 use rayon::iter::IntoParallelIterator;
 use rayon::iter::ParallelIterator;
 
@@ -25,8 +24,9 @@ use chj_rustbin::io::file_path_type::{
 
 use chj_rustbin::text::naturallanguagejoin::NaturalLanguageJoin;
 
+#[cfg(not(miri))]
 #[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[derive(clap::Parser, Debug)]
 /// Show the newest (with regards to mtime) item in a directory. If

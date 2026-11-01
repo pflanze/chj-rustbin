@@ -12,10 +12,10 @@ use chj_rustbin::{
     get_terminal_width::get_terminal_width,
 };
 use clap::Parser;
-use mimalloc::MiMalloc;
 
+#[cfg(not(miri))]
 #[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[derive(clap::Parser, Debug)]
 /// Show the space use of the immediate items (subdirectories, files)

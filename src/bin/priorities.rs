@@ -20,7 +20,6 @@ use chrono::{
 };
 use clap::Parser;
 use kstring::KString;
-use mimalloc::MiMalloc;
 use once_cell::sync::OnceCell;
 use rayon::prelude::ParallelBridge;
 use rayon::{iter::ParallelIterator, slice::ParallelSliceMut};
@@ -48,8 +47,9 @@ use chj_rustbin::{
     T,
 };
 
+#[cfg(not(miri))]
 #[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 const MONTH_SECONDS: i64 = 3600 * 24 * 30;
 

@@ -3,6 +3,7 @@
 use std::{
     cell::Cell,
     fmt::{Debug, Display},
+    hash::Hash,
     mem::{transmute, ManuallyDrop},
     ops::Deref,
     ptr::copy_nonoverlapping,
@@ -103,6 +104,12 @@ impl<const N: usize> Drop for MyString<N> {
 impl<const N: usize> Debug for MyString<N> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self.as_ref(), f)
+    }
+}
+
+impl<const N: usize> Hash for MyString<N> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.as_ref().hash(state);
     }
 }
 

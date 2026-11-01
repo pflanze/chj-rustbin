@@ -124,15 +124,14 @@ impl<const N: usize, const N2: usize> PartialEq<MyString<N2>> for MyString<N> {
                     // Safe as both tags indicate boxed
                     self.boxed() == other.boxed()
                 }
-            } else if t1 != TAG_BOXED && t2 != TAG_BOXED {
-                // XX optim? Lengths are the same:
-                // if t1 == t2 {
-                unsafe {
-                    // Safe as both tags indicate Inline
-                    self.inline(t1) == other.inline(t2)
-                }
             } else {
-                false
+                // Check tag/length as part of the full storage
+                // check. (Prefixing with `t1 == t2 &&` seems slower.)
+                &self.storage
+                    == unsafe {
+                        // Safe because N == N2 as checked above
+                        transmute::<&[u8; N2], &[u8; N]>(&other.storage)
+                    }
             }
         } else {
             self.as_ref() == other.as_ref()

@@ -28,10 +28,20 @@ pub fn get_stats() -> Stats {
 
 const TAG_BOXED: u8 = 255;
 
+#[repr(C)]
+union Storage<const N: usize> {
+    inline: [u8; N],
+    /// The u8 is only there to make really sure that there is a byte
+    /// of space left after the Arc, even though it is always accessed
+    /// via `.inline`, just so that the Arc is not sharing space with
+    /// the tag
+    boxed: (ManuallyDrop<Arc<str>>, u8),
+}
+
 // XX see Git history for previous attempts
 #[repr(align(8))]
 pub struct MyString<const N: usize> {
-    storage: [u8; N],
+    storage: Storage<N>,
 }
 
 pub type MyString24 = MyString<24>;
@@ -41,32 +51,30 @@ pub type MyString40 = MyString<40>;
 impl<const N: usize> MyString<N> {
     #[inline]
     fn tag(&self) -> u8 {
-        self.storage[N - 1]
+        unsafe {
+            // The other union field is never written after the
+            // initial write and the tag does not overlap with the
+            // payload there, thus can always read it from the
+            // `.inline` field
+            self.storage.inline[N - 1]
+        }
     }
 
     /// Only defined if `self.tag() == TAG_BOXED`
     unsafe fn boxed(&self) -> &Arc<str> {
-        let storage_ptr: *const [u8] = &self.storage;
-        let arc_ptr: *const Arc<str> = storage_ptr as *const Arc<str>;
-        unsafe {
-            // Safe because:
-            // - boxed data is at the beginning
-            &*arc_ptr
-        }
+        &self.storage.boxed.0
     }
 
     /// Only defined if `self.tag() == TAG_BOXED`
     unsafe fn boxed_mut(&mut self) -> &mut ManuallyDrop<Arc<str>> {
-        unsafe {
-            // Safe because:
-            // - boxed data is at the beginning
-            transmute(&mut self.storage)
-        }
+        &mut self.storage.boxed.0
     }
 
     /// Only defined if `self.tag() != TAG_BOXED` and the tag value is passed as len
     unsafe fn inline(&self, len: u8) -> &str {
-        unsafe { std::str::from_utf8_unchecked(&self.storage[0..len as usize]) }
+        unsafe {
+            std::str::from_utf8_unchecked(&self.storage.inline[0..len as usize])
+        }
     }
 
     #[inline]
@@ -78,14 +86,20 @@ impl<const N: usize> MyString<N> {
 impl<const N: usize> Clone for MyString<N> {
     fn clone(&self) -> Self {
         if self.tag() == TAG_BOXED {
-            let _b = ManuallyDrop::new(unsafe { self.boxed() }.clone());
-            // XX OK?
-            Self {
-                storage: self.storage.clone(),
+            let mut storage = Storage {
+                boxed: (ManuallyDrop::new(unsafe { self.boxed() }.clone()), 0),
+            };
+            unsafe {
+                // Safe because we make sure that .boxed.0 does not
+                // overlap
+                storage.inline[N - 1] = TAG_BOXED;
             }
+            Self { storage }
         } else {
             Self {
-                storage: self.storage.clone(),
+                storage: Storage {
+                    inline: unsafe { self.storage.inline },
+                },
             }
         }
     }
@@ -125,14 +139,18 @@ impl<const N: usize, const N2: usize> PartialEq<MyString<N2>> for MyString<N> {
                     // Safe as both tags indicate boxed
                     self.boxed() == other.boxed()
                 }
-            } else {
+            } else if t1 != TAG_BOXED && t2 != TAG_BOXED {
                 // Check tag/length as part of the full storage
                 // check. (Prefixing with `t1 == t2 &&` seems slower.)
-                &self.storage
-                    == unsafe {
-                        // Safe because N == N2 as checked above
-                        transmute::<&[u8; N2], &[u8; N]>(&other.storage)
-                    }
+                unsafe {
+                    // - Transmute is safe because N == N2 as checked above.
+                    &self.storage.inline
+                        == transmute::<&[u8; N2], &[u8; N]>(
+                            &other.storage.inline,
+                        )
+                }
+            } else {
+                false
             }
         } else {
             self.as_ref() == other.as_ref()
@@ -168,33 +186,25 @@ impl<const N: usize, T: Into<Arc<str>> + AsRef<str>> From<T> for MyString<N> {
             //     stats.immediate_count = stats.immediate_count.wrapping_add(1);
             //     STATS.set(stats);
             // }
-            let mut storage = [0; N];
-            (&mut storage[0..len]).copy_from_slice(s.as_bytes());
-            storage[N - 1] = len as u8;
-            MyString { storage }
+            let mut inline = [0; N];
+            (&mut inline[0..len]).copy_from_slice(s.as_bytes());
+            inline[N - 1] = len as u8;
+            MyString {
+                storage: Storage { inline },
+            }
         } else {
             // {
             //     let mut stats = STATS.get();
             //     stats.alloc_count = stats.alloc_count.wrapping_add(1);
             //     STATS.set(stats);
             // }
-            let mut storage = [0u8; N];
-            let boxed: ManuallyDrop<Arc<str>> = ManuallyDrop::new(s.into());
-            // "Move" the boxed data into storage
-            let store_ptr: *mut [u8; size_of::<ManuallyDrop<Arc<str>>>()] = unsafe {
-                transmute(
-                    storage[0..size_of::<ManuallyDrop<Arc<str>>>()]
-                        .as_mut_ptr(),
-                )
-            };
+            let mut storage = Storage { inline: [0u8; N] };
+            storage.boxed = (ManuallyDrop::new(s.into()), 0);
             unsafe {
-                *store_ptr = *transmute::<
-                    &ManuallyDrop<Arc<str>>,
-                    &[u8; size_of::<ManuallyDrop<Arc<str>>>()],
-                >(&boxed)
-            };
-
-            storage[N - 1] = TAG_BOXED;
+                // Safe because we make sure that .boxed.0 does not
+                // overlap
+                storage.inline[N - 1] = TAG_BOXED;
+            }
             MyString { storage }
         }
     }
@@ -241,7 +251,7 @@ mod tests {
         _ = MyString::<17>::from("foo");
         // The type can still be used, though. Bummer, can I put a
         // const panic somewhere to disallow this?
-        assert_eq!(size_of::<MyString<16>>(), 16);
+        assert_eq!(size_of::<MyString<16>>(), 24);
 
         assert_eq!(size_of::<MyString24>(), 24);
         assert_eq!(size_of::<MyString32>(), 32);

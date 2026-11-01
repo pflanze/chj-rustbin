@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail, Context, Error, Result};
-use chj_rustbin::mystring::MyString24;
+use chj_rustbin::mystring::MyString32;
 use clap::Parser;
 use mimalloc::MiMalloc;
 use std::cmp::Ordering;
@@ -14,7 +14,7 @@ use chj_rustbin::io::readwithcontext::{
     easy_read_line, open_file, ReadWithContext,
 };
 
-type Strng = MyString24;
+type Strng = MyString32;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;

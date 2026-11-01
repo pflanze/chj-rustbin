@@ -19,7 +19,10 @@ mod normal {
     use crate::util::io::mmap::MiriCompatibleMap;
 
     impl MiriCompatibleMap for MmapOptions {
-        unsafe fn miri_compatible_map(&self, file: &File) -> anyhow::Result<Mmap> {
+        unsafe fn miri_compatible_map(
+            &self,
+            file: &File,
+        ) -> anyhow::Result<Mmap> {
             unsafe { self.map(file) }.map_err(Into::into)
         }
     }
@@ -52,7 +55,10 @@ mod miri {
     }
 
     impl MiriCompatibleMap for MmapOptions {
-        unsafe fn miri_compatible_map(&self, mut file: &File) -> anyhow::Result<Mmap> {
+        unsafe fn miri_compatible_map(
+            &self,
+            mut file: &File,
+        ) -> anyhow::Result<Mmap> {
             let mut data = Vec::new();
             file.read_to_end(&mut data)?;
             Ok(Mmap { data })

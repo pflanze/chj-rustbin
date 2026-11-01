@@ -1,5 +1,6 @@
 pub mod anyhow;
 pub mod div;
+pub mod io;
 pub mod let_format_or;
 pub mod limited_warn;
 pub mod link_rename;

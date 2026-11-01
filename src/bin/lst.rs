@@ -644,7 +644,10 @@ mod tests {
     fn randomt_optimize_processing_commands() {
         let mut rng = thread_rng();
 
-        const APPROX_NUM_PATHS: u16 = 1000;
+        const APPROX_NUM_PATHS: u16 = if cfg!(miri) { 50 } else { 1000 };
+
+        let num_attempts = if cfg!(miri) { 100 } else { 10000 };
+
         // Make some random 'paths', each ~20 B long, matching the
         // frequency of 0-bytes we insert
         let backing: Vec<u8> = (0..u32::from(APPROX_NUM_PATHS) * 20)
@@ -706,7 +709,7 @@ mod tests {
         (0..num_runs).into_par_iter().for_each(|thread_i| {
             let mut rng = thread_rng();
 
-            for i in 0..10000 {
+            for i in 0..num_attempts {
                 let max_len: usize = match rng.gen_range::<u8, _>(0..5) {
                     0 | 1 => 5,
                     2 => 10,

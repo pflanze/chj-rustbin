@@ -113,6 +113,26 @@ impl<const N: usize> Hash for MyString<N> {
     }
 }
 
+fn array_reverse_eq<const N: usize>(a: &[u8; N], b: &[u8; N]) -> bool {
+    const { assert!(N % 8 == 0) }
+
+    let a = a.as_ptr().cast::<u64>();
+    let b = b.as_ptr().cast::<u64>();
+
+    for i in (0..N / 8).rev() {
+        // SAFETY: N is a multiple of 8, and both pointers
+        // refer to valid arrays of N bytes.
+        let x = unsafe { a.add(i).read_unaligned() };
+        let y = unsafe { b.add(i).read_unaligned() };
+
+        if x != y {
+            return false;
+        }
+    }
+
+    true
+}
+
 impl<const N: usize, const N2: usize> PartialEq<MyString<N2>> for MyString<N> {
     #[inline]
     fn eq(&self, other: &MyString<N2>) -> bool {
@@ -126,12 +146,12 @@ impl<const N: usize, const N2: usize> PartialEq<MyString<N2>> for MyString<N> {
                 }
             } else {
                 // Check tag/length as part of the full storage
-                // check. (Prefixing with `t1 == t2 &&` seems slower.)
-                &self.storage
-                    == unsafe {
-                        // Safe because N == N2 as checked above
-                        transmute::<&[u8; N2], &[u8; N]>(&other.storage)
-                    }
+                // check. Compare from the end to catch differences in
+                // t1/t2 early.
+                array_reverse_eq(&self.storage, unsafe {
+                    // Safe because N == N2 as checked above
+                    transmute::<&[u8; N2], &[u8; N]>(&other.storage)
+                })
             }
         } else {
             self.as_ref() == other.as_ref()

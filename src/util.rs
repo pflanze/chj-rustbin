@@ -3,6 +3,7 @@ pub mod div;
 pub mod io;
 pub mod let_format_or;
 pub mod limited_warn;
+pub mod lines_chunks;
 pub mod link_rename;
 pub mod map_trait;
 pub mod num_hardware_threads;

@@ -1,8 +1,6 @@
-use std::ops::Range;
-
 use bstr::ByteSlice;
 use rayon::iter::{
-    IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator,
+    IndexedParallelIterator, IntoParallelIterator, ParallelIterator,
 };
 
 use crate::util::io::file_as_mmap::FileAsMmap;
@@ -10,8 +8,8 @@ use crate::util::io::file_as_mmap::FileAsMmap;
 pub struct FileAsMmapWithLines {
     pub file_as_mmap: FileAsMmap,
     pub record_separator: u8,
+    pub chunk_size: usize,
     pub omit_empty_entry_after_last_record: bool,
-    pub chunks: Vec<Range<usize>>,
 }
 
 impl FileAsMmapWithLines {
@@ -26,20 +24,11 @@ impl FileAsMmapWithLines {
         chunk_size: usize,
         omit_empty_entry_after_last_record: bool,
     ) -> Self {
-        let sl: &[u8] = file_as_mmap.mmap.as_ref();
-        let len = sl.len();
-        let num_chunks = len.div_ceil(chunk_size);
-        let mut chunks: Vec<Range<usize>> = Vec::with_capacity(num_chunks);
-        for i in 0..num_chunks {
-            let start = i * chunk_size;
-            let end = (start + chunk_size).min(len);
-            chunks.push(start..end);
-        }
         Self {
             file_as_mmap,
             record_separator,
+            chunk_size,
             omit_empty_entry_after_last_record,
-            chunks,
         }
     }
 
@@ -47,8 +36,14 @@ impl FileAsMmapWithLines {
         &self,
     ) -> impl ParallelIterator<Item = Vec<&[u8]>> + IndexedParallelIterator
     {
-        self.chunks.par_iter().map(|range| {
-            let whole = self.file_as_mmap.mmap.as_ref();
+        let whole: &[u8] = self.file_as_mmap.mmap.as_ref();
+        let len = whole.len();
+        let num_chunks = len.div_ceil(self.chunk_size);
+        (0..num_chunks).into_par_iter().map(move |i| {
+            let start = i * self.chunk_size;
+            let end = (start + self.chunk_size).min(len);
+            let range = start..end;
+
             let mut lines = Vec::new();
             // index in `whole`
             let mut last_line_start = if range.start == 0 {

@@ -1,8 +1,9 @@
 use anyhow::{anyhow, bail, Context, Error, Result};
 use bstr::{BStr, ByteSlice};
 use clap::Parser;
+use dashmap::DashSet;
 use std::cmp::Ordering;
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{stdout, BufReader, BufWriter, Write};
 use std::os::unix::prelude::FromRawFd;
@@ -483,7 +484,7 @@ fn main() -> Result<()> {
             let first_file =
                 files.pop_front().expect("guaranteed by min_paths_len");
 
-            let mut set: HashSet<&BStr> = HashSet::new();
+            let mut set: DashSet<&BStr> = DashSet::new();
 
             for line in first_file.mmap.split_lines(record_separator) {
                 set.insert(line.as_bstr());
@@ -493,7 +494,7 @@ fn main() -> Result<()> {
                 if set.is_empty() {
                     break;
                 }
-                let mut newset = HashSet::new();
+                let newset = DashSet::new();
                 for line in file.mmap.split_lines(record_separator) {
                     let line = line.as_bstr();
                     if set.contains(&line) {
@@ -516,6 +517,7 @@ fn main() -> Result<()> {
                     }
                     Mode::SetThenLinear => {
                         let file = last_file
+                            .as_ref()
                             .expect("guaranteed in Mode::SetThenLinear");
                         for line in file.mmap.split_lines(record_separator) {
                             let line = line.as_bstr();

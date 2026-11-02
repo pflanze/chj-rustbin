@@ -1,19 +1,17 @@
 use anyhow::{anyhow, bail, Context, Error, Result};
-use chj_rustbin::mystring::MyString32;
+use bstr::{BStr, ByteSlice};
 use clap::Parser;
 use std::cmp::Ordering;
 use std::collections::{HashSet, VecDeque};
 use std::fs::File;
 use std::io::{stdout, BufReader, BufWriter, Write};
-use std::os::unix::prelude::{FromRawFd, MetadataExt};
+use std::os::unix::prelude::FromRawFd;
 use std::path::PathBuf;
 use thiserror::Error;
 
-use chj_rustbin::io::readwithcontext::{
-    easy_read_line, open_file, ReadWithContext,
-};
-
-type Strng = MyString32;
+use chj_rustbin::io::readwithcontext::{easy_read_line, open_file};
+use chj_rustbin::util::io::file_as_mmap::FileAsMmap;
+use chj_rustbin::util::io::split_lines::SplitLines;
 
 #[cfg(not(miri))]
 #[global_allocator]
@@ -54,6 +52,10 @@ struct Opt {
 
     #[clap(long)]
     structsizes: bool,
+
+    /// The line terminator byte, as number 0..255
+    #[clap(long, default_value = "10")]
+    record_separator: u8,
 
     /// The paths to files to get the intersection of.
     #[clap(parse(from_os_str))]
@@ -299,7 +301,7 @@ fn output_fd_for_input_index(i: usize) -> i32 {
 }
 
 fn main() -> Result<()> {
-    let (mode, mut paths, fddrop) = {
+    let (mode, paths, fddrop, record_separator) = {
         let opt: Opt = Opt::from_args();
         let paths: VecDeque<PathBuf> = opt.file_paths.into();
 
@@ -321,7 +323,7 @@ fn main() -> Result<()> {
             }
         }
 
-        (mode, paths, opt.fddrop)
+        (mode, paths, opt.fddrop, opt.record_separator)
     };
 
     if paths.len() < mode.min_paths_len() {
@@ -461,49 +463,39 @@ fn main() -> Result<()> {
             let unreachable =
                 || -> ! { unreachable!("limited by pattern match above") };
 
-            let mut set: HashSet<Strng> = HashSet::new();
-            let mut tmpline = String::new();
+            let mut files: VecDeque<FileAsMmap> = paths
+                .into_iter()
+                .map(FileAsMmap::open)
+                .collect::<Result<_>>()?;
 
-            let last_path = match mode {
+            let last_file = match mode {
                 Mode::Set => None,
                 Mode::SetThenLinear => {
-                    Some(paths.pop_back().expect("guaranteed by min_paths_len"))
+                    Some(files.pop_back().expect("guaranteed by min_paths_len"))
                 }
                 _ => unreachable(),
             };
 
-            let mut paths_meta: VecDeque<(PathBuf, u64)> = paths
-                .into_iter()
-                .map(|path| {
-                    let s = path
-                        .metadata()
-                        .with_context(|| anyhow!("stat on file {:?}", path))?
-                        .size();
-                    Ok((path, s))
-                })
-                .collect::<Result<_>>()?;
-            paths_meta.make_contiguous().sort_by_key(|x| x.1);
+            // Sort the other files by size, smallest first, to try to
+            // eliminate as much of the index as quickly as possible
+            files.make_contiguous().sort_by_key(|x| x.len);
 
-            let first_path = paths_meta
-                .pop_front()
-                .expect("guaranteed by min_paths_len")
-                .0;
-            {
-                let path = first_path;
-                let mut inp = ReadWithContext::open_path(&path)?;
-                while inp.easy_read_line(&mut tmpline)? {
-                    set.insert(Strng::from(&*tmpline));
-                }
+            let first_file =
+                files.pop_front().expect("guaranteed by min_paths_len");
+
+            let mut set: HashSet<&BStr> = HashSet::new();
+
+            for line in first_file.mmap.split_lines(record_separator) {
+                set.insert(line.as_bstr());
             }
 
-            for (path, _) in paths_meta {
+            for file in &files {
                 if set.is_empty() {
                     break;
                 }
-                let mut inp = ReadWithContext::open_path(&path)?;
                 let mut newset = HashSet::new();
-                while inp.easy_read_line(&mut tmpline)? {
-                    let line = Strng::from(&*tmpline);
+                for line in file.mmap.split_lines(record_separator) {
+                    let line = line.as_bstr();
                     if set.contains(&line) {
                         newset.insert(line);
                     }
@@ -511,29 +503,34 @@ fn main() -> Result<()> {
                 set = newset;
             }
 
-            let mut out = BufWriter::new(stdout());
-            match mode {
-                Mode::Set => {
-                    let mut v: Vec<Strng> = set.into_iter().collect();
-                    v.sort();
-                    for line in v {
-                        tmpline.clear();
-                        tmpline.push_str(&line);
-                        println(&mut out, &tmpline)?;
-                    }
-                }
-                Mode::SetThenLinear => {
-                    let path = last_path.expect("guaranteed by min_paths_len");
-                    let mut inp = ReadWithContext::open_path(&path)?;
-                    while inp.easy_read_line(&mut tmpline)? {
-                        if set.contains(&Strng::from(&*tmpline)) {
-                            println(&mut out, &tmpline)?;
+            (|| -> Result<()> {
+                let mut out = BufWriter::new(stdout());
+                match mode {
+                    Mode::Set => {
+                        let mut v: Vec<_> = set.into_iter().collect();
+                        v.sort();
+                        for line in &v {
+                            out.write_all(line)?;
+                            out.write_all(b"\n")?;
                         }
                     }
+                    Mode::SetThenLinear => {
+                        let file = last_file
+                            .expect("guaranteed in Mode::SetThenLinear");
+                        for line in file.mmap.split_lines(record_separator) {
+                            let line = line.as_bstr();
+                            if set.contains(&line) {
+                                out.write_all(line)?;
+                                out.write_all(b"\n")?;
+                            }
+                        }
+                    }
+                    _ => unreachable(),
                 }
-                _ => unreachable(),
-            }
-            out.flush()?;
+                out.flush()?;
+                Ok(())
+            })()
+            .context("writing to output")?;
         }
         Mode::StructSizes => print_sizes(),
     }

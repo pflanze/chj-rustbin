@@ -11,6 +11,7 @@ use chj_rustbin::chunks::ChunksOp;
 use clap::Parser;
 use dashmap::DashSet;
 use rayon::iter::{IntoParallelIterator, ParallelBridge, ParallelIterator};
+use rayon::slice::ParallelSliceMut;
 use thiserror::Error;
 
 use chj_rustbin::io::readwithcontext::{easy_read_line, open_file};
@@ -556,7 +557,7 @@ fn main() -> Result<()> {
                                 (chunk_i, out)
                             })
                             .collect();
-                        chunks.sort_by_key(|(i, _)| *i);
+                        chunks.par_sort_by_key(|(i, _)| *i);
                         let mut out = stdout().lock();
                         for (_, chunk) in &chunks {
                             out.write_all(chunk)?;

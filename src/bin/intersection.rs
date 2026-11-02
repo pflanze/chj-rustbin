@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, bail, Context, Error, Result};
 use bstr::{BStr, ByteSlice};
+use chj_rustbin::chunks::ChunksOp;
 use clap::Parser;
 use dashmap::DashSet;
 use thiserror::Error;
@@ -487,21 +488,32 @@ fn main() -> Result<()> {
 
             let mut set: DashSet<&BStr> = DashSet::new();
 
-            for line in first_file.mmap.split_lines(record_separator) {
-                set.insert(line.as_bstr());
-            }
+            first_file
+                .mmap
+                .split_lines(record_separator)
+                .chunks(100000)
+                .for_each(|lines| {
+                    for line in lines {
+                        set.insert(line.as_bstr());
+                    }
+                });
 
             for file in &files {
                 if set.is_empty() {
                     break;
                 }
                 let newset = DashSet::new();
-                for line in file.mmap.split_lines(record_separator) {
-                    let line = line.as_bstr();
-                    if set.contains(&line) {
-                        newset.insert(line);
-                    }
-                }
+                file.mmap
+                    .split_lines(record_separator)
+                    .chunks(100000)
+                    .for_each(|lines| {
+                        for line in lines {
+                            let line = line.as_bstr();
+                            if set.contains(&line) {
+                                newset.insert(line);
+                            }
+                        }
+                    });
                 set = newset;
             }
 

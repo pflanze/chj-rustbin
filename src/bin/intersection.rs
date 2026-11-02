@@ -475,7 +475,12 @@ fn main() -> Result<()> {
             let mut files: VecDeque<FileAsMmap> = paths
                 // parallel makes no difference, though
                 .into_par_iter()
-                .map(FileAsMmap::open)
+                .map(|path| {
+                    let fam = FileAsMmap::new(path);
+                    // Force `len`
+                    _ = fam.len_and_mmap()?;
+                    Ok(fam)
+                })
                 .collect::<Result<_>>()?;
 
             let last_file = match mode {
@@ -488,7 +493,9 @@ fn main() -> Result<()> {
 
             // Sort the other files by size, smallest first, to try to
             // eliminate as much of the index as quickly as possible
-            files.make_contiguous().sort_by_key(|x| x.len);
+            files
+                .make_contiguous()
+                .sort_by_key(|x| x.len().expect("forced earlier"));
 
             let first_file =
                 files.pop_front().expect("guaranteed by min_paths_len");
@@ -496,7 +503,7 @@ fn main() -> Result<()> {
             let mut set: DashSet<&BStr> = DashSet::new();
 
             first_file
-                .mmap
+                .mmap()?
                 .par_lines_chunks(lines_chunks_settings)
                 .for_each(|lines| {
                     for line in lines {
@@ -509,16 +516,16 @@ fn main() -> Result<()> {
                     break;
                 }
                 let newset = DashSet::new();
-                file.mmap.par_lines_chunks(lines_chunks_settings).for_each(
-                    |lines| {
+                file.mmap()?
+                    .par_lines_chunks(lines_chunks_settings)
+                    .for_each(|lines| {
                         for line in lines {
                             let line = line.as_bstr();
                             if set.contains(&line) {
                                 newset.insert(line);
                             }
                         }
-                    },
-                );
+                    });
                 set = newset;
             }
 
@@ -539,7 +546,7 @@ fn main() -> Result<()> {
                             .as_ref()
                             .expect("guaranteed in Mode::SetThenLinear");
                         let chunks: Vec<_> = file
-                            .mmap
+                            .mmap()?
                             .par_lines_chunks(lines_chunks_settings)
                             .map(|lines| {
                                 let mut out = Vec::new();

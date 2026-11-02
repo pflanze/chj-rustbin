@@ -18,6 +18,12 @@ on crates.io if interested.
 Also included is a number of crates (some published on crates.io) that
 I started to support those programs.
 
+I don't use LLM agents in this Git repository--all code is written
+manually (or every line studied if provided by someone else), even if
+a chat bot was used for help, except if mentioned in the commit
+message. This will stay that way into the foreseeable future, and I
+promise to update this statement if or when that changes.
+
 ## Install
 
 Everything builds using `cargo` just fine. But there is also a

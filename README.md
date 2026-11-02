@@ -71,3 +71,9 @@ libunwind for musl (versions and paths for Debian trixie):
         cmake --build build-musl --target install
 
 After that, `make all-musl` in chj-rustbin should work.
+
+## Issues
+
+While I'm almost exclusively developing this repository by myself, I
+am recording open issues as files in the [open/](open/) folder. Don't
+let that stop you from opening GitHub issues.

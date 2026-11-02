@@ -1,19 +1,3 @@
-## Makefile
-
-- `make` has to be run explicitly before `make install` can be run. The reason
-  that the `install` target does not state a dependency on `all` is that I run
-  `make` as non-root user, then `make install` as root, and the `all` target
-  just unconditionally runs `cargo`, hence root would run `cargo` which would
-  defeat the purpose of running `make` as non-root first. I don't know how to
-  improve this.
-
-## 'symlinks-index'
-
-- unit tests for StartsWith
-- integration test with test-data/symlinks-index/
-
-## 'priorities'
-
 - `FUTURE` should also be able to take a `{...}` block.
 
 - `{02-30}` parsing ends the program because priority calculation is

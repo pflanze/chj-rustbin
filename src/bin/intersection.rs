@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, bail, Context, Error, Result};
 use bstr::{BStr, ByteSlice, ByteVec};
-use chj_rustbin::chunks::ChunksOp;
+use chj_rustbin::util::io::file_as_mmap_with_lines::FileAsMmapWithLines;
 use clap::Parser;
 use dashmap::DashSet;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -15,7 +15,6 @@ use thiserror::Error;
 
 use chj_rustbin::io::readwithcontext::{easy_read_line, open_file};
 use chj_rustbin::util::io::file_as_mmap::FileAsMmap;
-use chj_rustbin::util::io::split_lines::SplitLines;
 
 #[cfg(not(miri))]
 #[global_allocator]
@@ -467,9 +466,18 @@ fn main() -> Result<()> {
             let unreachable =
                 || -> ! { unreachable!("limited by pattern match above") };
 
-            let mut files: VecDeque<FileAsMmap> = paths
-                .into_iter()
+            let mut files: VecDeque<FileAsMmapWithLines> = paths
+                // parallel makes no difference, though
+                .into_par_iter()
                 .map(FileAsMmap::open)
+                .map(|file| {
+                    Ok(FileAsMmapWithLines::new(
+                        file?,
+                        record_separator,
+                        800_000,
+                        true,
+                    ))
+                })
                 .collect::<Result<_>>()?;
 
             let last_file = match mode {
@@ -482,43 +490,32 @@ fn main() -> Result<()> {
 
             // Sort the other files by size, smallest first, to try to
             // eliminate as much of the index as quickly as possible
-            files.make_contiguous().sort_by_key(|x| x.len);
+            files.make_contiguous().sort_by_key(|x| x.file_as_mmap.len);
 
             let first_file =
                 files.pop_front().expect("guaranteed by min_paths_len");
 
             let mut set: DashSet<&BStr> = DashSet::new();
 
-            first_file
-                .mmap
-                .split_lines(record_separator)
-                .chunks(100000)
-                .collect::<Vec<_>>()
-                .into_par_iter()
-                .for_each(|lines| {
-                    for line in lines {
-                        set.insert(line.as_bstr());
-                    }
-                });
+            first_file.lines_chunks().for_each(|lines| {
+                for line in lines {
+                    set.insert(line.as_bstr());
+                }
+            });
 
             for file in &files {
                 if set.is_empty() {
                     break;
                 }
                 let newset = DashSet::new();
-                file.mmap
-                    .split_lines(record_separator)
-                    .chunks(100000)
-                    .collect::<Vec<_>>()
-                    .into_par_iter()
-                    .for_each(|lines| {
-                        for line in lines {
-                            let line = line.as_bstr();
-                            if set.contains(&line) {
-                                newset.insert(line);
-                            }
+                file.lines_chunks().for_each(|lines| {
+                    for line in lines {
+                        let line = line.as_bstr();
+                        if set.contains(&line) {
+                            newset.insert(line);
                         }
-                    });
+                    }
+                });
                 set = newset;
             }
 
@@ -539,11 +536,7 @@ fn main() -> Result<()> {
                             .as_ref()
                             .expect("guaranteed in Mode::SetThenLinear");
                         let chunks: Vec<_> = file
-                            .mmap
-                            .split_lines(record_separator)
-                            .chunks(100000)
-                            .collect::<Vec<_>>()
-                            .into_par_iter()
+                            .lines_chunks()
                             .map(|lines| {
                                 let mut out = Vec::new();
                                 for line in lines {

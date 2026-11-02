@@ -21,5 +21,3 @@ RUSTSEC-2026-0204
 # cxx 1.0.83 affected by RUSTSEC-2026-0202 (unsound)
 RUSTSEC-2026-0202
 
-# memmap2 0.5.10 affected by RUSTSEC-2026-0186 (unsound)
-RUSTSEC-2026-0186

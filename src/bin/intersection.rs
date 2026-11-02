@@ -10,6 +10,7 @@ use bstr::{BStr, ByteSlice};
 use chj_rustbin::chunks::ChunksOp;
 use clap::Parser;
 use dashmap::DashSet;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use thiserror::Error;
 
 use chj_rustbin::io::readwithcontext::{easy_read_line, open_file};
@@ -492,6 +493,8 @@ fn main() -> Result<()> {
                 .mmap
                 .split_lines(record_separator)
                 .chunks(100000)
+                .collect::<Vec<_>>()
+                .into_par_iter()
                 .for_each(|lines| {
                     for line in lines {
                         set.insert(line.as_bstr());
@@ -506,6 +509,8 @@ fn main() -> Result<()> {
                 file.mmap
                     .split_lines(record_separator)
                     .chunks(100000)
+                    .collect::<Vec<_>>()
+                    .into_par_iter()
                     .for_each(|lines| {
                         for line in lines {
                             let line = line.as_bstr();

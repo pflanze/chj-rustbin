@@ -1,13 +1,14 @@
-use anyhow::{anyhow, bail, Context, Error, Result};
-use bstr::{BStr, ByteSlice};
-use clap::Parser;
-use dashmap::DashSet;
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{stdout, BufReader, BufWriter, Write};
 use std::os::unix::prelude::FromRawFd;
 use std::path::PathBuf;
+
+use anyhow::{anyhow, bail, Context, Error, Result};
+use bstr::{BStr, ByteSlice};
+use clap::Parser;
+use dashmap::DashSet;
 use thiserror::Error;
 
 use chj_rustbin::io::readwithcontext::{easy_read_line, open_file};

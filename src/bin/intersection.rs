@@ -6,7 +6,7 @@ use std::os::unix::prelude::FromRawFd;
 use std::path::PathBuf;
 
 use anyhow::{anyhow, bail, Context, Error, Result};
-use bstr::{BStr, ByteSlice};
+use bstr::{BStr, ByteSlice, ByteVec};
 use chj_rustbin::chunks::ChunksOp;
 use clap::Parser;
 use dashmap::DashSet;
@@ -523,31 +523,45 @@ fn main() -> Result<()> {
             }
 
             (|| -> Result<()> {
-                let mut out = BufWriter::new(stdout());
                 match mode {
                     Mode::Set => {
+                        let mut out = BufWriter::new(stdout().lock());
                         let mut v: Vec<_> = set.into_iter().collect();
                         v.sort();
                         for line in &v {
                             out.write_all(line)?;
                             out.write_all(b"\n")?;
                         }
+                        out.flush()?;
                     }
                     Mode::SetThenLinear => {
                         let file = last_file
                             .as_ref()
                             .expect("guaranteed in Mode::SetThenLinear");
-                        for line in file.mmap.split_lines(record_separator) {
-                            let line = line.as_bstr();
-                            if set.contains(&line) {
-                                out.write_all(line)?;
-                                out.write_all(b"\n")?;
-                            }
+                        let chunks: Vec<_> = file
+                            .mmap
+                            .split_lines(record_separator)
+                            .chunks(100000)
+                            .map(|lines| {
+                                let mut out = Vec::new();
+                                for line in lines {
+                                    let line = line.as_bstr();
+                                    if set.contains(&line) {
+                                        out.push_str(line);
+                                        out.push(b'\n');
+                                    }
+                                }
+                                out
+                            })
+                            .collect();
+                        let mut out = stdout().lock();
+                        for chunk in &chunks {
+                            out.write_all(chunk)?;
                         }
+                        out.flush()?;
                     }
                     _ => unreachable(),
                 }
-                out.flush()?;
                 Ok(())
             })()
             .context("writing to output")?;

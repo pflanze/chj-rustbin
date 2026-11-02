@@ -473,12 +473,11 @@ fn main() -> Result<()> {
             };
 
             let mut files: VecDeque<FileAsMmap> = paths
-                // parallel makes no difference, though
                 .into_par_iter()
                 .map(|path| {
                     let fam = FileAsMmap::new(path);
-                    // Force `len`
-                    _ = fam.len_and_mmap()?;
+                    // Force `len` for the sort function call below
+                    _ = fam.len()?;
                     Ok(fam)
                 })
                 .collect::<Result<_>>()?;

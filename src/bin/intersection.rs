@@ -10,7 +10,7 @@ use bstr::{BStr, ByteSlice, ByteVec};
 use chj_rustbin::chunks::ChunksOp;
 use clap::Parser;
 use dashmap::DashSet;
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use rayon::iter::{IntoParallelIterator, ParallelBridge, ParallelIterator};
 use thiserror::Error;
 
 use chj_rustbin::io::readwithcontext::{easy_read_line, open_file};
@@ -538,11 +538,13 @@ fn main() -> Result<()> {
                         let file = last_file
                             .as_ref()
                             .expect("guaranteed in Mode::SetThenLinear");
-                        let chunks: Vec<_> = file
+                        let mut chunks: Vec<_> = file
                             .mmap
                             .split_lines(record_separator)
                             .chunks(100000)
-                            .map(|lines| {
+                            .enumerate()
+                            .par_bridge()
+                            .map(|(chunk_i, lines)| {
                                 let mut out = Vec::new();
                                 for line in lines {
                                     let line = line.as_bstr();
@@ -551,11 +553,12 @@ fn main() -> Result<()> {
                                         out.push(b'\n');
                                     }
                                 }
-                                out
+                                (chunk_i, out)
                             })
                             .collect();
+                        chunks.sort_by_key(|(i, _)| *i);
                         let mut out = stdout().lock();
-                        for chunk in &chunks {
+                        for (_, chunk) in &chunks {
                             out.write_all(chunk)?;
                         }
                         out.flush()?;

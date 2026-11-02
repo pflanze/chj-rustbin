@@ -12,9 +12,6 @@ opt-level = "s"
 [profile.dev]
 #panic = "abort"
 
-[profile.release]
-opt-level = "s"
-
 [dependencies]
 # Local
 external-webget = { path = "libs/external-webget" }

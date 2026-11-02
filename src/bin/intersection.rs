@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, bail, Context, Error, Result};
 use bstr::{BStr, ByteSlice, ByteVec};
-use chj_rustbin::util::io::file_as_mmap_with_lines::FileAsMmapWithLines;
+use chj_rustbin::util::lines_chunks::{LinesChunksSettings, ParLinesChunks};
 use clap::Parser;
 use dashmap::DashSet;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -466,18 +466,16 @@ fn main() -> Result<()> {
             let unreachable =
                 || -> ! { unreachable!("limited by pattern match above") };
 
-            let mut files: VecDeque<FileAsMmapWithLines> = paths
+            let lines_chunks_settings = LinesChunksSettings {
+                record_separator,
+                chunk_size: 800_000,
+                omit_empty_entry_after_last_record: true,
+            };
+
+            let mut files: VecDeque<FileAsMmap> = paths
                 // parallel makes no difference, though
                 .into_par_iter()
                 .map(FileAsMmap::open)
-                .map(|file| {
-                    Ok(FileAsMmapWithLines::new(
-                        file?,
-                        record_separator,
-                        800_000,
-                        true,
-                    ))
-                })
                 .collect::<Result<_>>()?;
 
             let last_file = match mode {
@@ -490,32 +488,37 @@ fn main() -> Result<()> {
 
             // Sort the other files by size, smallest first, to try to
             // eliminate as much of the index as quickly as possible
-            files.make_contiguous().sort_by_key(|x| x.file_as_mmap.len);
+            files.make_contiguous().sort_by_key(|x| x.len);
 
             let first_file =
                 files.pop_front().expect("guaranteed by min_paths_len");
 
             let mut set: DashSet<&BStr> = DashSet::new();
 
-            first_file.lines_chunks().for_each(|lines| {
-                for line in lines {
-                    set.insert(line.as_bstr());
-                }
-            });
+            first_file
+                .mmap
+                .par_lines_chunks(lines_chunks_settings)
+                .for_each(|lines| {
+                    for line in lines {
+                        set.insert(line.as_bstr());
+                    }
+                });
 
             for file in &files {
                 if set.is_empty() {
                     break;
                 }
                 let newset = DashSet::new();
-                file.lines_chunks().for_each(|lines| {
-                    for line in lines {
-                        let line = line.as_bstr();
-                        if set.contains(&line) {
-                            newset.insert(line);
+                file.mmap.par_lines_chunks(lines_chunks_settings).for_each(
+                    |lines| {
+                        for line in lines {
+                            let line = line.as_bstr();
+                            if set.contains(&line) {
+                                newset.insert(line);
+                            }
                         }
-                    }
-                });
+                    },
+                );
                 set = newset;
             }
 
@@ -536,7 +539,8 @@ fn main() -> Result<()> {
                             .as_ref()
                             .expect("guaranteed in Mode::SetThenLinear");
                         let chunks: Vec<_> = file
-                            .lines_chunks()
+                            .mmap
+                            .par_lines_chunks(lines_chunks_settings)
                             .map(|lines| {
                                 let mut out = Vec::new();
                                 for line in lines {

@@ -159,10 +159,16 @@ struct Opt {
     #[clap(long)]
     find: Option<PathBuf>,
 
-    /// When using `--find`, include the path given for `--find` in the printed
-    /// paths (by default, prints the relative path from it)
+    /// When using `--find` (XXX or `--ls`), include the given directory itself
+    /// as an item (by default, only include the items found inside the dir)
     #[clap(long)]
     include_top: bool,
+
+    /// When using `--find` (XXX or `--ls`), include the base path when printing
+    /// the paths to individual items (by default, only print the relative path
+    /// below the base path)
+    #[clap(short, long)]
+    fullpath: bool,
 
     /// Ignore paths matching the given regex (not glob pattern!)
     #[clap(long)]
@@ -1405,11 +1411,8 @@ fn main() -> Result<()> {
                         &shared_regions,
                     )?
                 };
-                let omit_this_base_path = if opt.include_top {
-                    None
-                } else {
-                    Some(basepath)
-                };
+                let omit_this_base_path =
+                    if opt.fullpath { None } else { Some(basepath) };
                 main_cont(
                     cont_values!(omit_this_base_path: omit_this_base_path),
                     res,
@@ -1430,11 +1433,8 @@ fn main() -> Result<()> {
                         &shared_regions,
                     )?
                 };
-                let omit_this_base_path = if opt.include_top {
-                    None
-                } else {
-                    Some(basepath)
-                };
+                let omit_this_base_path =
+                    if opt.fullpath { None } else { Some(basepath) };
                 main_cont(
                     cont_values!(omit_this_base_path: omit_this_base_path),
                     res,

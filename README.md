@@ -1,9 +1,9 @@
 # Christian's Rust binaries
 
-This is a collection of programs that I use in everyday computing life
-on the command line. I use Linux (Debian), and am not normally testing
-them on macOS, and I know there are some places that won't work on
-Windows, although adapting shouldn't be hard (in most cases).
+This is a collection of programs that I use in everyday computing life on the
+command line. I use Linux (Debian), and am not normally testing them on macOS,
+but fixes will likely be easy. Some programs won't be easy to make work on
+Windows (`e`, `lst`, maybe more).
 
 I used to write such programs in Perl or Bash in
 [chj-scripts](https://github.com/pflanze/chj-scripts), and still do

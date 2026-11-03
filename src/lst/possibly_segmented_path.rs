@@ -40,9 +40,6 @@ pub trait PossiblySegmentedPath<'region, INLINE>:
     ) -> &'tmp Path
     where
         'region: 'tmp;
-
-    fn keep_as_parent(self) -> Self::ParentType;
-    fn drop_as_parent(self) -> Self::ParentType;
 }
 
 impl<'region, INLINE> PossiblySegmentedPath<'region, INLINE> for &'region Path {
@@ -100,14 +97,6 @@ impl<'region, INLINE> PossiblySegmentedPath<'region, INLINE> for &'region Path {
             self
         }
     }
-
-    fn keep_as_parent(self) -> Self::ParentType {
-        PathParent(Some(self))
-    }
-
-    fn drop_as_parent(self) -> Self::ParentType {
-        PathParent(None)
-    }
 }
 
 impl<'region, INLINE> PossiblySegmentedPath<'region, INLINE>
@@ -141,14 +130,6 @@ impl<'region, INLINE> PossiblySegmentedPath<'region, INLINE>
         } else {
             SegmentedPath::to_path(self, tmp)
         }
-    }
-
-    fn keep_as_parent(self) -> Self::ParentType {
-        SegmentedPathParent(Some(self))
-    }
-
-    fn drop_as_parent(self) -> Self::ParentType {
-        SegmentedPathParent(None)
     }
 }
 

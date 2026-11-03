@@ -579,7 +579,7 @@ impl<INLINE: Sync> GetItems<INLINE> {
 
             let mut items: Vec<Item<'region, P, INLINE>> = Vec::new();
             let items_ref = &mut items;
-            let dir_path = dir.psp_to_path(&mut tmp);
+            let dir_path: &Path = dir.psp_to_path(&mut tmp);
 
             let dir = if include_dir {
                 let mut get_dir_path = KitschValue(dir_path);
@@ -615,18 +615,17 @@ impl<INLINE: Sync> GetItems<INLINE> {
                     // XX get from libc instead to avoid allocation
                     let file_name = entry.file_name();
 
-                    let sub_path =
-                        dir.psp_add_segment(&file_name, &mut allocator);
+                    let sub_p = dir.psp_add_segment(&file_name, &mut allocator);
 
                     // Only need &Path if a path regex was given or
                     // the item is a symlink (in that latter case,
                     // could also change to dir-fd based POSIX
                     // functions).
-                    let mut opt_path = KitschCell::Unevaluated({
-                        || sub_path.psp_to_path(&mut tmp)
+                    let mut opt_sub_path = KitschCell::Unevaluated({
+                        || sub_p.psp_to_path(&mut tmp)
                     });
 
-                    if self.ignore_path(Some(&file_name), &mut opt_path) {
+                    if self.ignore_path(Some(&file_name), &mut opt_sub_path) {
                         continue 'entry;
                     }
 
@@ -634,7 +633,7 @@ impl<INLINE: Sync> GetItems<INLINE> {
                         drop(file_name);
                         scope.spawn(move |_| {
                             let (items, errors) = self._find(
-                                sub_path,
+                                sub_p,
                                 true, // include_dir
                                 metadata,
                                 shared_regions,
@@ -646,8 +645,8 @@ impl<INLINE: Sync> GetItems<INLINE> {
                         });
                     } else {
                         if let Some(item) = Item::from_path_and_metadata(
-                            sub_path,
-                            &mut opt_path,
+                            sub_p,
+                            &mut opt_sub_path,
                             (&*file_name).to_file_kind(),
                             *long,
                             *use_color,

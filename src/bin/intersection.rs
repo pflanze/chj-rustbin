@@ -461,6 +461,7 @@ fn main() -> Result<()> {
                     Err(e)?;
                 }
             }
+            Ok(())
         }
         Mode::Set | Mode::SetThenLinear => {
             let unreachable =
@@ -510,10 +511,18 @@ fn main() -> Result<()> {
                     }
                 });
 
-            for file in &files {
+            let mut file_iter = files.iter();
+            loop {
                 if set.is_empty() {
-                    break;
+                    // There's nothing to print, thus don't just skip the
+                    // remainder of the loop, but the printing as well (this
+                    // saves going through the last file in the
+                    // `Mode::SetThenLinear` case).
+                    return Ok(());
                 }
+                let Some(file) = file_iter.next() else {
+                    break;
+                };
                 let newset = DashSet::new();
                 file.mmap()?
                     .par_lines_chunks(lines_chunks_settings)
@@ -569,10 +578,11 @@ fn main() -> Result<()> {
                 }
                 Ok(())
             })()
-            .context("writing to output")?;
+            .context("writing to output")
         }
-        Mode::StructSizes => print_sizes(),
+        Mode::StructSizes => {
+            print_sizes();
+            Ok(())
+        }
     }
-
-    Ok(())
 }

@@ -49,8 +49,9 @@ pub fn read_buf(
     }
 }
 
-/// Read a byte stream as a stream of buffers, split on a given byte
-/// boundary
+/// Read a byte stream as a stream of buffers of size at max `buf_size`, split
+/// on a given byte boundary, but do not split on each record separator, only to
+/// keep each buffer within the buf size.
 pub struct ReadBufStream<S: Read> {
     input: S,
     buf_size: usize,

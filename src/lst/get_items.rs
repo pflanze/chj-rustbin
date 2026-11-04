@@ -491,7 +491,11 @@ impl<INLINE: Sync> GetItems<INLINE> {
         false
     }
 
-    /// Leaks the backing memory for Item for now for simplicity
+    /// Read chunks of buffers containing paths separated by
+    /// `input_record_separator` into a Bag of items in parallel (each chunk
+    /// being a work unit)
+    /// 
+    /// Leaks the backing memory for Item for now for simplicity.
     pub fn get_from_read_buf_stream(
         &self,
         input: impl ParallelIterator<Item = Result<Vec<u8>, ReadBufStreamError>>,
@@ -620,8 +624,8 @@ impl<INLINE: Sync> GetItems<INLINE> {
                     // the item is a symlink (in that latter case,
                     // could also change to dir-fd based POSIX
                     // functions).
-                    let mut opt_sub_path = KitschCell::Unevaluated({
-                        || sub_p.psp_to_path(None, &mut tmp)
+                    let mut opt_sub_path = KitschCell::Unevaluated(|| {
+                        sub_p.psp_to_path(None, &mut tmp)
                     });
 
                     if self.ignore_path(Some(&file_name), &mut opt_sub_path) {

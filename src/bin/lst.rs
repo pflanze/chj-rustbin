@@ -1389,9 +1389,9 @@ fn main() -> Result<()> {
         if false {
             let res = {
                 probe!("get items");
-                let basepath = basepath.clone();
                 get_items.get_from_read_buf_stream(
-                    FindBufStream::new(buf_size, basepath, true)?.par_bridge(),
+                    FindBufStream::new(buf_size, basepath.clone(), true)?
+                        .par_bridge(),
                     0,
                 )
             };

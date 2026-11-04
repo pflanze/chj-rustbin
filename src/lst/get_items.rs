@@ -440,16 +440,14 @@ impl<'region, P: PossiblySegmentedPath<'region, INLINE>, INLINE>
     }
 }
 
-pub struct GetItems<INLINE> {
+pub struct GetItemsIgnore<INLINE> {
     pub ignore_path_regex: Option<EfficientRegex>,
     pub ignore_item_names: Vec<OsString>,
     pub ignore_item_regex: Option<EfficientRegex>,
-    pub long: bool,
-    pub use_color: bool,
     pub _phantom: PhantomData<INLINE>,
 }
 
-impl<INLINE: Sync> GetItems<INLINE> {
+impl<INLINE: Sync> GetItemsIgnore<INLINE> {
     fn ignore_path<'s, 'p, 'tmp: 'p, 'o>(
         &'s self,
         file_name: Option<&'o OsStr>,
@@ -459,8 +457,6 @@ impl<INLINE: Sync> GetItems<INLINE> {
             ignore_path_regex,
             ignore_item_names,
             ignore_item_regex,
-            long: _,
-            use_color: _,
             _phantom: _,
         } = self;
 
@@ -490,7 +486,16 @@ impl<INLINE: Sync> GetItems<INLINE> {
 
         false
     }
+}
 
+pub struct GetItems<INLINE> {
+    pub ignore: GetItemsIgnore<INLINE>,
+    pub long: bool,
+    pub use_color: bool,
+    pub _phantom: PhantomData<INLINE>,
+}
+
+impl<INLINE: Sync> GetItems<INLINE> {
     /// Read chunks of buffers containing paths separated by
     /// `input_record_separator` into a Bag of items in parallel (each chunk
     /// being a work unit)
@@ -526,7 +531,9 @@ impl<INLINE: Sync> GetItems<INLINE> {
                         })
                         .filter(|path: &&Path| -> bool {
                             let mut get_path = KitschValue(*path);
-                            !self.ignore_path(path.file_name(), &mut get_path)
+                            !self
+                                .ignore
+                                .ignore_path(path.file_name(), &mut get_path)
                         })
                         .map(|path| -> Result<Option<Item<_, _>>> {
                             // Only stat linked files if used for
@@ -573,9 +580,7 @@ impl<INLINE: Sync> GetItems<INLINE> {
     ) -> (Bag<Item<'region, P, INLINE>>, Bag<anyhow::Error>) {
         match (move || -> Result<_> {
             let Self {
-                ignore_path_regex: _,
-                ignore_item_names: _,
-                ignore_item_regex: _,
+                ignore,
                 long,
                 use_color,
                 _phantom: _,
@@ -628,7 +633,7 @@ impl<INLINE: Sync> GetItems<INLINE> {
                         sub_p.psp_to_path(None, &mut tmp)
                     });
 
-                    if self.ignore_path(Some(&file_name), &mut opt_sub_path) {
+                    if ignore.ignore_path(Some(&file_name), &mut opt_sub_path) {
                         continue 'entry;
                     }
 

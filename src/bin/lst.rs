@@ -4,6 +4,7 @@ use std::{
     env::set_current_dir,
     ffi::OsString,
     io::{stdin, stdout, BufWriter, IoSlice},
+    marker::PhantomData,
     ops::BitXor,
     os::unix::prelude::OsStrExt,
     path::PathBuf,
@@ -38,7 +39,7 @@ use chj_rustbin::{
     is_a_terminal::is_a_terminal,
     limited_eprintln,
     lst::{
-        get_items::{GetItems, Item, UnixFileType},
+        get_items::{GetItems, GetItemsIgnore, Item, UnixFileType},
         possibly_segmented_path::PossiblySegmentedPath,
         segmented_path::{tmp_path_buffer, SegmentedPath},
     },
@@ -1336,12 +1337,15 @@ fn main() -> Result<()> {
     };
 
     let get_items = GetItems {
-        ignore_path_regex,
-        ignore_item_names: opt.ignore_item_name.clone(),
-        ignore_item_regex,
+        ignore: GetItemsIgnore {
+            ignore_path_regex,
+            ignore_item_names: opt.ignore_item_name.clone(),
+            ignore_item_regex,
+            _phantom: PhantomData,
+        },
         long: opt.long,
         use_color,
-        _phantom: std::marker::PhantomData,
+        _phantom: PhantomData,
     };
 
     let shared_regions = SharedRegions::new(

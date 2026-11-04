@@ -29,8 +29,15 @@ pub trait PossiblySegmentedPath<'region, INLINE>:
         region: &mut SharedRegion<'region, NonCollecting>,
     ) -> Self;
 
-    /// Clears `tmp` before use
-    fn psp_to_path<'tmp>(self, tmp: &'tmp mut Vec<u8>) -> &'tmp Path
+    /// Clears `tmp` before use. Strips `omit_base_path` if given (pass None for
+    /// using the path for file operations, or a base path if wanting to leave
+    /// it out for display); may panic if it is not actually a prefix of `self`,
+    /// or not strip anything.
+    fn psp_to_path<'tmp>(
+        self,
+        omit_base_path: Option<Self>,
+        tmp: &'tmp mut Vec<u8>,
+    ) -> &'tmp Path
     where
         'region: 'tmp;
 
@@ -70,11 +77,28 @@ impl<'region, INLINE> PossiblySegmentedPath<'region, INLINE> for &'region Path {
         }
     }
 
-    fn psp_to_path<'tmp>(self, _tmp: &'tmp mut Vec<u8>) -> &'tmp Path
+    fn psp_to_path<'tmp>(
+        self,
+        omit_base_path: Option<Self>,
+        _tmp: &'tmp mut Vec<u8>,
+    ) -> &'tmp Path
     where
         'region: 'tmp,
     {
-        self
+        if let Some(base_path) = omit_base_path {
+            let stripped = self.strip_prefix(base_path).expect(
+                "the given omit_base_path must be a prefix of the path to shorten",
+            );
+            // Really have to replace "" with "."!
+            let empty: &Path = "".as_ref();
+            if stripped == empty {
+                ".".as_ref()
+            } else {
+                stripped
+            }
+        } else {
+            self
+        }
     }
 
     fn keep_as_parent(self) -> Self::ParentType {
@@ -103,12 +127,20 @@ impl<'region, INLINE> PossiblySegmentedPath<'region, INLINE>
         self.add_segment(file_name, region)
     }
 
-    fn psp_to_path<'tmp>(self, tmp: &'tmp mut Vec<u8>) -> &'tmp Path
+    fn psp_to_path<'tmp>(
+        self,
+        omit_base_path: Option<Self>,
+        tmp: &'tmp mut Vec<u8>,
+    ) -> &'tmp Path
     where
         'region: 'tmp,
     {
         tmp.clear();
-        SegmentedPath::to_path(self, tmp)
+        if let Some(base_path) = omit_base_path {
+            SegmentedPath::to_path_from_base(self, base_path, tmp)
+        } else {
+            SegmentedPath::to_path(self, tmp)
+        }
     }
 
     fn keep_as_parent(self) -> Self::ParentType {
@@ -118,6 +150,52 @@ impl<'region, INLINE> PossiblySegmentedPath<'region, INLINE>
     fn drop_as_parent(self) -> Self::ParentType {
         SegmentedPathParent(None)
     }
+}
+
+#[test]
+fn t_path_strip_prefix() {
+    use crate::{
+        file_location, lst::segmented_path::tmp_path_buffer,
+        shared_regions::SharedRegions,
+    };
+
+    struct Inline;
+    fn t<'t, Inline, P: PossiblySegmentedPath<'t, Inline> + Copy>(
+        a: P,
+        b: P,
+        expected1: &Path,
+        expected2: &Path,
+    ) {
+        let mut tmp = tmp_path_buffer();
+
+        let got = b.psp_to_path(Some(a), &mut tmp);
+        assert_eq!(got, expected1);
+
+        let got = b.psp_to_path(Some(b), &mut tmp);
+        assert_eq!(got, expected2);
+    }
+
+    let a: &Path = "foo/bar".as_ref();
+    let b: &Path = "foo/bar/baz".as_ref();
+    let relative: &Path = "baz".as_ref();
+    let dot: &Path = ".".as_ref();
+    eprintln!("psp_to_path for &Path");
+    t::<Inline, _>(a, b, relative, dot);
+
+    let shared_regions = SharedRegions::new(10000, file_location!(), false);
+    let mut reg = shared_regions.get_region();
+    let aseg = SegmentedPath::new_from_path(a, &mut reg).unwrap();
+
+    // This will allocate the shared base independently, thus not detect it when
+    // serializing:
+    let bseg = SegmentedPath::new_from_path(b, &mut reg).unwrap();
+    eprintln!("psp_to_path for SegmentedPath indep");
+    t::<Inline, _>(aseg, bseg, b, dot);
+
+    // The intended use case: shared base also in storage.
+    let bseg = aseg.add_segment("baz".as_ref(), &mut reg);
+    eprintln!("psp_to_path for SegmentedPath dep");
+    t::<Inline, _>(aseg, bseg, relative, dot);
 }
 
 // ========================================================================================

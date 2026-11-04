@@ -159,7 +159,8 @@ struct Opt {
     #[clap(long)]
     find: Option<PathBuf>,
 
-    /// When using `--find`, include the toplevel "./" in paths
+    /// When using `--find`, include the path given for `--find` in the printed
+    /// paths (by default, prints the relative path from it)
     #[clap(long)]
     include_top: bool,
 
@@ -867,7 +868,7 @@ fn contents_of_mini_item<
         Some(cwmr.contents.backing().to_contents())
     } else {
         let mut path_buf = tmp_path_buffer();
-        let path = mini_item.path.psp_to_path(&mut path_buf);
+        let path = mini_item.path.psp_to_path(None, &mut path_buf);
         match file_contents(path, b'\n') {
             Ok(contents) => Some(contents),
             Err(e) => {
@@ -1142,6 +1143,7 @@ impl TableFromItems {
             + 'region,
     >(
         &self,
+        omit_this_base_path: Option<P>,
         mini_items: &[impl Borrow<MiniItem<'i, 'region, P>>],
     ) -> YatTable<7> {
         let Self {
@@ -1220,8 +1222,11 @@ impl TableFromItems {
                 None
             };
 
-            let path_bytes =
-                mini_item.path.psp_to_path(&mut tmp).as_os_str().as_bytes();
+            let path_bytes = mini_item
+                .path
+                .psp_to_path(omit_this_base_path, &mut tmp)
+                .as_os_str()
+                .as_bytes();
             if let Some(style) = style {
                 row.add_cell_fmt(format_args!("{style}"));
                 row.amend_cell_bytes(path_bytes);
@@ -1344,14 +1349,17 @@ fn main() -> Result<()> {
     // continuation in either of the supported path implementations
 
     macro_rules! cont_values {
-        {} => {
+        {
+            omit_this_base_path: $omit_this_base_path:expr
+        } => {
             MainContVals {
                 opt,
                 cmds,
                 now,
                 output_record_separator,
                 use_color,
-                shared_regions: &shared_regions
+                shared_regions: &shared_regions,
+                omit_this_base_path: $omit_this_base_path
             }
         }
     }
@@ -1369,7 +1377,8 @@ fn main() -> Result<()> {
                 0,
             )
         };
-        main_cont(cont_values!(), res)
+        // XXX None only because chdir is done above, change that!
+        main_cont(cont_values!(omit_this_base_path: None), res)
     } else if let Some(ref basepath) = opt.find {
         if false {
             let res = {
@@ -1380,39 +1389,56 @@ fn main() -> Result<()> {
                     0,
                 )
             };
-            main_cont(cont_values!(), res)
+            // XXX fix None
+            main_cont(cont_values!(omit_this_base_path: None), res)
         } else {
             if opt.dev_old_path {
+                let basepath = {
+                    let mut region = shared_regions.get_region();
+                    region.allocate_path(basepath)
+                };
                 let res = {
                     probe!("get items");
-                    let basepath = {
-                        let mut region = shared_regions.get_region();
-                        region.allocate_path(basepath)
-                    };
                     get_items.find(
                         basepath,
                         opt.include_top,
                         &shared_regions,
                     )?
                 };
-                main_cont(cont_values!(), res)
+                let omit_this_base_path = if opt.include_top {
+                    None
+                } else {
+                    Some(basepath)
+                };
+                main_cont(
+                    cont_values!(omit_this_base_path: omit_this_base_path),
+                    res,
+                )
             } else {
+                let basepath = {
+                    let mut region = shared_regions.get_region();
+                    SegmentedPath::new_from_path(&basepath, &mut region)
+                        .ok_or_else(|| {
+                            anyhow!("path {basepath:?} is not valid")
+                        })?
+                };
                 let res = {
                     probe!("get items");
-                    let basepath = {
-                        let mut region = shared_regions.get_region();
-                        SegmentedPath::new_from_path(&basepath, &mut region)
-                            .ok_or_else(|| {
-                                anyhow!("path {basepath:?} is not valid")
-                            })?
-                    };
                     get_items.find(
                         basepath,
                         opt.include_top,
                         &shared_regions,
                     )?
                 };
-                main_cont(cont_values!(), res)
+                let omit_this_base_path = if opt.include_top {
+                    None
+                } else {
+                    Some(basepath)
+                };
+                main_cont(
+                    cont_values!(omit_this_base_path: omit_this_base_path),
+                    res,
+                )
             }
         }
     } else {
@@ -1428,17 +1454,21 @@ fn main() -> Result<()> {
                 input_record_separator,
             )
         };
-        main_cont(cont_values!(), res)
+        main_cont(cont_values!(omit_this_base_path: None), res)
     }
 }
 
-struct MainContVals<'region> {
+struct MainContVals<
+    'region,
+    P: PossiblySegmentedPath<'region, InlineLst> + Copy + Sync + Send + 'region,
+> {
     opt: Opt,
     cmds: Vec<ProcessingCommand>,
     now: SystemTime,
     output_record_separator: u8,
     use_color: bool,
     shared_regions: &'region SharedRegions,
+    omit_this_base_path: Option<P>,
 }
 
 /// Flattened Item for more performant sorting, and with additional
@@ -1524,7 +1554,8 @@ fn main_cont<
         output_record_separator,
         use_color,
         shared_regions,
-    }: MainContVals<'region>,
+        omit_this_base_path,
+    }: MainContVals<'region, P>,
     (items_bag, errors): (Bag<Item<'region, P, InlineLst>>, Vec<anyhow::Error>),
 ) -> Result<()> {
     let mut mini_items: Vec<MiniItem<'_, 'region, P>> = {
@@ -1549,6 +1580,7 @@ fn main_cont<
         if !opt.long {
             print_paths(
                 &opt.print_opts,
+                omit_this_base_path,
                 filtered_items,
                 output_record_separator,
                 shared_regions,
@@ -1556,6 +1588,7 @@ fn main_cont<
         } else {
             print_listing(
                 &opt.print_opts,
+                omit_this_base_path,
                 filtered_items,
                 output_record_separator,
                 use_color,
@@ -1589,6 +1622,7 @@ fn print_paths<
     I: Borrow<MiniItem<'i, 'region, P>> + Sync,
 >(
     opts: &PrintOpts,
+    omit_this_base_path: Option<P>,
     selected_items: &[I],
     output_record_separator: u8,
     _regions: &'region SharedRegions,
@@ -1609,7 +1643,8 @@ fn print_paths<
         let mut tmp = tmp_path_buffer();
         for item in selected_items {
             let mini_item: &MiniItem<P> = item.borrow();
-            let path = mini_item.path.psp_to_path(&mut tmp);
+            let path =
+                mini_item.path.psp_to_path(omit_this_base_path, &mut tmp);
             outp.write_all(path.as_os_str().as_bytes())?;
             if *pos {
                 if let Some(m) = mini_item.content_match.as_deref() {
@@ -1629,7 +1664,7 @@ fn print_paths<
                     let mut tmp = tmp_path_buffer();
                     for item in items {
                         let mini_item: &MiniItem<P> = item.borrow();
-                        let path = mini_item.path.psp_to_path(&mut tmp);
+                        let path = mini_item.path.psp_to_path(omit_this_base_path, &mut tmp);
                         alloc.extend_from_slice(path.as_os_str().as_bytes());
                         if *pos {
                             if let Some(m) = mini_item.content_match.as_deref()
@@ -1765,6 +1800,7 @@ fn print_listing<
     P: PossiblySegmentedPath<'region, InlineLst> + Copy + Sync + Send + 'region,
 >(
     opts: &PrintOpts,
+    omit_this_base_path: Option<P>,
     selected_items: &[impl Borrow<MiniItem<'i, 'region, P>> + Sync],
     output_record_separator: u8,
     use_color: bool,
@@ -1815,7 +1851,7 @@ fn print_listing<
         probe!("subtables");
         selected_items
             .par_chunks(2000)
-            .map(|items| table_from_items.run(items))
+            .map(|items| table_from_items.run(omit_this_base_path, items))
             .collect()
     };
 

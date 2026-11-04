@@ -22,9 +22,7 @@ use crate::{
     io_utils::read_buf::ReadBufStreamError,
     kitschcell::{KitschCache, KitschCell, KitschValue},
     lst::{
-        possibly_segmented_path::{
-            PossiblySegmentedPath, PossiblySegmentedPathParent,
-        },
+        possibly_segmented_path::PossiblySegmentedPath,
         segmented_path::tmp_path_buffer,
     },
     path_file_kind::{FileKind, ToFileKind},
@@ -555,6 +553,9 @@ impl<INLINE: Sync> GetItems<INLINE> {
 
     /// `(Vec<Item<'static>>, Vec<anyhow::Error>)` is what one dir
     /// level yields. Vec of that since subdirs, too.
+    ///
+    /// `include_dir`: whether to include the item at `dir` in the result,
+    /// too. (Always true on self-recursive calls.)
     fn _find<
         's,
         'region,
@@ -580,10 +581,10 @@ impl<INLINE: Sync> GetItems<INLINE> {
 
             let mut items: Vec<Item<'region, P, INLINE>> = Vec::new();
             let items_ref = &mut items;
-            let dir_path: &Path = dir.psp_to_path(&mut tmp);
+            let dir_path: &Path = dir.psp_to_path(None, &mut tmp);
             debug!("dir_path = {dir_path:?}");
 
-            let dir = if include_dir {
+            if include_dir {
                 let mut get_dir_path = KitschValue(dir_path);
                 if let Some(item) = Item::from_path_and_metadata(
                     dir,
@@ -597,11 +598,7 @@ impl<INLINE: Sync> GetItems<INLINE> {
                 }
                 // ^ else will run into open error anyway--XX hmm
                 // actually should accept not found then, there?
-
-                dir.keep_as_parent()
-            } else {
-                dir.drop_as_parent()
-            };
+            }
 
             let input = std::fs::read_dir(dir_path)
                 .with_context(|| anyhow!("reading directory {dir_path:?}"))?;
@@ -624,7 +621,7 @@ impl<INLINE: Sync> GetItems<INLINE> {
                     // could also change to dir-fd based POSIX
                     // functions).
                     let mut opt_sub_path = KitschCell::Unevaluated({
-                        || sub_p.psp_to_path(&mut tmp)
+                        || sub_p.psp_to_path(None, &mut tmp)
                     });
 
                     if self.ignore_path(Some(&file_name), &mut opt_sub_path) {
@@ -684,7 +681,7 @@ impl<INLINE: Sync> GetItems<INLINE> {
         shared_regions: &'region SharedRegions,
     ) -> Result<(Bag<Item<'region, P, INLINE>>, Vec<anyhow::Error>)> {
         let mut tmp = tmp_path_buffer();
-        let dir_path = dir.psp_to_path(&mut tmp);
+        let dir_path = dir.psp_to_path(None, &mut tmp);
         let metadata = dir_path.symlink_metadata().with_context(|| {
             anyhow!("getting metadata for directory {dir_path:?}")
         })?;

@@ -338,6 +338,47 @@ impl<'region> SegmentedPath<'region> {
         osstr.as_ref()
     }
 
+    /// Appends a '/', always (drop it afterwards).
+    fn _to_path_from_base(&self, base_path: &Self, out: &mut Vec<u8>) {
+        if let Some(parent) = self.parent.0 {
+            if !pointer_eq(parent, base_path) {
+                parent._to_path_from_base(base_path, out)
+            }
+        }
+        // XX is encoded_bytes the right format for Path?
+        let bytes = self.orig_name().as_bytes();
+        out.extend_from_slice(bytes);
+        out.push(b'/');
+    }
+
+    /// Generate Path by pushing into `tmp` (clears it).
+    /// Returns the slice that was pushed.
+    ///
+    /// Only serializes the part of self that comes after `base_path`.
+    ///
+    /// Doesn't panic if `base_path` is not a parent of `self`, simply
+    /// serializes all of `self` in that case.
+    ///
+    /// Note that clearing and pushing into `tmp` is not guaranteed, for "." it
+    /// returns a reference to static storage instead.
+    pub fn to_path_from_base<'tmp>(
+        &self,
+        base_path: &Self,
+        tmp: &'tmp mut Vec<u8>,
+    ) -> &'tmp Path {
+        if pointer_eq(self, base_path) {
+            ".".as_ref()
+        } else {
+            tmp.clear();
+            self._to_path_from_base(base_path, tmp);
+            // Path "" is really "/" if there's no other segment
+            let len = tmp.len();
+            let used = if len == 1 { tmp } else { &tmp[0..len - 1] };
+            let osstr = OsStr::from_bytes(used);
+            osstr.as_ref()
+        }
+    }
+
     /// In the past needed an allocator, hence didn't implement
     /// PartialOrd / Ord; XX change now?
     pub fn cmp(&self, other: &Self) -> Ordering {

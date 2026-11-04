@@ -6,6 +6,19 @@ pub trait ChunksOp<T>: Iterator<Item = T> {
         Self: Sized;
 }
 
+impl<T, I: Iterator<Item = T>> ChunksOp<T> for I {
+    fn chunks(self, max_items: usize) -> Chunks<T, Self>
+    where
+        Self: Sized,
+    {
+        Chunks {
+            max_items,
+            iter: self,
+            exhausted: false,
+        }
+    }
+}
+
 pub struct Chunks<T, I: Iterator<Item = T>> {
     max_items: usize,
     iter: I,
@@ -35,19 +48,6 @@ impl<T, I: Iterator<Item = T>> Iterator for Chunks<T, I> {
             None
         } else {
             Some(vs)
-        }
-    }
-}
-
-impl<T, I: Iterator<Item = T>> ChunksOp<T> for I {
-    fn chunks(self, max_items: usize) -> Chunks<T, Self>
-    where
-        Self: Sized,
-    {
-        Chunks {
-            max_items,
-            iter: self,
-            exhausted: false,
         }
     }
 }

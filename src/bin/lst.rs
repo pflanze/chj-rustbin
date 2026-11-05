@@ -1,13 +1,12 @@
 use std::{
     borrow::Borrow,
     cmp::Ordering,
-    env::set_current_dir,
     ffi::OsString,
     io::{stdin, stdout, BufWriter, IoSlice},
     marker::PhantomData,
     ops::BitXor,
     os::unix::prelude::OsStrExt,
-    path::PathBuf,
+    path::{Path, PathBuf},
     str::FromStr,
     sync::{Arc, Mutex},
     time::SystemTime,
@@ -33,7 +32,6 @@ use chj_rustbin::{
     },
     io_utils::{
         read_buf::{ParReadBufStream, ReadBufStream},
-        read_dir_bufs::ReadDirBufStream,
         read_find_bufs::FindBufStream,
     },
     is_a_terminal::is_a_terminal,
@@ -164,12 +162,12 @@ struct Opt {
     #[clap(long)]
     find: Option<PathBuf>,
 
-    /// When using `--find` (XXX or `--ls`), include the given directory itself
+    /// When using `--find` or `--ls`, include the given directory itself
     /// as an item (by default, only include the items found inside the dir)
     #[clap(long)]
     include_top: bool,
 
-    /// When using `--find` (XXX or `--ls`), include the base path when printing
+    /// When using `--find` or `--ls`, include the base path when printing
     /// the paths to individual items (by default, only print the relative path
     /// below the base path)
     #[clap(short, long)]
@@ -1381,21 +1379,28 @@ fn main() -> Result<()> {
         }
     }
 
+    let path_in_region = |basepath: &Path| {
+        let mut region = shared_regions.get_region();
+        region.allocate_path(basepath)
+    };
+
+    let path_segmented = |basepath: &Path| {
+        let mut region = shared_regions.get_region();
+        SegmentedPath::new_from_path(&basepath, &mut region)
+            .ok_or_else(|| anyhow!("path {basepath:?} is not valid"))
+    };
+
     if let Some(ref basepath) = opt.ls {
+        let basepath = path_segmented(basepath)?;
         let res = {
             probe!("get items");
-            set_current_dir(basepath).with_context(|| {
-                anyhow!("changing to directory {basepath:?}")
-            })?;
-            let dir_items = std::fs::read_dir(".")
-                .with_context(|| anyhow!("reading directory {basepath:?}"))?;
-            get_items.get_from_read_buf_stream(
-                ReadDirBufStream::new(dir_items, buf_size),
-                0,
-            )
+
+            get_items.ls(basepath, opt.include_top, &shared_regions)?
         };
-        // XXX None only because chdir is done above, change that!
-        main_cont(cont_values!(omit_this_base_path: None), res)
+
+        let omit_this_base_path =
+            if opt.fullpath { None } else { Some(basepath) };
+        main_cont(cont_values!(omit_this_base_path: omit_this_base_path), res)
     } else if let Some(ref basepath) = opt.find {
         if false {
             let res = {
@@ -1410,10 +1415,7 @@ fn main() -> Result<()> {
             main_cont(cont_values!(omit_this_base_path: None), res)
         } else {
             if opt.dev_old_path {
-                let basepath = {
-                    let mut region = shared_regions.get_region();
-                    region.allocate_path(basepath)
-                };
+                let basepath = path_in_region(basepath);
                 let res = {
                     probe!("get items");
                     get_items.find(
@@ -1429,13 +1431,7 @@ fn main() -> Result<()> {
                     res,
                 )
             } else {
-                let basepath = {
-                    let mut region = shared_regions.get_region();
-                    SegmentedPath::new_from_path(&basepath, &mut region)
-                        .ok_or_else(|| {
-                            anyhow!("path {basepath:?} is not valid")
-                        })?
-                };
+                let basepath = path_segmented(basepath)?;
                 let res = {
                     probe!("get items");
                     get_items.find(

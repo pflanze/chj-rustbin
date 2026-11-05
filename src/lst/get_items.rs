@@ -12,7 +12,7 @@ use std::{
 use anstyle::{AnsiColor, Color, Style};
 use anyhow::{anyhow, bail, Context, Result};
 use log::debug;
-use rayon::iter::ParallelIterator;
+use rayon::{iter::ParallelIterator, prelude::ParallelBridge};
 
 pub use crate::io::unix::unix_file_type::UnixFileType;
 use crate::{
@@ -28,6 +28,7 @@ use crate::{
     path_file_kind::{FileKind, ToFileKind},
     shared_regions::SharedRegions,
     time::age_at::AgeAt,
+    try_chunks::TryChunksOp,
 };
 
 fn chomp(v: &mut Vec<u8>, record_separator: u8) {
@@ -355,7 +356,9 @@ fn t_sizes() {
 impl<'region, P: PossiblySegmentedPath<'region, INLINE>, INLINE>
     Item<'region, P, INLINE>
 {
-    // `get_path` is only evaluated when `metadata.is_link()`
+    /// `get_path` is only evaluated when `metadata.is_link()`
+    ///
+    /// XX: when does this fail with an error? And when does it return None?
     fn from_path_and_metadata<'t, 'p, 'tmp: 'p>(
         path: P,
         get_path: &'p mut impl KitschCache<&'tmp Path>,
@@ -556,10 +559,122 @@ pub struct GetItems<INLINE: Copy> {
 }
 
 impl<INLINE: Copy + Sync> GetItems<INLINE> {
+    /// Get the items from a directory (the first level only)
+    ///
+    /// Readdir serially (since the OS doesn't support anything else anyway,
+    /// except perhaps via `io_uring`?), then stat in parallel.
+    pub fn ls<
+        'region,
+        P: PossiblySegmentedPath<'region, INLINE> + Send + Copy,
+    >(
+        &self,
+        dir: P,
+        include_dir: bool,
+        shared_regions: &'region SharedRegions,
+    ) -> Result<(Bag<Item<'region, P, INLINE>>, Bag<anyhow::Error>)> {
+        let Self {
+            ignore,
+            info,
+            _phantom,
+        } = self;
+
+        let mut tmp = tmp_path_buffer();
+        let dir_path = dir.psp_to_path(None, &mut tmp);
+        let dir_handle = std::fs::read_dir(dir_path)
+            .with_context(|| anyhow!("reading directory {dir_path:?}"))?;
+
+        let opt_base_item = if include_dir {
+            // Do not check `ignore`, right?
+            let mut opt_sub_path = KitschValue(dir_path);
+            let item = info
+                .item_from_entry(None, None, dir, &mut opt_sub_path)
+                .with_context(|| {
+                    anyhow!("constructing Item for {:?}", dir_path)
+                })?
+                .ok_or_else(|| {
+                    anyhow!(
+                        "top-level item was not found for \
+                     further info? Is this possible?"
+                    )
+                })?;
+            Some(item)
+        } else {
+            None
+        };
+
+        let (items, errors): (
+            Bag<Item<'region, P, INLINE>>,
+            Bag<anyhow::Error>,
+        ) = dir_handle
+            .try_chunks(1000)
+            .par_bridge()
+            .map(
+                |chunk| -> (Bag<Item<'region, P, INLINE>>, Bag<anyhow::Error>) {
+                    let mut allocator = shared_regions.get_region();
+                    let mut tmp = tmp_path_buffer();
+
+                    let mut errors: Vec<anyhow::Error> = Vec::new();
+                    let mut items: Vec<Item<'region, P, INLINE>> = Vec::new();
+                    let items_ref = &mut items;
+
+                    'entry: for entry in chunk {
+                        let entry = match entry.with_context(|| {
+                            anyhow!("reading from directory {dir_path:?}")
+                        }) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                errors.push(e);
+                                break;
+                            }
+                        };
+
+                        // XX get from libc instead to avoid allocation
+                        let file_name = entry.file_name();
+                        let sub_p =
+                            dir.psp_add_segment(&file_name, &mut allocator);
+                        let mut opt_sub_path = KitschCell::Unevaluated(|| {
+                            sub_p.psp_to_path(None, &mut tmp)
+                        });
+
+                        if ignore
+                            .ignore_path(Some(&file_name), &mut opt_sub_path)
+                        {
+                            continue 'entry;
+                        }
+
+                        match info.item_from_entry(
+                            Some(&entry),
+                            Some(&file_name),
+                            sub_p,
+                            &mut opt_sub_path,
+                        ) {
+                            Ok(Some((item, _))) => {
+                                items_ref.push(item);
+                            }
+                            Ok(None) => (),
+                            Err(e) => {
+                                errors.push(e);
+                            }
+                        }
+                    }
+
+                    (items.into(), errors.into())
+                },
+            )
+            .collect();
+
+        let items = if let Some((base_item, _)) = opt_base_item {
+            items.add(base_item)
+        } else {
+            items
+        };
+        Ok((items, errors))
+    }
+
     /// Read chunks of buffers containing paths separated by
     /// `input_record_separator` into a Bag of items in parallel (each chunk
     /// being a work unit)
-    /// 
+    ///
     /// Leaks the backing memory for Item for now for simplicity.
     pub fn get_from_read_buf_stream(
         &self,

@@ -30,10 +30,7 @@ use chj_rustbin::{
         unix::unix_file_type::UnixFileTypeMask, unix_gr::GrInfoCache,
         unix_pw::PwInfoCache, write_all_vectored::write_all_vectored,
     },
-    io_utils::{
-        read_buf::{ParReadBufStream, ReadBufStream},
-        read_find_bufs::FindBufStream,
-    },
+    io_utils::read_buf::{ParReadBufStream, ReadBufStream},
     is_a_terminal::is_a_terminal,
     limited_eprintln,
     lst::{
@@ -1402,51 +1399,30 @@ fn main() -> Result<()> {
             if opt.fullpath { None } else { Some(basepath) };
         main_cont(cont_values!(omit_this_base_path: omit_this_base_path), res)
     } else if let Some(ref basepath) = opt.find {
-        if false {
+        if opt.dev_old_path {
+            let basepath = path_in_region(basepath);
             let res = {
                 probe!("get items");
-                get_items.get_from_read_buf_stream(
-                    FindBufStream::new(buf_size, basepath.clone(), true)?
-                        .par_bridge(),
-                    0,
-                )
+                get_items.find(basepath, opt.include_top, &shared_regions)?
             };
-            // XXX fix None
-            main_cont(cont_values!(omit_this_base_path: None), res)
+            let omit_this_base_path =
+                if opt.fullpath { None } else { Some(basepath) };
+            main_cont(
+                cont_values!(omit_this_base_path: omit_this_base_path),
+                res,
+            )
         } else {
-            if opt.dev_old_path {
-                let basepath = path_in_region(basepath);
-                let res = {
-                    probe!("get items");
-                    get_items.find(
-                        basepath,
-                        opt.include_top,
-                        &shared_regions,
-                    )?
-                };
-                let omit_this_base_path =
-                    if opt.fullpath { None } else { Some(basepath) };
-                main_cont(
-                    cont_values!(omit_this_base_path: omit_this_base_path),
-                    res,
-                )
-            } else {
-                let basepath = path_segmented(basepath)?;
-                let res = {
-                    probe!("get items");
-                    get_items.find(
-                        basepath,
-                        opt.include_top,
-                        &shared_regions,
-                    )?
-                };
-                let omit_this_base_path =
-                    if opt.fullpath { None } else { Some(basepath) };
-                main_cont(
-                    cont_values!(omit_this_base_path: omit_this_base_path),
-                    res,
-                )
-            }
+            let basepath = path_segmented(basepath)?;
+            let res = {
+                probe!("get items");
+                get_items.find(basepath, opt.include_top, &shared_regions)?
+            };
+            let omit_this_base_path =
+                if opt.fullpath { None } else { Some(basepath) };
+            main_cont(
+                cont_values!(omit_this_base_path: omit_this_base_path),
+                res,
+            )
         }
     } else {
         let res = {

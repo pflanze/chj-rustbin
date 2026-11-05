@@ -26,7 +26,6 @@ use crate::{
         segmented_path::tmp_path_buffer,
     },
     path_file_kind::{FileKind, ToFileKind},
-    probe,
     shared_regions::SharedRegions,
     time::age_at::AgeAt,
 };
@@ -38,8 +37,6 @@ fn chomp(v: &mut Vec<u8>, record_separator: u8) {
         }
     }
 }
-
-const MIN_OUT_SLICE_LEN: usize = 500000;
 
 pub trait RwxPosition {
     const S_CHAR_SET: char;
@@ -570,15 +567,15 @@ impl<INLINE: Copy + Sync> GetItems<INLINE> {
         input_record_separator: u8,
     ) -> (
         Bag<Item<'static, &'static Path, INLINE>>,
-        Vec<anyhow::Error>,
+        Bag<anyhow::Error>,
     ) {
         // To avoid appending individual items multiple times (in
         // multiple reduce layers), collect the original vectors then
         // flatten them in one go at the end. Also, collect errors
         // from all chunks together, too, don't stop early except per
         // chunk.
-        let (itemss, errors): (Bag<Item<_, _>>, Vec<anyhow::Error>) = input
-            .map(|chunk| -> (Bag<Item<_, _>>, Vec<anyhow::Error>) {
+        let (itemss, errors): (Bag<Item<_, _>>, Bag<anyhow::Error>) = input
+            .map(|chunk| -> (Bag<Item<_, _>>, Bag<anyhow::Error>) {
                 match (|| -> Result<Vec<Item<_, _>>> {
                     let mut chunk = chunk?;
                     chomp(&mut chunk, input_record_separator);
@@ -611,15 +608,14 @@ impl<INLINE: Copy + Sync> GetItems<INLINE> {
                         .filter_map(|r| r.transpose())
                         .collect::<Result<Vec<_>>>()
                 })() {
-                    Ok(v) => (Bag::LeafVec(v), vec![]),
-                    Err(e) => (Bag::Empty, vec![e]),
+                    Ok(v) => (Bag::LeafVec(v), Bag::Empty),
+                    Err(e) => (Bag::Empty, Bag::Leaf(e)),
                 }
             })
             .reduce(
-                || (Bag::Empty, Vec::new()),
-                |(itemss_a, mut errors_a), (itemss_b, mut errors_b)| {
-                    errors_a.append(&mut errors_b);
-                    (itemss_a.add_bag(itemss_b), errors_a)
+                || (Bag::Empty, Bag::Empty),
+                |(itemss_a, errors_a), (itemss_b, errors_b)| {
+                    (itemss_a.add_bag(itemss_b), errors_a.add_bag(errors_b))
                 },
             );
         (itemss, errors)
@@ -722,7 +718,7 @@ impl<INLINE: Copy + Sync> GetItems<INLINE> {
         dir: P,
         include_top: bool,
         shared_regions: &'region SharedRegions,
-    ) -> Result<(Bag<Item<'region, P, INLINE>>, Vec<anyhow::Error>)> {
+    ) -> Result<(Bag<Item<'region, P, INLINE>>, Bag<anyhow::Error>)> {
         let mut tmp = tmp_path_buffer();
         let dir_path = dir.psp_to_path(None, &mut tmp);
 
@@ -754,8 +750,6 @@ impl<INLINE: Copy + Sync> GetItems<INLINE> {
         if let Some(v) = top_item {
             items.push(v);
         }
-        probe!("flattening");
-        let errors = errors.par_flatten(MIN_OUT_SLICE_LEN);
         Ok((items, errors))
     }
 }

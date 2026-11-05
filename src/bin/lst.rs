@@ -66,6 +66,8 @@ use rayon::{
 };
 use regex::Regex;
 
+const MIN_OUT_SLICE_LEN: usize = 500000;
+
 #[derive(clap::ValueEnum, Clone, Debug)]
 enum ColorMode {
     Always,
@@ -1552,10 +1554,7 @@ fn t_sizeof_mini_item() {
     assert_eq!(size_of::<[MiniItem<&SegmentedPath>; 10]>(), 480);
 }
 
-fn main_cont<
-    'region,
-    P: PossiblySegmentedPath<'region, InlineLst> + Copy + Sync + Send + 'region,
->(
+fn main_cont<'region, P>(
     MainContVals {
         opt,
         cmds,
@@ -1565,8 +1564,11 @@ fn main_cont<
         shared_regions,
         omit_this_base_path,
     }: MainContVals<'region, P>,
-    (items_bag, errors): (Bag<Item<'region, P, InlineLst>>, Vec<anyhow::Error>),
-) -> Result<()> {
+    (items_bag, errors): (Bag<Item<'region, P, InlineLst>>, Bag<anyhow::Error>),
+) -> Result<()>
+where
+    P: PossiblySegmentedPath<'region, InlineLst> + Copy + Sync + Send + 'region,
+{
     let mut mini_items: Vec<MiniItem<'_, 'region, P>> = {
         probe!("map_flatten_refs");
         items_bag.map_flatten_refs(MiniItem::from)
@@ -1609,6 +1611,12 @@ fn main_cont<
 
     if !errors.is_empty() {
         let mut msgs: Vec<u8> = Vec::new();
+
+        let errors = {
+            probe!("flattening");
+            errors.par_flatten(MIN_OUT_SLICE_LEN)
+        };
+
         for error in errors {
             use std::io::Write;
             if opt.debug {

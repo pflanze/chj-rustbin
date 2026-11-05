@@ -11,6 +11,7 @@ use std::{
 
 use anstyle::{AnsiColor, Color, Style};
 use anyhow::{anyhow, bail, Context, Result};
+use log::debug;
 use rayon::iter::ParallelIterator;
 
 pub use crate::io::unix::unix_file_type::UnixFileType;
@@ -580,6 +581,7 @@ impl<INLINE: Sync> GetItems<INLINE> {
             let mut items: Vec<Item<'region, P, INLINE>> = Vec::new();
             let items_ref = &mut items;
             let dir_path: &Path = dir.psp_to_path(&mut tmp);
+            debug!("dir_path = {dir_path:?}");
 
             let dir = if include_dir {
                 let mut get_dir_path = KitschValue(dir_path);

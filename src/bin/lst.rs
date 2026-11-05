@@ -1569,7 +1569,11 @@ fn main_cont<
         let mut msgs: Vec<u8> = Vec::new();
         for error in errors {
             use std::io::Write;
-            _ = writeln!(&mut msgs, "{error:#}");
+            if opt.debug {
+                _ = writeln!(&mut msgs, "{error:#}\n{}", error.backtrace());
+            } else {
+                _ = writeln!(&mut msgs, "{error:#}");
+            }
         }
         let msgs: &str = std::str::from_utf8(&msgs).expect("already utf8");
         bail!("while generating the above list:\n{msgs}");

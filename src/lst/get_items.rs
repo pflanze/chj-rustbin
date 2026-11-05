@@ -691,7 +691,7 @@ impl<INLINE: Sync> GetItems<INLINE> {
     ) -> Result<(Bag<Item<'region, P, INLINE>>, Vec<anyhow::Error>)> {
         let mut tmp = tmp_path_buffer();
         let dir_path = dir.psp_to_path(None, &mut tmp);
-        let metadata = dir_path.symlink_metadata().with_context(|| {
+        let metadata = dir_path.metadata().with_context(|| {
             anyhow!("getting metadata for directory {dir_path:?}")
         })?;
         let (items, errors) =

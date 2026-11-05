@@ -1,7 +1,7 @@
 use std::{
     ffi::{OsStr, OsString},
     fmt::{Debug, Display},
-    fs::Metadata,
+    fs::{DirEntry, Metadata},
     marker::PhantomData,
     os::unix::{ffi::OsStrExt, fs::MetadataExt},
     path::Path,
@@ -365,7 +365,7 @@ impl<'region, P: PossiblySegmentedPath<'region, INLINE>, INLINE>
         file_kind: Option<FileKind>,
         read_link: bool,
         stat_link_target: bool,
-        metadata: Metadata,
+        metadata: &Metadata,
     ) -> Result<Option<Self>> {
         let metadata =
             EssentialMetadata::from_symlink_metadata(&metadata, file_kind)?;
@@ -417,7 +417,7 @@ impl<'region, P: PossiblySegmentedPath<'region, INLINE>, INLINE>
                     _path.to_file_kind(),
                     read_link,
                     stat_link_target,
-                    metadata,
+                    &metadata,
                 )
             }
             Err(e) => match e.kind() {
@@ -457,7 +457,7 @@ impl<INLINE: Sync> GetItemsIgnore<INLINE> {
             ignore_path_regex,
             ignore_item_names,
             ignore_item_regex,
-            _phantom: _,
+            _phantom,
         } = self;
 
         if let Some(file_name) = file_name {
@@ -488,14 +488,77 @@ impl<INLINE: Sync> GetItemsIgnore<INLINE> {
     }
 }
 
-pub struct GetItems<INLINE> {
-    pub ignore: GetItemsIgnore<INLINE>,
+#[derive(Clone, Copy)]
+pub struct GetItemsInfo<INLINE: Copy> {
     pub long: bool,
     pub use_color: bool,
     pub _phantom: PhantomData<INLINE>,
 }
 
-impl<INLINE: Sync> GetItems<INLINE> {
+impl<INLINE: Copy> GetItemsInfo<INLINE> {
+    /// Convert a directory entry to an Item (None if not
+    /// found, I think? XX Check `Item::from_path_and_metadata`)
+    ///
+    /// If `entry` is provided, get the metadata via that entry, otherwise via
+    /// `opt_sub_path.get()`.
+    ///
+    /// `entry`, `file_name`, `sub_p`, `opt_sub_path` all represent the same
+    /// entry from various viewpoints / efficiencies. `opt_file_name` should not
+    /// be given for directories, and is convenient not to be given for the
+    /// toplevel directory (because that may be ".").
+    ///
+    /// Also returns whether the item is a directory.
+    fn item_from_entry<'region, 'p, P>(
+        self,
+        entry: Option<&DirEntry>,
+        opt_file_name: Option<&OsStr>,
+        sub_p: P,
+        opt_sub_path: &mut impl KitschCache<&'p Path>,
+    ) -> Result<Option<(Item<'region, P, INLINE>, bool)>>
+    where
+        P: PossiblySegmentedPath<'region, INLINE> + Send + Copy,
+    {
+        let Self {
+            long,
+            use_color,
+            _phantom,
+        } = self;
+        let metadata = if let Some(entry) = entry {
+            entry.metadata().with_context(|| {
+                anyhow!("getting metadata for {:?}", opt_sub_path.get())
+            })?
+        } else {
+            let dir_path = opt_sub_path.get();
+            dir_path
+                .metadata()
+                .with_context(|| anyhow!("getting metadata for {dir_path:?}"))?
+        };
+
+        if let Some(item) = Item::from_path_and_metadata(
+            sub_p,
+            opt_sub_path,
+            opt_file_name.and_then(|file_name| file_name.to_file_kind()),
+            long,
+            use_color,
+            &metadata,
+        )
+        .with_context(|| {
+            anyhow!("constructing Item for {:?}", opt_sub_path.get())
+        })? {
+            Ok(Some((item, metadata.is_dir())))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+pub struct GetItems<INLINE: Copy> {
+    pub ignore: GetItemsIgnore<INLINE>,
+    pub info: GetItemsInfo<INLINE>,
+    pub _phantom: PhantomData<INLINE>,
+}
+
+impl<INLINE: Copy + Sync> GetItems<INLINE> {
     /// Read chunks of buffers containing paths separated by
     /// `input_record_separator` into a Bag of items in parallel (each chunk
     /// being a work unit)
@@ -536,14 +599,14 @@ impl<INLINE: Sync> GetItems<INLINE> {
                                 .ignore_path(path.file_name(), &mut get_path)
                         })
                         .map(|path| -> Result<Option<Item<_, _>>> {
+                            let GetItemsInfo {
+                                long,
+                                use_color,
+                                _phantom,
+                            } = self.info;
                             // Only stat linked files if used for
                             // coloring, and only in long format anyway.
-                            Item::from_path(
-                                path,
-                                path,
-                                self.long,
-                                self.use_color,
-                            )
+                            Item::from_path(path, path, long, use_color)
                         })
                         .filter_map(|r| r.transpose())
                         .collect::<Result<Vec<_>>>()
@@ -574,16 +637,13 @@ impl<INLINE: Sync> GetItems<INLINE> {
     >(
         &'s self,
         dir: P,
-        include_dir: bool,
-        metadata: Metadata,
         shared_regions: &'region SharedRegions,
     ) -> (Bag<Item<'region, P, INLINE>>, Bag<anyhow::Error>) {
         match (move || -> Result<_> {
             let Self {
                 ignore,
-                long,
-                use_color,
-                _phantom: _,
+                info,
+                _phantom,
             } = self;
 
             let mut tmp = tmp_path_buffer();
@@ -592,22 +652,6 @@ impl<INLINE: Sync> GetItems<INLINE> {
             let items_ref = &mut items;
             let dir_path: &Path = dir.psp_to_path(None, &mut tmp);
             debug!("dir_path = {dir_path:?}");
-
-            if include_dir {
-                let mut get_dir_path = KitschValue(dir_path);
-                if let Some(item) = Item::from_path_and_metadata(
-                    dir,
-                    &mut get_dir_path,
-                    dir_path.to_file_kind(),
-                    *long,
-                    *use_color,
-                    metadata,
-                )? {
-                    items_ref.push(item);
-                }
-                // ^ else will run into open error anyway--XX hmm
-                // actually should accept not found then, there?
-            }
 
             let input = std::fs::read_dir(dir_path)
                 .with_context(|| anyhow!("reading directory {dir_path:?}"))?;
@@ -618,11 +662,8 @@ impl<INLINE: Sync> GetItems<INLINE> {
                 let mut allocator = shared_regions.get_region();
                 'entry: for entry in input {
                     let entry: std::fs::DirEntry = entry?;
-                    let metadata = entry.metadata()?;
-
                     // XX get from libc instead to avoid allocation
                     let file_name = entry.file_name();
-
                     let sub_p = dir.psp_add_segment(&file_name, &mut allocator);
 
                     // Only need &Path if a path regex was given or
@@ -637,30 +678,23 @@ impl<INLINE: Sync> GetItems<INLINE> {
                         continue 'entry;
                     }
 
-                    if metadata.is_dir() {
-                        drop(file_name);
-                        scope.spawn(move |_| {
-                            let (items, errors) = self._find(
-                                sub_p,
-                                true, // include_dir
-                                metadata,
-                                shared_regions,
-                            );
-                            let mut lock =
-                                subdir_items_rf.lock().expect("no panics");
-                            lock.0.push_bag(items);
-                            lock.1.push_bag(errors);
-                        });
-                    } else {
-                        if let Some(item) = Item::from_path_and_metadata(
-                            sub_p,
-                            &mut opt_sub_path,
-                            (&*file_name).to_file_kind(),
-                            *long,
-                            *use_color,
-                            metadata,
-                        )? {
-                            items_ref.push(item);
+                    if let Some((item, is_dir)) = info.item_from_entry(
+                        Some(&entry),
+                        Some(&file_name),
+                        sub_p,
+                        &mut opt_sub_path,
+                    )? {
+                        items_ref.push(item);
+                        if is_dir {
+                            drop(file_name);
+                            scope.spawn(move |_| {
+                                let (items, errors) =
+                                    self._find(sub_p, shared_regions);
+                                let mut lock =
+                                    subdir_items_rf.lock().expect("no panics");
+                                lock.0.push_bag(items);
+                                lock.1.push_bag(errors);
+                            });
                         }
                     }
                 }
@@ -691,11 +725,35 @@ impl<INLINE: Sync> GetItems<INLINE> {
     ) -> Result<(Bag<Item<'region, P, INLINE>>, Vec<anyhow::Error>)> {
         let mut tmp = tmp_path_buffer();
         let dir_path = dir.psp_to_path(None, &mut tmp);
-        let metadata = dir_path.metadata().with_context(|| {
-            anyhow!("getting metadata for directory {dir_path:?}")
-        })?;
-        let (items, errors) =
-            self._find(dir, include_top, metadata, shared_regions);
+
+        // Check the top item first, to avoid doing the rest if this gives
+        // errors
+        let top_item = if include_top {
+            let mut opt_dir_path = KitschValue(dir_path);
+            let (item, _is_dir) = self
+                .info
+                .item_from_entry(None, None, dir, &mut opt_dir_path)
+                .with_context(|| {
+                    anyhow!("constructing Item for {:?}", dir_path)
+                })?
+                .ok_or_else(|| {
+                    anyhow!(
+                        "top-level item was not found for \
+                     further info? Is this possible?"
+                    )
+                })?;
+            // ^ else (None case) will run into open error anyway--XX hmm
+            // actually should accept not found then, there?  But then, make
+            // sure to track that.
+            Some(item)
+        } else {
+            None
+        };
+
+        let (mut items, errors) = self._find(dir, shared_regions);
+        if let Some(v) = top_item {
+            items.push(v);
+        }
         probe!("flattening");
         let errors = errors.par_flatten(MIN_OUT_SLICE_LEN);
         Ok((items, errors))

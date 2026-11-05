@@ -39,7 +39,9 @@ use chj_rustbin::{
     is_a_terminal::is_a_terminal,
     limited_eprintln,
     lst::{
-        get_items::{GetItems, GetItemsIgnore, Item, UnixFileType},
+        get_items::{
+            GetItems, GetItemsIgnore, GetItemsInfo, Item, UnixFileType,
+        },
         possibly_segmented_path::PossiblySegmentedPath,
         segmented_path::{tmp_path_buffer, SegmentedPath},
     },
@@ -822,7 +824,7 @@ mod tests {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct InlineLst;
 
 /// If `time_reversed`, then time sorting is with newest items at the
@@ -1343,8 +1345,11 @@ fn main() -> Result<()> {
             ignore_item_regex,
             _phantom: PhantomData,
         },
-        long: opt.long,
-        use_color,
+        info: GetItemsInfo {
+            long: opt.long,
+            use_color,
+            _phantom: PhantomData,
+        },
         _phantom: PhantomData,
     };
 

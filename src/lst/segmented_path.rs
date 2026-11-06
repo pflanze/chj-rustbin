@@ -379,8 +379,8 @@ impl<'region> SegmentedPath<'region> {
         }
     }
 
-    /// In the past needed an allocator, hence didn't implement
-    /// PartialOrd / Ord; XX change now?
+    // In the past needed an allocator, hence didn't implement
+    // PartialOrd / Ord; XX change now? -- 2026-11: What have I meant?
     pub fn cmp(&self, other: &Self) -> Ordering {
         segmented_path_ord(self, other)
     }

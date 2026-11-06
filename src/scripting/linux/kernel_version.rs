@@ -140,6 +140,7 @@ impl KernelVersion {
         Self::from_str(version.to_str()?)
     }
 
+    /// Drops the extraversion
     pub fn sublevel_add(&self, sublevel_increment: u16) -> Self {
         let Self {
             version,
@@ -151,6 +152,22 @@ impl KernelVersion {
             version: *version,
             patchlevel: *patchlevel,
             sublevel: *sublevel + sublevel_increment,
+            extraversion: None,
+        }
+    }
+
+    /// Drops the extraversion and sets the sublevel to 0
+    pub fn patchlevel_add(&self, patchlevel_increment: u16) -> Self {
+        let Self {
+            version,
+            patchlevel,
+            sublevel: _,
+            extraversion: _,
+        } = self;
+        Self {
+            version: *version,
+            patchlevel: *patchlevel + patchlevel_increment,
+            sublevel: 0,
             extraversion: None,
         }
     }

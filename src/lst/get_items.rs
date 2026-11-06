@@ -759,8 +759,8 @@ impl<INLINE: Copy + Sync> GetItems<INLINE> {
 
             let mut tmp = tmp_path_buffer();
 
+            let mut errors: Vec<anyhow::Error> = Vec::new();
             let mut items: Vec<Item<'region, P, INLINE>> = Vec::new();
-            let items_ref = &mut items;
             let dir_path: &Path = dir.psp_to_path(None, &mut tmp);
             debug!("dir_path = {dir_path:?}");
 
@@ -768,8 +768,8 @@ impl<INLINE: Copy + Sync> GetItems<INLINE> {
                 .with_context(|| anyhow!("reading directory {dir_path:?}"))?;
             let subdir_items: Mutex<(Bag<Item<_, _>>, Bag<anyhow::Error>)> =
                 Mutex::new((Bag::new(), Bag::new()));
-            let subdir_items_rf = &subdir_items;
-            rayon::scope(move |scope| -> Result<()> {
+
+            if let Err(scope_err) = rayon::scope(|scope| -> Result<()> {
                 let mut allocator = shared_regions.get_region();
                 'entry: for entry in input {
                     let entry: std::fs::DirEntry = entry?;
@@ -789,34 +789,53 @@ impl<INLINE: Copy + Sync> GetItems<INLINE> {
                         continue 'entry;
                     }
 
-                    if let Some((item, is_dir)) = info.item_from_entry(
+                    match info.item_from_entry(
                         Some(&entry),
                         Some(&file_name),
                         sub_p,
                         &mut opt_sub_path,
-                    )? {
-                        items_ref.push(item);
-                        if is_dir {
-                            drop(file_name);
-                            scope.spawn(move |_| {
-                                let (items, errors) =
-                                    self._find(sub_p, shared_regions);
-                                let mut lock =
-                                    subdir_items_rf.lock().expect("no panics");
-                                lock.0.push_bag(items);
-                                lock.1.push_bag(errors);
-                            });
+                    ) {
+                        Ok(Some((item, is_dir))) => {
+                            items.push(item);
+                            if is_dir {
+                                drop(file_name);
+                                // Idea: instead pre-push a None value to a
+                                // region that returns &mut (bumpalo?) here,
+                                // write to that ref from the sub-task. No lock
+                                // needed. Well, needs & access to those Option
+                                // values afterwards, though.
+                                let subdir_items_rf = &subdir_items;
+                                scope.spawn(move |_| {
+                                    let (items, errors) =
+                                        self._find(sub_p, shared_regions);
+                                    let mut lock = subdir_items_rf
+                                        .lock()
+                                        .expect("no panics");
+                                    lock.0.push_bag(items);
+                                    lock.1.push_bag(errors);
+                                });
+                            }
+                        }
+                        Ok(None) => (),
+                        Err(e) => {
+                            errors.push(e);
                         }
                     }
                 }
                 Ok(())
             })
-            .with_context(|| anyhow!("reading entries in {dir:?}"))?;
+            .with_context(|| anyhow!("reading entries in {dir:?}"))
+            {
+                errors.push(scope_err);
+            }
 
-            let mut subdir_items =
+            let (subdir_items, subdir_errors) =
                 subdir_items.into_inner().expect("no panics");
-            subdir_items.0.push_bag(items.into());
-            Ok(subdir_items)
+
+            Ok((
+                subdir_items.add_bag(items.into()),
+                subdir_errors.add_bag(errors.into()),
+            ))
         })() {
             Ok(items) => items,
             Err(e) => (Bag::Empty, Bag::Leaf(e)),

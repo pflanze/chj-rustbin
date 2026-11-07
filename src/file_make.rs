@@ -79,6 +79,10 @@ impl IntoPathIterator for () {
     }
 }
 
+/// Run `build_action` if `target` does not exist or is older than any
+/// of the paths in `dependencies`.
+///
+/// `target` can be a directory, but symlinks are not accepted.
 pub fn file_make<
     'path,
     TargetPath,

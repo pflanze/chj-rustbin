@@ -2,7 +2,7 @@
 
 use std::{borrow::Cow, fmt::Display, path::Path};
 
-use anyhow::{anyhow, Context};
+use anyhow::{anyhow, Context, Result};
 use bstr::{BString, ByteSlice};
 use cj_path_util::temp_path::{TempPathOptions, TempfileError};
 
@@ -62,6 +62,21 @@ pub enum VerifyError {
 }
 
 impl Gpg {
+    /// Run --recv-key for the given fingerprint, specifying
+    /// "keyserver.ubuntu.com" as the keyserver
+    pub fn recv_key(&self, fingerprint: &str) -> Result<BString> {
+        cmd_capturing_stderr(
+            "gpg",
+            &[
+                "--keyserver",
+                "keyserver.ubuntu.com",
+                "--recv-key",
+                fingerprint,
+            ],
+            &[],
+        )
+    }
+
     /// Unpack a signed file
     ///
     /// Uses a temp file and rename, only renames to `unpacked_file`

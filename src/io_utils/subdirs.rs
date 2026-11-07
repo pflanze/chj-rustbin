@@ -16,8 +16,9 @@
 #[macro_export]
 macro_rules! def_subdirs {
     // Initial call
-    { $T:ident => $($subdir:ident $(,)?)* } =>  {
+    { $pub:vis $T:ident => $($subdir:ident $(,)?)* } =>  {
         def_subdirs!{
+            { $pub };
             { $($subdir,)* };
             $T,
             0,
@@ -26,13 +27,16 @@ macro_rules! def_subdirs {
         }
     };
     // Iteration
-    { { $subdir:ident, $($rest:tt)* }; $T:ident, $i:expr, $this:ident, { $($init:tt)* } } =>  {
+    { { $pub:vis }; { $subdir:ident, $($rest:tt)* };
+        $T:ident, $i:expr, $this:ident, { $($init:tt)* }
+    } =>  {
         impl Dirs {
-            fn $subdir(&self) -> &std::sync::Arc<std::path::Path> {
+            $pub fn $subdir(&self) -> &std::sync::Arc<std::path::Path> {
                 &self.subdirs[$i]
             }
         }
         def_subdirs!{
+            { $pub };
             { $($rest)* };
             $T,
             $i + 1,
@@ -43,16 +47,18 @@ macro_rules! def_subdirs {
             }
         }
     };
-    { {}; $T:ident, $i:expr, $this:ident, { $($init:tt)* } } => {
+    { { $pub:vis }; {};
+        $T:ident, $i:expr, $this:ident, { $($init:tt)* }
+    } => {
 
         #[derive(Debug)]
-        struct $T {
+        $pub struct $T {
             base_dir: std::path::PathBuf,
             subdirs: Vec<std::sync::Arc<std::path::Path>>,
         }
 
         impl $T {
-            fn new(base_dir: std::path::PathBuf) -> Self {
+            $pub fn new(base_dir: std::path::PathBuf) -> Self {
                 use cj_path_util::path_util::AppendToPath;
 
                 let mut $this = Self {
@@ -63,7 +69,7 @@ macro_rules! def_subdirs {
                 $this
             }
 
-            fn create_dirs_if_not_exist(&self) -> anyhow::Result<()> {
+            $pub fn create_dirs_if_not_exist(&self) -> anyhow::Result<()> {
                 use $crate::io_utils::dirs::create_dir_if_not_exists;
                 use anyhow::Context;
 

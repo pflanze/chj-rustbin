@@ -17,10 +17,10 @@ macro_rules! define_scoped_setting {
       $Name:ident => $T:ty, $DEFAULT:expr => $NAME:ident, $NAME_ID:ident } => {
 
         thread_local! {
-            static $NAME: RefCell<std::collections::BTreeMap<u128, $T>> =
+            static $NAME: std::cell::RefCell<std::collections::BTreeMap<u128, $T>> =
                 std::collections::BTreeMap::new().into();
             // Running id used in the map
-            static $NAME_ID: Cell<u128> = 0.into();
+            static $NAME_ID: std::cell::Cell<u128> = 0.into();
         }
 
         $(#[$attr])*

@@ -233,6 +233,8 @@ struct KernelPatch<'worker> {
 }
 
 impl<'worker> GetHashesAndPatch for KernelPatch<'worker> {
+    const HASHES_SIGNATURE_KEY: GpgKeyRef = KERNEL_INCR_KEY;
+
     fn worker(&self) -> &KernelWorker {
         self.worker
     }
@@ -415,6 +417,8 @@ impl<'worker> KernelPatch<'worker> {
 /// might also be used in the future for the
 /// `https://cdn.kernel.org/pub/linux/kernel/v*.x/patch-*` files.
 trait GetHashesAndPatch {
+    const HASHES_SIGNATURE_KEY: GpgKeyRef;
+
     fn worker(&self) -> &KernelWorker;
 
     /// Must create the directory if it doesn't exist
@@ -448,6 +452,24 @@ trait GetHashesAndPatch {
         )
     }
 
+    /// Get gpg key if necessary
+    fn get_gpg_key(
+        &self,
+    ) -> Result<PathBuf, MakeError<AnyhowError, AnyhowError>> {
+        file_make(
+            self.hashes_base_dir()
+                .map_err(AnyhowError)?
+                .append(".get_gpg_key"),
+            (),
+            |target, _dependencies| -> Result<(), AnyhowError> {
+                Gpg::default()
+                    .recv_key(&Self::HASHES_SIGNATURE_KEY.key_fingerprint)?;
+                touch(target)?;
+                Ok(())
+            },
+        )
+    }
+
     /// Verifies the signature of the hashes list file via gpg
     fn get_hashes_file(
         &self,
@@ -457,14 +479,20 @@ trait GetHashesAndPatch {
             self.hashes_base_dir()
                 .map_err(AnyhowError)?
                 .append("sha256sums"),
-            [self
-                .get_hashes_asc(newer_than_paths)
-                .map_err(anyhow::Error::from)
-                .map_err(AnyhowError)?],
+            [
+                self.get_hashes_asc(newer_than_paths)
+                    .map_err(anyhow::Error::from)
+                    .map_err(AnyhowError)?,
+                self.get_gpg_key()?,
+            ],
             |target, dependencies| -> Result<(), AnyhowError> {
-                let [source] = dependencies;
+                let [source, _keystamp] = dependencies;
                 Gpg::default()
-                    .verify_unpack(source, target, Some(&KERNEL_INCR_KEY))
+                    .verify_unpack(
+                        source,
+                        target,
+                        Some(&Self::HASHES_SIGNATURE_KEY),
+                    )
                     .with_context(|| {
                         anyhow!("verifying signature on {source:?}")
                     })?;

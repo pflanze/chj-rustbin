@@ -184,7 +184,7 @@ fn fork_proc(
         match proc() {
             Ok(exitcode) => unsafe { _exit(exitcode) },
             Err(err) => {
-                let _ = stderr().write(
+                _ = stderr().write(
                     format!(
                         "{program_name}: fork_proc: error in child {}: {}\n",
                         getpid(),

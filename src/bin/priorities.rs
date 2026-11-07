@@ -852,7 +852,7 @@ impl WorkflowStatus {
         let mut is_archived = false;
         let mut status: Option<WorkflowStatus> = None;
         let mut anc = path.ancestors();
-        let _ = anc.next(); // path itself
+        _ = anc.next(); // path itself
         for dir in anc {
             if let Some(file_name) = dir.file_name() {
                 match file_name.to_str() {

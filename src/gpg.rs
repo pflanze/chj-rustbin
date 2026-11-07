@@ -77,6 +77,45 @@ impl Gpg {
         )
     }
 
+    /// Verify a separate signature on a file
+    ///
+    /// If `restrict_to_key` is given, verifies that the key was used
+    /// for signing (the check is a bit simplicistic, but should never
+    /// accept a signature that does *not* satisfy the key).
+    ///
+    /// Does not generate any files, just return a Result, which is Ok
+    /// only if the files are present, the key for the signature is on
+    /// the key chain, the signature is correct and matches the
+    /// `signed_file`, and if given, `restrict_to_key` matches.
+    ///
+    /// Returns the captured stderr of gpg.
+    pub fn verify(
+        &self,
+        signature_file: &Path,
+        signed_file: &Path,
+        restrict_to_key: Option<&GpgKeyRef>,
+    ) -> Result<BString, VerifyError> {
+        let args = &[
+            "--verify".as_ref(),
+            signature_file.as_os_str(),
+            signed_file.as_os_str(),
+        ];
+        let output = cmd_capturing_stderr("gpg", args, &[])
+            .with_context(|| anyhow!("executing 'gpg' {args:?}"))?;
+
+        if let Some(key) = restrict_to_key {
+            let expected_message = key.expected_message();
+            if !output.contains_str(&expected_message) {
+                return Err(VerifyError::WrongKey {
+                    expected_message,
+                    output,
+                });
+            }
+        }
+
+        Ok(output)
+    }
+
     /// Unpack a signed file
     ///
     /// Uses a temp file and rename, only renames to `unpacked_file`

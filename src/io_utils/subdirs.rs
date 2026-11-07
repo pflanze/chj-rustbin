@@ -28,7 +28,7 @@ macro_rules! def_subdirs {
     // Iteration
     { { $subdir:ident, $($rest:tt)* }; $T:ident, $i:expr, $this:ident, { $($init:tt)* } } =>  {
         impl Dirs {
-            fn $subdir(&self) -> &Arc<Path> {
+            fn $subdir(&self) -> &std::sync::Arc<std::path::Path> {
                 &self.subdirs[$i]
             }
         }
@@ -47,12 +47,14 @@ macro_rules! def_subdirs {
 
         #[derive(Debug)]
         struct $T {
-            base_dir: PathBuf,
-            subdirs: Vec<Arc<Path>>,
+            base_dir: std::path::PathBuf,
+            subdirs: Vec<std::sync::Arc<std::path::Path>>,
         }
 
         impl $T {
-            fn new(base_dir: PathBuf) -> Self {
+            fn new(base_dir: std::path::PathBuf) -> Self {
+                use cj_path_util::path_util::AppendToPath;
+
                 let mut $this = Self {
                     base_dir,
                     subdirs: Vec::new()
@@ -62,7 +64,7 @@ macro_rules! def_subdirs {
             }
 
             fn create_dirs_if_not_exist(&self) -> anyhow::Result<()> {
-                use chj_rustbin::io_utils::dirs::create_dir_if_not_exists;
+                use $crate::io_utils::dirs::create_dir_if_not_exists;
                 use anyhow::Context;
 
                 for path in &self.subdirs {

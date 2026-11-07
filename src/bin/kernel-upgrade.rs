@@ -1,9 +1,9 @@
 use std::{
+    borrow::Cow,
     collections::HashMap,
     convert::Infallible,
     ffi::{OsStr, OsString},
     fmt::Display,
-    io::{stderr, Write},
     num::NonZeroUsize,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
@@ -16,7 +16,7 @@ use chj_rustbin::{
     def_subdirs,
     easy_webget::{EasyWebget, GetToFileError},
     file_make::{file_make, MakeError},
-    gpg::Gpg,
+    gpg::{Gpg, GpgKeyRef, KeyType},
     io_utils::dirs::create_dir_if_not_exists,
     script_tools::{cmd, touch, CmdCwd, SetX},
     scripting::{linux::kernel_version::KernelVersion, sha256sum::sha256sum},
@@ -30,8 +30,10 @@ use clap::Parser;
 
 use external_webget::{RequestError, WebGet};
 
-const KERNEL_KEY_GPG_MESSAGE: &str =
-    "using RSA key B8868C80BA62A1FFFAF5FDA9632D3A06589DA6B1";
+const KERNEL_INCR_KEY: GpgKeyRef = GpgKeyRef {
+    key_type: KeyType::RSA,
+    key_fingerprint: Cow::Borrowed("B8868C80BA62A1FFFAF5FDA9632D3A06589DA6B1"),
+};
 
 enum ReportKind {
     NoChange,
@@ -461,21 +463,12 @@ trait GetHashesAndPatch {
                 .map_err(AnyhowError)?],
             |target, dependencies| -> Result<(), AnyhowError> {
                 let [source] = dependencies;
-                let err =
-                    Gpg::default().verify_unpack(source, target).with_context(
-                        || anyhow!("verifying signature on {source:?}"),
-                    )?;
-                if err.contains_str(KERNEL_KEY_GPG_MESSAGE) {
-                    eprintln!("good signature for {target:?}");
-                    Ok(())
-                } else {
-                    stderr()
-                        .write_all(&err)
-                        .with_context(|| anyhow!("writing to stderr"))?;
-                    Err(anyhow!(
-                        "missing {KERNEL_KEY_GPG_MESSAGE:?} in GPG output"
-                    ))?
-                }
+                Gpg::default()
+                    .verify_unpack(source, target, Some(&KERNEL_INCR_KEY))
+                    .with_context(|| {
+                        anyhow!("verifying signature on {source:?}")
+                    })?;
+                Ok(())
             },
         )
     }

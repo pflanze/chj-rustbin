@@ -1,12 +1,47 @@
 //! Running the GnuPG gpg tool as external process invocations
 
-use std::path::Path;
+use std::{borrow::Cow, fmt::Display, path::Path};
 
 use anyhow::{anyhow, Context};
-use bstr::BString;
+use bstr::{BString, ByteSlice};
 use cj_path_util::temp_path::{TempPathOptions, TempfileError};
 
 use crate::script_tools::cmd_capturing_stderr;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyType {
+    RSA,
+}
+
+impl AsRef<str> for KeyType {
+    fn as_ref(&self) -> &str {
+        match self {
+            KeyType::RSA => "RSA",
+        }
+    }
+}
+
+impl Display for KeyType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_ref())
+    }
+}
+
+pub struct GpgKeyRef {
+    pub key_type: KeyType,
+    /// The full fingerprint, without spaces!
+    pub key_fingerprint: Cow<'static, str>,
+}
+
+impl GpgKeyRef {
+    fn expected_message(&self) -> String {
+        let Self {
+            key_type,
+            key_fingerprint,
+        } = self;
+        format!("using {key_type} key {key_fingerprint}")
+    }
+}
 
 #[derive(Debug, Default)]
 pub struct Gpg {}
@@ -17,6 +52,8 @@ pub enum VerifyError {
     Anyhow(#[from] anyhow::Error),
     #[error("{0:#}")]
     TempfileError(#[from] TempfileError),
+    #[error("missing the message {expected_message:?} in GPG output")]
+    WrongKey { expected_message: String },
 }
 
 impl Gpg {
@@ -25,12 +62,16 @@ impl Gpg {
     /// Uses a temp file and rename, only renames to `unpacked_file`
     /// once gpg exited successfully, i.e. the signature is verified.
     ///
-    /// Returns the captured stderr of gpg; you may want to check it
-    /// for warnings.
+    /// If `restrict_to_key` is given, verifies that the key was used
+    /// for signing (the check is a bit simplicistic, but should never
+    /// accept a signature that does *not* satisfy the key).
+    ///
+    /// Returns the captured stderr of gpg.
     pub fn verify_unpack(
         &self,
         signed_file: &Path,
         unpacked_file: &Path,
+        restrict_to_key: Option<&GpgKeyRef>,
     ) -> Result<BString, VerifyError> {
         let unpacked_temp_path =
             TempPathOptions::default().temp_path_for(unpacked_file)?;
@@ -42,7 +83,16 @@ impl Gpg {
         ];
         let output = cmd_capturing_stderr("gpg", args, &[])
             .with_context(|| anyhow!("executing 'gpg' {args:?}"))?;
+
+        if let Some(key) = restrict_to_key {
+            let expected_message = key.expected_message();
+            if !output.contains_str(&expected_message) {
+                return Err(VerifyError::WrongKey { expected_message });
+            }
+        }
+
         unpacked_temp_path.persist()?;
+
         Ok(output)
     }
 }

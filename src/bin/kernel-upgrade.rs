@@ -254,11 +254,11 @@ impl<'worker> GetHashesAndPatch for KernelPatch<'worker> {
 
 #[derive(Debug, thiserror::Error)]
 pub enum GetAndApplyError {
-    #[error("{0}")]
+    #[error("{0:#}")]
     GetChecked(
         #[from] MakeError<MakeError<AnyhowError, GetToFileError>, AnyhowError>,
     ),
-    #[error("{0}")]
+    #[error("{0:#}")]
     Anyhow(#[from] anyhow::Error),
 }
 

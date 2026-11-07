@@ -13,9 +13,9 @@ pub struct Gpg {}
 
 #[derive(Debug, thiserror::Error)]
 pub enum VerifyError {
-    #[error("{0}")]
+    #[error("{0:#}")]
     Anyhow(#[from] anyhow::Error),
-    #[error("{0}")]
+    #[error("{0:#}")]
     TempfileError(#[from] TempfileError),
 }
 

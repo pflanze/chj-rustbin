@@ -12,11 +12,11 @@ where
     DependencyError: std::error::Error + Send + Sync + 'static,
     BuildError: std::error::Error + Send + Sync + 'static,
 {
-    #[error("preparing dependencies: {0}")]
+    #[error("preparing dependencies: {0:#}")]
     Dependency(#[from] DependencyError),
-    #[error("running the build action: {0}")]
+    #[error("running the build action: {0:#}")]
     BuildAction(BuildError),
-    #[error("running the build action: {0}")]
+    #[error("running the build action: {0:#}")]
     FileHandling(anyhow::Error),
 }
 

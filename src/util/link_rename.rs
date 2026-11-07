@@ -9,7 +9,7 @@ use getrandom::getrandom;
 
 #[derive(Debug, thiserror::Error)]
 pub enum LinkRenameError {
-    #[error("{0}")]
+    #[error("{0:#}")]
     Other(#[from] anyhow::Error),
     #[error("getting random number: {0}")]
     Getrandom(#[from] getrandom::Error),

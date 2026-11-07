@@ -199,7 +199,7 @@ pub struct OtherRequestError {
 pub enum RequestError {
     #[error("404 not found")]
     NotFound,
-    #[error("running the external web get command: {0}")]
+    #[error("running the external web get command: {0:#}")]
     RunningCommand(anyhow::Error),
     #[error("{0}")]
     Other(Box<OtherRequestError>),

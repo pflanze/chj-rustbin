@@ -275,6 +275,41 @@ pub fn cmd_with_stdout_to<A: AsRef<OsStr>>(
     }
 }
 
+pub fn cmd_with_stdin_from<A: AsRef<OsStr>>(
+    input: File,
+    prog: &str,
+    args: impl IntoIterator<Item = A>,
+    acceptable_exit_codes: &[i32],
+) -> Result<()> {
+    let mut cmd = Command::new(prog);
+    cmd.args(args);
+    cmd.stdin(input);
+    if let Some(path) = CmdCwd::get() {
+        cmd.current_dir(path);
+    }
+    if SetX::get() {
+        eprintln!("+ `{cmd:?}`2");
+    }
+
+    let mut child = cmd.spawn()?;
+    let status = child.wait()?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        if let Some(code) = status.code() {
+            if acceptable_exit_codes.contains(&code) {
+                Ok(())
+            } else {
+                bail!("{prog:?} exited with code {code}")
+            }
+        } else {
+            let signal = status.signal();
+            bail!("{prog:?} exited via signal {signal:?}")
+        }
+    }
+}
+
 /// Get a list of the paths to all items in `dir`, sorted by path
 pub fn ls_paths(dir: &Path) -> Result<Vec<PathBuf>> {
     let mut items = dir

@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{convert::Infallible, fmt::Display};
 
 /// Wrapper around `anyhow::Error` that implements `std::error::Error`
 #[derive(Debug)]
@@ -15,5 +15,11 @@ impl std::error::Error for AnyhowError {}
 impl From<anyhow::Error> for AnyhowError {
     fn from(value: anyhow::Error) -> Self {
         Self(value)
+    }
+}
+
+impl From<Infallible> for AnyhowError {
+    fn from(_value: Infallible) -> Self {
+        unreachable!("Infallible cannot be constructed")
     }
 }

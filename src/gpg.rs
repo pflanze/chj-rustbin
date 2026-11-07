@@ -52,8 +52,13 @@ pub enum VerifyError {
     Anyhow(#[from] anyhow::Error),
     #[error("{0:#}")]
     TempfileError(#[from] TempfileError),
-    #[error("missing the message {expected_message:?} in GPG output")]
-    WrongKey { expected_message: String },
+    #[error(
+        "missing the message {expected_message:?} in GPG output:\n{output}"
+    )]
+    WrongKey {
+        expected_message: String,
+        output: BString,
+    },
 }
 
 impl Gpg {
@@ -87,7 +92,10 @@ impl Gpg {
         if let Some(key) = restrict_to_key {
             let expected_message = key.expected_message();
             if !output.contains_str(&expected_message) {
-                return Err(VerifyError::WrongKey { expected_message });
+                return Err(VerifyError::WrongKey {
+                    expected_message,
+                    output,
+                });
             }
         }
 

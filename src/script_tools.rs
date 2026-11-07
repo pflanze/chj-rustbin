@@ -177,11 +177,11 @@ pub fn cmd_capturing_stderr<A: AsRef<OsStr>>(
             if acceptable_exit_codes.contains(&code) {
                 Ok(output)
             } else {
-                bail!("{prog:?} exited with code {code} after printing {output:?}")
+                bail!("{prog:?} exited with code {code} after printing:\n{output}")
             }
         } else {
             let signal = status.signal();
-            bail!("{prog:?} exited via signal {signal:?} after printing {output:?}")
+            bail!("{prog:?} exited via signal {signal:?} after printing:\n{output}")
         }
     }
 }

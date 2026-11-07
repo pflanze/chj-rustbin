@@ -22,6 +22,8 @@ pub struct KernelVersion {
     pub patchlevel: u16,
     pub sublevel: u16,
     pub extraversion: Option<String>,
+    /// "+...", e.g. added by Debian, present in `uname -r`
+    pub packageversion: Option<String>,
 }
 
 impl FromStr for KernelVersion {
@@ -35,9 +37,13 @@ impl FromStr for KernelVersion {
         let (patchlevel_str, rest) = rest.split_once('.').ok_or_else(|| {
             anyhow!("missing dot after 'patchlevel' number in {s:?}")
         })?;
-        let (sublevel_str, extraversion) = match rest.split_once('-') {
-            Some((s, r)) => (s, Some(r)),
+        let (pre_rest, packageversion) = match rest.split_once('+') {
+            Some((pr, pv)) => (pr, Some(pv)),
             None => (rest, None),
+        };
+        let (sublevel_str, extraversion) = match pre_rest.split_once('-') {
+            Some((s, r)) => (s, Some(r)),
+            None => (pre_rest, None),
         };
         Ok(Self {
             version: version_str.parse().with_context(|| {
@@ -50,6 +56,7 @@ impl FromStr for KernelVersion {
                 anyhow!("parsing 'sublevel' number in {s:?}")
             })?,
             extraversion: extraversion.map(ToOwned::to_owned),
+            packageversion: packageversion.map(ToOwned::to_owned),
         })
     }
 }
@@ -61,13 +68,18 @@ impl Display for KernelVersion {
             patchlevel,
             sublevel,
             extraversion,
+            packageversion,
         } = self;
+        let mut s: Vec<u8> =
+            format!("{version}.{patchlevel}.{sublevel}").into();
+        use std::io::Write;
         if let Some(extraversion) = extraversion {
-            // XX is '-' correct?
-            write!(f, "{version}.{patchlevel}.{sublevel}-{extraversion}")
-        } else {
-            write!(f, "{version}.{patchlevel}.{sublevel}")
+            _ = write!(s, "-{extraversion}");
         }
+        if let Some(packageversion) = packageversion {
+            _ = write!(s, "+{packageversion}");
+        }
+        f.write_str(std::str::from_utf8(&s).expect("inputs were all strings"))
     }
 }
 
@@ -130,6 +142,7 @@ impl KernelVersion {
             patchlevel,
             sublevel,
             extraversion,
+            packageversion: None,
         })
     }
 
@@ -140,35 +153,39 @@ impl KernelVersion {
         Self::from_str(version.to_str()?)
     }
 
-    /// Drops the extraversion
+    /// Drops the extraversion and packageversion
     pub fn sublevel_add(&self, sublevel_increment: u16) -> Self {
         let Self {
             version,
             patchlevel,
             sublevel,
             extraversion: _,
+            packageversion: _,
         } = self;
         Self {
             version: *version,
             patchlevel: *patchlevel,
             sublevel: *sublevel + sublevel_increment,
             extraversion: None,
+            packageversion: None,
         }
     }
 
-    /// Drops the extraversion and sets the sublevel to 0
+    /// Drops the extraversion and packageversion and sets the sublevel to 0
     pub fn patchlevel_add(&self, patchlevel_increment: u16) -> Self {
         let Self {
             version,
             patchlevel,
             sublevel: _,
             extraversion: _,
+            packageversion: _,
         } = self;
         Self {
             version: *version,
             patchlevel: *patchlevel + patchlevel_increment,
             sublevel: 0,
             extraversion: None,
+            packageversion: None,
         }
     }
 
@@ -207,5 +224,55 @@ impl KernelVersion {
 
     pub fn patch_filename_to_next(&self) -> String {
         format!("patch-{self}-{}.xz", self.sublevel + 1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn t_() -> Result<()> {
+        let cases = &[
+            (
+                "7.0.10",
+                KernelVersion {
+                    version: 7,
+                    patchlevel: 0,
+                    sublevel: 10,
+                    extraversion: None,
+                    packageversion: None,
+                },
+            ),
+            (
+                "7.0.10-pre1",
+                KernelVersion {
+                    version: 7,
+                    patchlevel: 0,
+                    sublevel: 10,
+                    extraversion: Some("pre1".into()),
+                    packageversion: None,
+                },
+            ),
+            (
+                "6.12.115+deb13.1-amd64",
+                KernelVersion {
+                    version: 6,
+                    patchlevel: 12,
+                    sublevel: 115,
+                    extraversion: None,
+                    packageversion: Some("deb13.1-amd64".into()),
+                },
+            ),
+        ];
+
+        for (version_str, expected_version) in cases {
+            let got = KernelVersion::from_str(version_str)
+                .with_context(|| anyhow!("parsing {version_str:?}"))?;
+            assert_eq!(&got, expected_version);
+            assert_eq!(&expected_version.to_string(), version_str);
+        }
+
+        Ok(())
     }
 }

@@ -20,6 +20,44 @@ where
     FileHandling(anyhow::Error),
 }
 
+// Conflicting implementation:
+//
+// impl<DependencyError1, BuildError1, DependencyError2, BuildError2>
+//     From<MakeError<DependencyError1, BuildError1>>
+//     for MakeError<DependencyError2, BuildError2>
+// where
+//     DependencyError2: From<DependencyError1>,
+//     BuildError2: From<BuildError1>,
+// ..
+//
+// Thus instead:
+
+impl<DependencyError, BuildError> MakeError<DependencyError, BuildError>
+where
+    DependencyError: std::error::Error + Send + Sync + 'static,
+    BuildError: std::error::Error + Send + Sync + 'static,
+{
+    pub fn into_make_error<DependencyError2, BuildError2>(
+        self,
+    ) -> MakeError<DependencyError2, BuildError2>
+    where
+        DependencyError2:
+            From<DependencyError> + std::error::Error + Send + Sync + 'static,
+        BuildError2:
+            From<BuildError> + std::error::Error + Send + Sync + 'static,
+    {
+        match self {
+            MakeError::Dependency(e) => {
+                MakeError::Dependency(DependencyError2::from(e))
+            }
+            MakeError::BuildAction(e) => {
+                MakeError::BuildAction(BuildError2::from(e))
+            }
+            MakeError::FileHandling(e) => MakeError::FileHandling(e),
+        }
+    }
+}
+
 pub trait IntoPathIterator {
     fn into_path_iterator(&self) -> impl Iterator<Item = &Path>;
 }

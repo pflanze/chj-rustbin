@@ -7,10 +7,16 @@ use anyhow::{anyhow, Context};
 use crate::utillib::into_arc_path::IntoArcPath;
 
 #[derive(Debug, thiserror::Error)]
-pub enum MakeError<E: std::error::Error + Send + Sync + 'static> {
-    #[error("{0}")]
-    BuildAction(#[from] E),
-    #[error("{0}")]
+pub enum MakeError<DependencyError, BuildError>
+where
+    DependencyError: std::error::Error + Send + Sync + 'static,
+    BuildError: std::error::Error + Send + Sync + 'static,
+{
+    #[error("preparing dependencies: {0}")]
+    Dependency(#[from] DependencyError),
+    #[error("running the build action: {0}")]
+    BuildAction(BuildError),
+    #[error("running the build action: {0}")]
     FileHandling(anyhow::Error),
 }
 
@@ -37,16 +43,24 @@ impl IntoPathIterator for () {
     }
 }
 
-pub fn file_make<'path, TargetPath, Dependencies, E, F>(
+pub fn file_make<
+    'path,
+    TargetPath,
+    Dependencies,
+    DependencyError,
+    BuildError,
+    F,
+>(
     target: TargetPath,
     dependencies: Dependencies,
     build_action: F,
-) -> Result<Arc<Path>, MakeError<E>>
+) -> Result<Arc<Path>, MakeError<DependencyError, BuildError>>
 where
     TargetPath: IntoArcPath,
     Dependencies: IntoPathIterator,
-    E: std::error::Error + Send + Sync + 'static,
-    F: Fn(&Arc<Path>, &Dependencies) -> Result<(), E>,
+    DependencyError: std::error::Error + Send + Sync + 'static,
+    BuildError: std::error::Error + Send + Sync + 'static,
+    F: Fn(&Arc<Path>, &Dependencies) -> Result<(), BuildError>,
 {
     let target = target.into_arc_path();
     let build = || {

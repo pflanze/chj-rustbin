@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    convert::Infallible,
     ffi::{OsStr, OsString},
     fmt::Display,
     io::{stderr, Write},
@@ -16,6 +17,7 @@ use chj_rustbin::{
     easy_webget::{EasyWebget, GetToFileError},
     file_make::{file_make, MakeError},
     gpg::Gpg,
+    io_utils::dirs::create_dir_if_not_exists,
     script_tools::{cmd, touch, CmdCwd, SetX},
     scripting::{linux::kernel_version::KernelVersion, sha256sum::sha256sum},
     util::{
@@ -114,18 +116,333 @@ struct KernelWorker {
 }
 
 impl KernelWorker {
-    fn hashes_asc_url(&self) -> &'static str {
-        "https://cdn.kernel.org/pub/linux/kernel/v7.x/incr/sha256sums.asc"
+    fn current_kernel(&self) -> Result<Kernel<'_>> {
+        Ok(Kernel {
+            worker: self,
+            version: KernelVersion::from_makefile_in_directory(
+                &self.dirs.linux(),
+            )?,
+        })
+    }
+}
+
+#[derive(Debug)]
+struct Kernel<'worker> {
+    worker: &'worker KernelWorker,
+    version: KernelVersion,
+}
+
+impl<'worker> Kernel<'worker> {
+    /// Before appending the file name, or "incr/" subdir and file
+    /// name parts for incremental patches (i.e. may not be
+    /// retrievable directly)
+    fn kernel_directory_url(&self) -> String {
+        format!(
+            "https://cdn.kernel.org/pub/linux/kernel/v{}.x/",
+            self.version.version
+        )
     }
 
+    fn config_backup_path(&self) -> PathBuf {
+        self.worker
+            .dirs
+            .configs()
+            .append(format!("config-{}", self.version.to_string()))
+    }
+
+    /// Returns the path to the backed up config file
+    fn make_oldconfig(
+        &self,
+    ) -> Result<Arc<Path>, MakeError<Infallible, AnyhowError>> {
+        let linux_path = self.worker.dirs.linux();
+        file_make(
+            self.config_backup_path(),
+            [
+                // Make sure there is an initial file, or `make oldconfig` will
+                // generate a default config which is not going to be useful!
+                self.worker.dirs.linux().append(".config"),
+                // (No need to depend on the mtime of anything else like the
+                // Makefile, since the target is versioned and won't exist from
+                // before updating to this kernel version.)
+            ],
+            |target, dependencies| {
+                let [dependency] = dependencies;
+                {
+                    // (Should this region be redirected into a file? All of the
+                    // program's output, right, i.e. set stdout and stderr
+                    // temporarily?)
+
+                    let _cwd = CmdCwd::new(Some(linux_path.clone()));
+                    cmd("make", ["oldconfig"])?;
+                }
+                std::fs::copy(dependency, target).with_context(|| {
+                    anyhow!("copying {dependency:?} to {target:?}")
+                })?;
+                Ok(())
+            },
+        )
+    }
+
+    fn stamp_path(&self) -> PathBuf {
+        self.worker.dirs.stamps().append(self.version.to_string())
+    }
+
+    /// (Returns the path to the stamp file)
+    fn build(
+        &self,
+        num_cores: NonZeroUsize,
+    ) -> Result<
+        Arc<Path>,
+        MakeError<MakeError<Infallible, AnyhowError>, AnyhowError>,
+    > {
+        let linux_path = self.worker.dirs.linux();
+        file_make(
+            self.stamp_path(),
+            [self.make_oldconfig()?],
+            |target, _dependencies| {
+                {
+                    // (Should this region be redirected into a file? All of the
+                    // program's output, right, i.e. set stdout and stderr
+                    // temporarily?)
+
+                    let j = &format!("-j{num_cores}");
+                    let _cwd = CmdCwd::new(Some(linux_path.clone()));
+                    cmd("make", [j])?;
+                    cmd("make", [j, "modules"])?;
+                }
+                touch(target)?;
+                Ok(())
+            },
+        )
+    }
+
+    fn the_patch_to_the_next_point_version(&self) -> KernelPatch<'worker> {
+        KernelPatch {
+            worker: self.worker,
+            from_version: self.version.clone(),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct KernelPatch<'worker> {
+    worker: &'worker KernelWorker,
+    from_version: KernelVersion,
+}
+
+impl<'worker> GetHashesAndPatch for KernelPatch<'worker> {
+    fn worker(&self) -> &KernelWorker {
+        self.worker
+    }
+
+    fn hashes_and_patches_base_url(&self) -> String {
+        self.from_version_kernel().kernel_directory_url() + "incr/"
+    }
+
+    fn hashes_base_dir(&self) -> Result<Arc<Path>> {
+        let path = self.worker().dirs.hashes().append("incr");
+        create_dir_if_not_exists(&path)?;
+        Ok(path.into())
+    }
+
+    fn patches_base_dir(&self) -> Result<Arc<Path>> {
+        let path = self.worker().dirs.patches().append("incr");
+        create_dir_if_not_exists(&path)?;
+        Ok(path.into())
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum GetAndApplyError {
+    #[error("{0}")]
+    GetChecked(
+        #[from] MakeError<MakeError<AnyhowError, GetToFileError>, AnyhowError>,
+    ),
+    #[error("{0}")]
+    Anyhow(#[from] anyhow::Error),
+}
+
+impl<'worker> KernelPatch<'worker> {
+    /// The kernel that this patch is based on
+    fn from_version_kernel(&self) -> Kernel<'_> {
+        let Self {
+            worker,
+            from_version,
+        } = self;
+        Kernel {
+            worker,
+            version: from_version.clone(),
+        }
+    }
+
+    fn file_name(&self) -> String {
+        self.from_version.patch_filename_to_next()
+    }
+
+    fn file_path(&self) -> Result<PathBuf> {
+        Ok(self.patches_base_dir()?.append(self.file_name()))
+    }
+
+    fn url(&self) -> String {
+        self.hashes_and_patches_base_url() + &self.file_name()
+    }
+
+    /// Fetch or local file if present
+    fn get_unchecked(
+        &self,
+    ) -> Result<Arc<Path>, MakeError<AnyhowError, GetToFileError>> {
+        file_make(
+            add_extension(self.file_path().map_err(AnyhowError)?, "-unchecked")
+                .expect("file_path is non-empty"),
+            (),
+            |target, _| self.worker.webget.get_to_file(&self.url(), target),
+        )
+    }
+
+    fn get_checked(
+        &self,
+    ) -> Result<
+        Arc<Path>,
+        MakeError<MakeError<AnyhowError, GetToFileError>, AnyhowError>,
+    > {
+        file_make(
+            self.file_path()
+                .map_err(AnyhowError)
+                .map_err(MakeError::Dependency)?,
+            [self.get_unchecked()?],
+            |target, dependencies| -> Result<(), AnyhowError> {
+                let [source] = dependencies;
+
+                let target_filename = target.file_name().ok_or_else(|| {
+                    anyhow!("can't get file_name for {target:?}")
+                })?;
+
+                // First see if we have an existing file that might suit us
+                let old_hashes = self.get_hashes(&[])?;
+                let new_hashes;
+
+                let sum_expected =
+                    if let Some(sum) = old_hashes.0.get(target_filename) {
+                        sum
+                    } else {
+                        // Have to actually get a sums file newer than the patch
+                        new_hashes = self.get_hashes(&[source])?;
+                        new_hashes.0.get(target_filename).ok_or_else(|| {
+                            anyhow!("missing hash for file {target:?}")
+                        })?
+                    };
+
+                let sum = sha256sum(source)?;
+
+                if sum_expected == sum.as_bytes() {
+                    eprintln!(
+                        "hashes for {target:?} match: {sum_expected} == {sum}"
+                    );
+
+                    // Do not use rename--it would lead to re-fetching of
+                    // the dependency! `link_rename` is fine as
+                    // `webget.get_to_file` uses a tempfile-rename
+                    // approach, hence never mutates the hard-linked file.
+                    link_rename(source, target).with_context(|| {
+                        anyhow!("linking {source:?} to {target:?}")
+                    })?;
+                    Ok(())
+                } else {
+                    Err(anyhow!(
+                        "hashes do not match for {target:?}: \
+                         expected {sum_expected}, got {sum}"
+                    ))?
+                }
+            },
+        )
+    }
+
+    /// Returns the new Kernel (in old place)
+    // GetToFileError
+    fn get_and_apply(&self) -> Result<Kernel<'worker>, GetAndApplyError> {
+        let Self {
+            worker,
+            from_version,
+        } = self;
+        let path = self.get_checked()?;
+
+        let mut xzcat: Child = Command::new("xzcat")
+            .arg(&*path)
+            .stdout(Stdio::piped())
+            .spawn()
+            .context("starting 'xzcat'")?;
+
+        let inp = xzcat.stdout.take().expect("requested above");
+
+        let mut patch: Child = Command::new("patch")
+            .arg("-p1")
+            .current_dir(worker.dirs.linux())
+            .stdin(inp)
+            .spawn()
+            .context("starting 'patch'")?;
+
+        let mut errors = Vec::new();
+        let xzcat_status = xzcat.wait().context("waiting for xzcat")?;
+        if !xzcat_status.success() {
+            errors.push(format!("xzcat failed: {xzcat_status}"));
+        }
+        let patch_status = patch.wait().context("waiting for patch")?;
+        if !patch_status.success() {
+            errors.push(format!("patch failed: {patch_status}"));
+        }
+        if !errors.is_empty() {
+            Err(anyhow!(
+                "applying {:?}: {}",
+                self.file_path(),
+                errors.join(", ")
+            ))?;
+        }
+
+        Ok(Kernel {
+            worker: *worker,
+            version: from_version.sublevel_add(1),
+        })
+    }
+}
+
+/// Get patch hashes and verify the signature on them, as well as the
+/// patch files themselves.
+///
+/// Currently only used for incremental patches
+/// (`https://cdn.kernel.org/pub/linux/kernel/v*.x/incr/patch-*`), but
+/// might also be used in the future for the
+/// `https://cdn.kernel.org/pub/linux/kernel/v*.x/patch-*` files.
+trait GetHashesAndPatch {
+    fn worker(&self) -> &KernelWorker;
+
+    /// Must create the directory if it doesn't exist
+    fn hashes_base_dir(&self) -> Result<Arc<Path>>;
+
+    /// Must create the directory if it doesn't exist
+    fn patches_base_dir(&self) -> Result<Arc<Path>>;
+
+    /// Should end in "/"
+    fn hashes_and_patches_base_url(&self) -> String;
+
+    fn hashes_asc_url(&self) -> String {
+        self.hashes_and_patches_base_url() + "sha256sums.asc"
+    }
+
+    /// The unverified file
     fn get_hashes_asc(
         &self,
         newer_than_paths: &[&Path],
-    ) -> Result<Arc<Path>, MakeError<GetToFileError>> {
+    ) -> Result<Arc<Path>, MakeError<AnyhowError, GetToFileError>> {
         file_make(
-            self.dirs.hashes().append("sha256sums.asc"),
+            self.hashes_base_dir()
+                .map_err(AnyhowError)?
+                .append("sha256sums.asc"),
             newer_than_paths,
-            |target, _| self.webget.get_to_file(&self.hashes_asc_url(), target),
+            |target, _| {
+                self.worker()
+                    .webget
+                    .get_to_file(&self.hashes_asc_url(), target)
+            },
         )
     }
 
@@ -133,9 +450,11 @@ impl KernelWorker {
     fn get_hashes_file(
         &self,
         newer_than_paths: &[&Path],
-    ) -> Result<Arc<Path>, MakeError<AnyhowError>> {
+    ) -> Result<Arc<Path>, MakeError<AnyhowError, AnyhowError>> {
         file_make(
-            self.dirs.hashes().append("sha256sums"),
+            self.hashes_base_dir()
+                .map_err(AnyhowError)?
+                .append("sha256sums"),
             [self
                 .get_hashes_asc(newer_than_paths)
                 .map_err(anyhow::Error::from)
@@ -204,251 +523,6 @@ impl KernelWorker {
             }).collect::<Result<HashMap<OsString, BString>>>()?;
         Ok(PathFileHashes(table))
     }
-
-    // -----------------------------------------------------------------------------
-
-    fn current_kernel(&self) -> Result<Kernel<'_>> {
-        Ok(Kernel {
-            worker: self,
-            version: KernelVersion::from_makefile_in_directory(
-                &self.dirs.linux(),
-            )?,
-        })
-    }
-}
-
-#[derive(Debug)]
-struct Kernel<'worker> {
-    worker: &'worker KernelWorker,
-    version: KernelVersion,
-}
-
-impl<'worker> Kernel<'worker> {
-    fn config_backup_path(&self) -> PathBuf {
-        self.worker
-            .dirs
-            .configs()
-            .append(format!("config-{}", self.version.to_string()))
-    }
-
-    /// Returns the path to the backed up config file
-    fn make_oldconfig(&self) -> Result<Arc<Path>, MakeError<AnyhowError>> {
-        let linux_path = self.worker.dirs.linux();
-        file_make(
-            self.config_backup_path(),
-            [
-                // Make sure there is an initial file, or `make oldconfig` will
-                // generate a default config which is not going to be useful!
-                self.worker.dirs.linux().append(".config"),
-                // (No need to depend on the mtime of anything else like the
-                // Makefile, since the target is versioned and won't exist from
-                // before updating to this kernel version.)
-            ],
-            |target, dependencies| {
-                let [dependency] = dependencies;
-                {
-                    // (Should this region be redirected into a file? All of the
-                    // program's output, right, i.e. set stdout and stderr
-                    // temporarily?)
-
-                    let _cwd = CmdCwd::new(Some(linux_path.clone()));
-                    cmd("make", ["oldconfig"])?;
-                }
-                std::fs::copy(dependency, target).with_context(|| {
-                    anyhow!("copying {dependency:?} to {target:?}")
-                })?;
-                Ok(())
-            },
-        )
-    }
-
-    fn stamp_path(&self) -> PathBuf {
-        self.worker.dirs.stamps().append(self.version.to_string())
-    }
-
-    /// (Returns the path to the stamp file)
-    fn build(
-        &self,
-        num_cores: NonZeroUsize,
-    ) -> Result<Arc<Path>, MakeError<AnyhowError>> {
-        let linux_path = self.worker.dirs.linux();
-        file_make(
-            self.stamp_path(),
-            [self.make_oldconfig()?],
-            |target, _dependencies| {
-                {
-                    // (Should this region be redirected into a file? All of the
-                    // program's output, right, i.e. set stdout and stderr
-                    // temporarily?)
-
-                    let j = &format!("-j{num_cores}");
-                    let _cwd = CmdCwd::new(Some(linux_path.clone()));
-                    cmd("make", [j])?;
-                    cmd("make", [j, "modules"])?;
-                }
-                touch(target)?;
-                Ok(())
-            },
-        )
-    }
-
-    fn the_patch_to_the_next_point_version(&self) -> KernelPatch<'worker> {
-        KernelPatch {
-            worker: self.worker,
-            from_version: self.version.clone(),
-        }
-    }
-}
-
-#[derive(Debug)]
-struct KernelPatch<'worker> {
-    worker: &'worker KernelWorker,
-    from_version: KernelVersion,
-}
-
-impl<'worker> KernelPatch<'worker> {
-    fn file_name(&self) -> String {
-        self.from_version.patch_filename_to_next()
-    }
-
-    fn file_path(&self) -> PathBuf {
-        self.worker.dirs.patches().append(self.file_name())
-    }
-
-    fn url(&self) -> String {
-        format!(
-            "https://cdn.kernel.org/pub/linux/kernel/v7.x/incr/{}",
-            self.file_name()
-        )
-    }
-
-    /// Fetch or local file if present
-    fn get_unchecked(&self) -> Result<Arc<Path>, MakeError<GetToFileError>> {
-        file_make(
-            add_extension(self.file_path(), "-unchecked")
-                .expect("file_path is non-empty"),
-            (),
-            |target, _| self.worker.webget.get_to_file(&self.url(), target),
-        )
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum GetCheckedError {
-    #[error("{0}")]
-    GetUnchecked(#[from] MakeError<GetToFileError>),
-    #[error("{0}")]
-    CheckError(#[from] anyhow::Error),
-}
-
-impl<'worker> KernelPatch<'worker> {
-    fn get_checked(&self) -> Result<Arc<Path>, MakeError<GetCheckedError>> {
-        file_make(
-            self.file_path(),
-            [self.get_unchecked().map_err(GetCheckedError::from)?],
-            |target, dependencies| -> Result<(), GetCheckedError> {
-                let [source] = dependencies;
-
-                let target_filename = target.file_name().ok_or_else(|| {
-                    anyhow!("can't get file_name for {target:?}")
-                })?;
-
-                // First see if we have an existing file that might suit us
-                let old_hashes = self.worker.get_hashes(&[])?;
-                let new_hashes;
-
-                let sum_expected =
-                    if let Some(sum) = old_hashes.0.get(target_filename) {
-                        sum
-                    } else {
-                        // Have to actually get a sums file newer than the patch
-                        new_hashes = self.worker.get_hashes(&[source])?;
-                        new_hashes.0.get(target_filename).ok_or_else(|| {
-                            anyhow!("missing hash for file {target:?}")
-                        })?
-                    };
-
-                let sum = sha256sum(source)?;
-
-                if sum_expected == sum.as_bytes() {
-                    eprintln!(
-                        "hashes for {target:?} match: {sum_expected} == {sum}"
-                    );
-
-                    // Do not use rename--it would lead to re-fetching of
-                    // the dependency! `link_rename` is fine as
-                    // `webget.get_to_file` uses a tempfile-rename
-                    // approach, hence never mutates the hard-linked file.
-                    link_rename(source, target).with_context(|| {
-                        anyhow!("linking {source:?} to {target:?}")
-                    })?;
-                    Ok(())
-                } else {
-                    Err(anyhow!(
-                        "hashes do not match for {target:?}: \
-                         expected {sum_expected}, got {sum}"
-                    ))?
-                }
-            },
-        )
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum GetAndApplyError {
-    #[error("{0}")]
-    GetCheckedError(#[from] MakeError<GetCheckedError>),
-    #[error("{0}")]
-    Anyhow(#[from] anyhow::Error),
-}
-
-impl<'worker> KernelPatch<'worker> {
-    /// Returns the new Kernel (in old place)
-    // GetToFileError
-    fn get_and_apply(&self) -> Result<Kernel<'worker>, GetAndApplyError> {
-        let Self {
-            worker,
-            from_version,
-        } = self;
-        let path = self.get_checked()?;
-
-        let mut xzcat: Child = Command::new("xzcat")
-            .arg(&*path)
-            .stdout(Stdio::piped())
-            .spawn()
-            .context("starting 'xzcat'")?;
-
-        let inp = xzcat.stdout.take().expect("requested above");
-
-        let mut patch: Child = Command::new("patch")
-            .arg("-p1")
-            .current_dir(worker.dirs.linux())
-            .stdin(inp)
-            .spawn()
-            .context("starting 'patch'")?;
-
-        let mut errors = Vec::new();
-        let xzcat_status = xzcat.wait().context("waiting for xzcat")?;
-        if !xzcat_status.success() {
-            errors.push(format!("xzcat failed: {xzcat_status}"));
-        }
-        let patch_status = patch.wait().context("waiting for patch")?;
-        if !patch_status.success() {
-            errors.push(format!("patch failed: {patch_status}"));
-        }
-        if !errors.is_empty() {
-            Err(anyhow!(
-                "applying {:?}: {}",
-                self.file_path(),
-                errors.join(", ")
-            ))?;
-        }
-
-        Ok(Kernel {
-            worker: *worker,
-            version: from_version.sublevel_add(1),
-        })
-    }
 }
 
 /// Returns a success report kind and statement
@@ -489,9 +563,9 @@ fn run(opts: &Opts) -> Result<(ReportKind, RebootNeeded, String)> {
         current_kernel = match patch.get_and_apply() {
             Ok(kernel) => kernel,
             Err(e) => match &e {
-                GetAndApplyError::GetCheckedError(MakeError::BuildAction(
-                    GetCheckedError::GetUnchecked(MakeError::BuildAction(
-                        GetToFileError::RequestError(RequestError::NotFound),
+                GetAndApplyError::GetChecked(MakeError::Dependency(
+                    MakeError::BuildAction(GetToFileError::RequestError(
+                        RequestError::NotFound,
                     )),
                 )) => {
                     eprintln!("upstream has no patch at {}", patch.url());

@@ -1,4 +1,5 @@
 pub mod anyhow;
+pub mod as_os_str;
 pub mod div;
 pub mod io;
 pub mod let_format_or;

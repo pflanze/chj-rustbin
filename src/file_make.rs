@@ -96,12 +96,12 @@ where
     Dependencies: IntoPathIterator,
     DependencyError: std::error::Error + Send + Sync + 'static,
     BuildError: std::error::Error + Send + Sync + 'static,
-    F: Fn(&Path, &Dependencies) -> Result<(), BuildError>,
+    F: Fn(&TargetPath, &Dependencies) -> Result<(), BuildError>,
 {
     let target_ref = target.as_ref();
     let build = || {
         eprintln!("making target {target_ref:?}");
-        build_action(&target_ref, &dependencies).map_err(MakeError::BuildAction)
+        build_action(&target, &dependencies).map_err(MakeError::BuildAction)
     };
     match target_ref.symlink_metadata() {
         Ok(target_metadata) => {

@@ -8,6 +8,7 @@ use chj_rustbin::{
     file_make::MakeError,
     kernel_upgrade::{
         get_hashes_and_patch::{GetAndApplyError, GetHashesAndPatch},
+        get_tar_and_unpack::GetTarAndUnpack,
         kernel_worker::{Dirs, KernelWorker},
     },
     script_tools::SetX,
@@ -81,10 +82,26 @@ struct Opts {
     #[clap(long)]
     report_to: Option<PathBuf>,
 
-    /// Path to the base directory containing a "linux" subdir with the kernel
-    /// sources. "hashes", "patches", "configs" and "stamps" subdirs will be
-    /// created.
+    /// Path to the base directory optionally containing a "linux"
+    /// subdir with the kernel sources. "hashes", "patches", "configs"
+    /// and "stamps" subdirs will be created.
+    ///
+    /// Currently, only ever use the same base directory for the same
+    /// `version.patchlevel` version of the linux kernel;
+    /// `kernel-upgrade` will (currently) not update to a new
+    /// patchlevel version automatically!  And the downloaded files
+    /// can currently conflict when using the same base directory for
+    /// different patchlevel versions. (Todo: improve)
     base_dir: PathBuf,
+
+    /// If `BASE_DIR` does not contain a `linux` subdir, please
+    /// specify the version of linux that should be downloaded (it is
+    /// signature-checked and unpacked). Once the linux directory
+    /// exists, this argument is ignored. Also, this is just the
+    /// version of the snapshot that is downloaded, `kernel-upgrade`
+    /// will afterwards automatically update the sublevel (of
+    /// `version.patchlevel.sublevel`) to the newest available.
+    initial_linux_version: Option<KernelVersion>,
 }
 
 /// Returns a success report kind and statement
@@ -92,14 +109,6 @@ fn run(opts: &Opts) -> Result<(ReportKind, RebootNeeded, String)> {
     let _x = SetX::new(true);
 
     let dirs = Dirs::new(opts.base_dir.clone());
-
-    if !dirs.linux().exists() {
-        // https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-{version}.tar.xz
-        // tar xf ...
-        bail!("the kernel source directory is missing, please unpack the desired kernel to {:?}",
-              dirs.linux())
-    }
-
     dirs.create_dirs_if_not_exist()?;
 
     let worker = KernelWorker {
@@ -107,7 +116,20 @@ fn run(opts: &Opts) -> Result<(ReportKind, RebootNeeded, String)> {
         webget: WebGet::auto_choose()?,
     };
 
-    let mut current_kernel = worker.current_kernel()?;
+    let linux_path = worker.linux_path();
+    let mut current_kernel = if linux_path.exists() {
+        worker.current_kernel()?
+    } else {
+        let Some(version) = &opts.initial_linux_version else {
+            bail!(
+                "directory {linux_path:?} does not exist, please provide \
+                     the `INITIAL_LINUX_VERSION` program argument"
+            )
+        };
+        let kernel = worker.kernel_with_version(version.clone());
+        kernel.get_unpacked()?;
+        kernel
+    };
 
     let mut num_updates = 0;
 
@@ -167,7 +189,7 @@ fn run(opts: &Opts) -> Result<(ReportKind, RebootNeeded, String)> {
             format!(
                 "{}\n{}",
                 current_kernel.version(),
-                current_kernel.worker().dirs.linux().display()
+                current_kernel.worker().linux_path().display()
             ),
         )
     })

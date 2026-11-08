@@ -1,14 +1,32 @@
-use std::{convert::Infallible, num::NonZeroUsize, path::PathBuf};
+use std::{
+    borrow::Cow,
+    convert::Infallible,
+    num::NonZeroUsize,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use anyhow::{anyhow, Context, Result};
 use cj_path_util::path_util::AppendToPath;
 
 use crate::{
     file_make::{file_make, MakeError},
-    kernel_upgrade::{kernel_patch::KernelPatch, kernel_worker::KernelWorker},
+    gpg::{GpgKeyRef, KeyType},
+    kernel_upgrade::{
+        file_kind::{FileKind, FileName},
+        get_tar_and_unpack::GetTarAndUnpack,
+        kernel_patch::KernelPatch,
+        kernel_worker::KernelWorker,
+    },
     script_tools::{cmd, touch, CmdCwd},
     scripting::linux::kernel_version::KernelVersion,
     util::anyhow::AnyhowError,
+    utillib::into_arc_path::IntoArcPath,
+};
+
+const KERNEL_TAR_KEY: GpgKeyRef = GpgKeyRef {
+    key_type: KeyType::RSA,
+    key_fingerprint: Cow::Borrowed("647F28654894E3BD457199BE38DBBDC86092693E"),
 };
 
 #[derive(Debug)]
@@ -46,13 +64,13 @@ impl<'worker> Kernel<'worker> {
     pub fn make_oldconfig(
         &self,
     ) -> Result<PathBuf, MakeError<Infallible, AnyhowError>> {
-        let linux_path = self.worker.dirs.linux();
+        let linux_path = &self.worker.linux_path();
         file_make(
             self.config_backup_path(),
             [
                 // Make sure there is an initial file, or `make oldconfig` will
                 // generate a default config which is not going to be useful!
-                self.worker.dirs.linux().append(".config"),
+                linux_path.append(".config"),
                 // (No need to depend on the mtime of anything else like the
                 // Makefile, since the target is versioned and won't exist from
                 // before updating to this kernel version.)
@@ -64,7 +82,8 @@ impl<'worker> Kernel<'worker> {
                     // program's output, right, i.e. set stdout and stderr
                     // temporarily?)
 
-                    let _cwd = CmdCwd::new(Some(linux_path.clone()));
+                    let _cwd =
+                        CmdCwd::new(Some(linux_path.clone().into_arc_path()));
                     cmd("make", ["oldconfig"])?;
                 }
                 std::fs::copy(dependency, target).with_context(|| {
@@ -87,7 +106,7 @@ impl<'worker> Kernel<'worker> {
         PathBuf,
         MakeError<MakeError<Infallible, AnyhowError>, AnyhowError>,
     > {
-        let linux_path = self.worker.dirs.linux();
+        let linux_path = self.worker.linux_path();
         file_make(
             self.stamp_path(),
             [self.make_oldconfig()?],
@@ -98,7 +117,8 @@ impl<'worker> Kernel<'worker> {
                     // temporarily?)
 
                     let j = &format!("-j{num_cores}");
-                    let _cwd = CmdCwd::new(Some(linux_path.clone()));
+                    let _cwd =
+                        CmdCwd::new(Some(linux_path.clone().into_arc_path()));
                     cmd("make", [j])?;
                     cmd("make", [j, "modules"])?;
                 }
@@ -113,5 +133,29 @@ impl<'worker> Kernel<'worker> {
             worker: self.worker,
             from_version: self.version.clone(),
         }
+    }
+}
+
+impl<'worker> GetTarAndUnpack<'worker> for Kernel<'worker> {
+    const HASHES_SIGNATURE_KEY: GpgKeyRef = KERNEL_TAR_KEY;
+
+    fn worker(&self) -> &'worker KernelWorker {
+        self.worker
+    }
+
+    fn download_dir(&self) -> Result<Arc<Path>> {
+        Ok(self.worker().dirs.kernels().into_arc_path())
+    }
+
+    fn remote_base_url(&self) -> String {
+        self.kernel_directory_url()
+    }
+
+    fn target_directory_path(&self) -> Result<PathBuf> {
+        Ok(self.worker.linux_path())
+    }
+
+    fn file_name<T: FileKind>(&self) -> FileName<T> {
+        format!("linux-{}.{}", self.version(), T::SUFFIX).into()
     }
 }

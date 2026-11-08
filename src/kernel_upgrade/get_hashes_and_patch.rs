@@ -1,3 +1,10 @@
+//! Similar to `trait GetTarAndUnpack`, but gets a patch file to
+//! change the version of an already-unpacked dir to the next one
+//!
+//! `kernel.org` does not provide signatures for each patch file, but
+//! a signed file with hashes, thus retrieve that and look up the hash
+//! in it.
+
 use std::{
     collections::HashMap,
     ffi::{OsStr, OsString},
@@ -14,8 +21,9 @@ use crate::{
     easy_webget::{EasyWebget, GetToFileError},
     file_make::{file_make, MakeError},
     gpg::{Gpg, GpgKeyRef},
-    kernel_upgrade::{kernel::Kernel, kernel_worker::KernelWorker},
-    script_tools::touch,
+    kernel_upgrade::{
+        get_gpg_key::get_gpg_key, kernel::Kernel, kernel_worker::KernelWorker,
+    },
     scripting::{linux::kernel_version::KernelVersion, sha256sum::sha256sum},
     util::{anyhow::AnyhowError, link_rename::link_rename},
 };
@@ -56,10 +64,12 @@ pub trait GetHashesAndPatch<'worker> {
     /// Should end in "/"
     fn hashes_and_patches_base_url(&self) -> String;
 
-    /// File name of the patch file (upstream and locally)
-    fn file_name(&self) -> String;
-
     // -----------------------------------------------------------------------------
+
+    /// File name of the patch file (upstream and locally)
+    fn file_name(&self) -> String {
+        self.from_version().patch_filename_to_next()
+    }
 
     fn hashes_asc_url(&self) -> String {
         self.hashes_and_patches_base_url() + "sha256sums.asc"
@@ -83,22 +93,11 @@ pub trait GetHashesAndPatch<'worker> {
         )
     }
 
-    /// Get gpg key if necessary
-    fn get_gpg_key(
-        &self,
-    ) -> Result<PathBuf, MakeError<AnyhowError, AnyhowError>> {
-        file_make(
-            self.hashes_base_dir()
-                .map_err(AnyhowError)?
-                .append(".get_gpg_key"),
-            (),
-            |target, _dependencies| -> Result<(), AnyhowError> {
-                Gpg::default()
-                    .recv_key(&Self::HASHES_SIGNATURE_KEY.key_fingerprint)?;
-                touch(target)?;
-                Ok(())
-            },
-        )
+    fn get_gpg_key_touch_file(&self) -> Result<PathBuf> {
+        Ok(self
+            .hashes_base_dir()
+            .map_err(AnyhowError)?
+            .append(".get_gpg_key"))
     }
 
     /// Verifies the signature of the hashes list file via gpg
@@ -114,7 +113,11 @@ pub trait GetHashesAndPatch<'worker> {
                 self.get_hashes_asc(newer_than_paths)
                     .map_err(anyhow::Error::from)
                     .map_err(AnyhowError)?,
-                self.get_gpg_key()?,
+                get_gpg_key(
+                    self.get_gpg_key_touch_file().map_err(AnyhowError)?,
+                    &Self::HASHES_SIGNATURE_KEY.key_fingerprint,
+                )
+                .map_err(MakeError::into_make_error)?,
             ],
             |target, dependencies| -> Result<(), AnyhowError> {
                 let [source, _keystamp] = dependencies;
@@ -269,7 +272,7 @@ pub trait GetHashesAndPatch<'worker> {
 
         let mut patch: Child = Command::new("patch")
             .arg("-p1")
-            .current_dir(self.worker().dirs.linux())
+            .current_dir(self.worker().linux_path())
             .stdin(inp)
             .spawn()
             .context("starting 'patch'")?;

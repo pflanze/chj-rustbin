@@ -61,10 +61,6 @@ impl<'worker> GetHashesAndPatch<'worker> for KernelPatch<'worker> {
         Ok(path.into())
     }
 
-    fn file_name(&self) -> String {
-        self.from_version.patch_filename_to_next()
-    }
-
     fn from_version(&self) -> &KernelVersion {
         &self.from_version
     }

@@ -155,7 +155,7 @@ impl<'worker> Kernel<'worker> {
     /// Returns the path to the backed up config file
     fn make_oldconfig(
         &self,
-    ) -> Result<Arc<Path>, MakeError<Infallible, AnyhowError>> {
+    ) -> Result<PathBuf, MakeError<Infallible, AnyhowError>> {
         let linux_path = self.worker.dirs.linux();
         file_make(
             self.config_backup_path(),
@@ -194,7 +194,7 @@ impl<'worker> Kernel<'worker> {
         &self,
         num_cores: NonZeroUsize,
     ) -> Result<
-        Arc<Path>,
+        PathBuf,
         MakeError<MakeError<Infallible, AnyhowError>, AnyhowError>,
     > {
         let linux_path = self.worker.dirs.linux();
@@ -292,7 +292,7 @@ impl<'worker> KernelPatch<'worker> {
     /// Fetch or local file if present
     fn get_unchecked(
         &self,
-    ) -> Result<Arc<Path>, MakeError<AnyhowError, GetToFileError>> {
+    ) -> Result<PathBuf, MakeError<AnyhowError, GetToFileError>> {
         file_make(
             add_extension(self.file_path().map_err(AnyhowError)?, "-unchecked")
                 .expect("file_path is non-empty"),
@@ -304,7 +304,7 @@ impl<'worker> KernelPatch<'worker> {
     fn get_checked(
         &self,
     ) -> Result<
-        Arc<Path>,
+        PathBuf,
         MakeError<MakeError<AnyhowError, GetToFileError>, AnyhowError>,
     > {
         file_make(
@@ -434,7 +434,7 @@ trait GetHashesAndPatch {
     fn get_hashes_asc(
         &self,
         newer_than_paths: &[&Path],
-    ) -> Result<Arc<Path>, MakeError<AnyhowError, GetToFileError>> {
+    ) -> Result<PathBuf, MakeError<AnyhowError, GetToFileError>> {
         file_make(
             self.hashes_base_dir()
                 .map_err(AnyhowError)?
@@ -452,7 +452,7 @@ trait GetHashesAndPatch {
     fn get_hashes_file(
         &self,
         newer_than_paths: &[&Path],
-    ) -> Result<Arc<Path>, MakeError<AnyhowError, AnyhowError>> {
+    ) -> Result<PathBuf, MakeError<AnyhowError, AnyhowError>> {
         file_make(
             self.hashes_base_dir()
                 .map_err(AnyhowError)?

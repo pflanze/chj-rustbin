@@ -1,10 +1,8 @@
 //! A make system (file-based like `make`) for use within Rust programs
 
-use std::{io::ErrorKind, path::Path, sync::Arc};
+use std::{io::ErrorKind, path::Path};
 
 use anyhow::{anyhow, Context};
-
-use crate::utillib::into_arc_path::IntoArcPath;
 
 #[derive(Debug, thiserror::Error)]
 pub enum MakeError<DependencyError, BuildError>
@@ -92,31 +90,31 @@ pub fn file_make<
     target: TargetPath,
     dependencies: Dependencies,
     build_action: F,
-) -> Result<Arc<Path>, MakeError<DependencyError, BuildError>>
+) -> Result<TargetPath, MakeError<DependencyError, BuildError>>
 where
-    TargetPath: IntoArcPath,
+    TargetPath: AsRef<Path>,
     Dependencies: IntoPathIterator,
     DependencyError: std::error::Error + Send + Sync + 'static,
     BuildError: std::error::Error + Send + Sync + 'static,
-    F: Fn(&Arc<Path>, &Dependencies) -> Result<(), BuildError>,
+    F: Fn(&Path, &Dependencies) -> Result<(), BuildError>,
 {
-    let target = target.into_arc_path();
+    let target_ref = target.as_ref();
     let build = || {
-        eprintln!("making target {target:?}");
-        build_action(&target, &dependencies).map_err(MakeError::BuildAction)
+        eprintln!("making target {target_ref:?}");
+        build_action(&target_ref, &dependencies).map_err(MakeError::BuildAction)
     };
-    match target.symlink_metadata() {
+    match target_ref.symlink_metadata() {
         Ok(target_metadata) => {
             if target_metadata.is_symlink() {
                 Err(MakeError::FileHandling(anyhow!(
-                    "target path exists but is a symlink: {target:?}"
+                    "target path exists but is a symlink: {target_ref:?}"
                 )))?
             }
 
             let target_modified = target_metadata
                 .modified()
                 .with_context(|| {
-                    anyhow!("getting modified time for target {target:?}")
+                    anyhow!("getting modified time for target {target_ref:?}")
                 })
                 .map_err(MakeError::FileHandling)?;
 
@@ -156,7 +154,7 @@ where
             if needs_build {
                 build()?;
             } else {
-                eprintln!("target {target:?} is up to date");
+                eprintln!("target {target_ref:?} is up to date");
             }
         }
         Err(e) => match e.kind() {

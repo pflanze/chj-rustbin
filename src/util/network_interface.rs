@@ -10,6 +10,14 @@ pub struct ExternalInterfaces(
     >,
 );
 
+impl Iterator for ExternalInterfaces {
+    type Item = NetworkInterface;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+}
+
 /// Network interfaces that are not internal, do have an address
 /// (i.e. are up?), and whose name does not start with "tap"
 pub fn external_interfaces() -> Result<ExternalInterfaces> {
@@ -24,12 +32,6 @@ pub fn external_interfaces() -> Result<ExternalInterfaces> {
 
 pub trait SummarizeAs<Summary> {
     fn summarize(self) -> Summary;
-}
-
-impl SummarizeAs<Vec<NetworkInterface>> for ExternalInterfaces {
-    fn summarize(self) -> Vec<NetworkInterface> {
-        self.0.collect()
-    }
 }
 
 impl SummarizeAs<Vec<String>> for ExternalInterfaces {

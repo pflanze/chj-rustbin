@@ -55,7 +55,7 @@ impl<'worker> Kernel<'worker> {
 
     fn config_backup_path(&self) -> PathBuf {
         self.worker
-            .dirs
+            .dirs()
             .configs()
             .append(format!("config-{}", self.version.to_string()))
     }
@@ -95,7 +95,7 @@ impl<'worker> Kernel<'worker> {
     }
 
     fn stamp_path(&self) -> PathBuf {
-        self.worker.dirs.stamps().append(self.version.to_string())
+        self.worker.dirs().stamps().append(self.version.to_string())
     }
 
     /// (Returns the path to the stamp file)
@@ -144,7 +144,7 @@ impl<'worker> GetTarAndUnpack<'worker> for Kernel<'worker> {
     }
 
     fn download_dir(&self) -> Result<Arc<Path>> {
-        Ok(self.worker().dirs.kernels().into_arc_path())
+        Ok(self.worker().dirs().kernels().into_arc_path())
     }
 
     fn remote_base_url(&self) -> String {

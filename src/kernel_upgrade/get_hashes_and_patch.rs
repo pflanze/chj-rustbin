@@ -87,7 +87,7 @@ pub trait GetHashesAndPatch<'worker> {
             newer_than_paths,
             |target, _| {
                 self.worker()
-                    .webget
+                    .webget()
                     .get_to_file(&self.hashes_asc_url(), target)
             },
         )
@@ -195,7 +195,9 @@ pub trait GetHashesAndPatch<'worker> {
             add_extension(self.file_path().map_err(AnyhowError)?, "-unchecked")
                 .expect("file_path is non-empty"),
             (),
-            |target, ()| self.worker().webget.get_to_file(&self.url(), target),
+            |target, ()| {
+                self.worker().webget().get_to_file(&self.url(), target)
+            },
         )
     }
 

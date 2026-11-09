@@ -50,13 +50,13 @@ impl<'worker> GetHashesAndPatch<'worker> for KernelPatch<'worker> {
     }
 
     fn hashes_base_dir(&self) -> Result<Arc<Path>> {
-        let path = self.worker().dirs.hashes().append("incr");
+        let path = self.worker().dirs().hashes().append("incr");
         create_dir_if_not_exists(&path)?;
         Ok(path.into())
     }
 
     fn patches_base_dir(&self) -> Result<Arc<Path>> {
-        let path = self.worker().dirs.patches().append("incr");
+        let path = self.worker().dirs().patches().append("incr");
         create_dir_if_not_exists(&path)?;
         Ok(path.into())
     }

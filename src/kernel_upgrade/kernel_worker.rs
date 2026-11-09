@@ -13,11 +13,28 @@ def_subdirs! {pub Dirs => kernels, hashes, patches, configs, stamps}
 
 #[derive(Debug)]
 pub struct KernelWorker {
-    pub webget: WebGet,
-    pub dirs: Dirs,
+    webget: WebGet,
+    dirs: Dirs,
 }
 
 impl KernelWorker {
+    pub fn new(base_dir: PathBuf) -> Result<Self> {
+        let dirs = Dirs::new(base_dir);
+        dirs.create_dirs_if_not_exist()?;
+
+        Ok(Self {
+            dirs,
+            webget: WebGet::auto_choose()?,
+        })
+    }
+
+    pub fn webget(&self) -> &WebGet {
+        &self.webget
+    }
+    pub fn dirs(&self) -> &Dirs {
+        &self.dirs
+    }
+
     /// Path to the linux source and build directory
     pub fn linux_path(&self) -> PathBuf {
         (&self.dirs.base_dir).append("linux")

@@ -74,7 +74,7 @@ pub trait GetTarAndUnpack<'worker> {
             (),
             |target, ()| {
                 self.worker()
-                    .webget
+                    .webget()
                     .get_to_file(&self.url::<FileKindSignature>(), target)
             },
         )
@@ -93,7 +93,7 @@ pub trait GetTarAndUnpack<'worker> {
             (),
             |target, ()| {
                 self.worker()
-                    .webget
+                    .webget()
                     .get_to_file(&self.url::<FileKindTarXzUnchecked>(), target)
             },
         )

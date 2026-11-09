@@ -9,13 +9,13 @@ use chj_rustbin::{
     kernel_upgrade::{
         get_hashes_and_patch::{GetAndApplyError, GetHashesAndPatch},
         get_tar_and_unpack::GetTarAndUnpack,
-        kernel_worker::{Dirs, KernelWorker},
+        kernel_worker::KernelWorker,
     },
     script_tools::SetX,
     scripting::linux::kernel_version::KernelVersion,
     util::num_hardware_threads::num_hardware_threads,
 };
-use external_webget::{RequestError, WebGet};
+use external_webget::RequestError;
 
 enum ReportKind {
     NoChange,
@@ -108,13 +108,7 @@ struct Opts {
 fn run(opts: &Opts) -> Result<(ReportKind, RebootNeeded, String)> {
     let _x = SetX::new(true);
 
-    let dirs = Dirs::new(opts.base_dir.clone());
-    dirs.create_dirs_if_not_exist()?;
-
-    let worker = KernelWorker {
-        dirs,
-        webget: WebGet::auto_choose()?,
-    };
+    let worker = KernelWorker::new(opts.base_dir.clone())?;
 
     let linux_path = worker.linux_path();
     let mut current_kernel = if linux_path.exists() {

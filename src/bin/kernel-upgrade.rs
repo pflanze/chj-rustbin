@@ -13,7 +13,10 @@ use chj_rustbin::{
     },
     script_tools::SetX,
     scripting::linux::kernel_version::KernelVersion,
-    util::num_hardware_threads::num_hardware_threads,
+    util::{
+        network_interface::{external_interfaces, SummarizeAs},
+        num_hardware_threads::num_hardware_threads,
+    },
 };
 use external_webget::RequestError;
 
@@ -55,6 +58,10 @@ impl Display for RebootNeeded {
 #[clap(next_line_help = true)]
 /// Upgrade the kernel on the system
 struct Opts {
+    /// Exit without error if no public network interface is active
+    #[clap(long)]
+    skip_if_offline: bool,
+
     /// Run `make oldconfig` to update the `.config` file for each point update;
     /// this is recommended to potentially improve the precision of the config
     /// updates (the default is false, though, as a secure default). This is
@@ -192,6 +199,14 @@ fn run(opts: &Opts) -> Result<(ReportKind, RebootNeeded, String)> {
 
 fn main() -> Result<()> {
     let opts: Opts = Opts::parse();
+
+    if opts.skip_if_offline {
+        let is_online: bool = external_interfaces()?.summarize();
+        if !is_online {
+            eprintln!("exiting since there are no active network interfaces");
+            return Ok(());
+        }
+    }
 
     if let Some(report_path) = &opts.report_to {
         let report = match run(&opts) {

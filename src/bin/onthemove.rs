@@ -1,63 +1,24 @@
 use std::{
-    ffi::OsString, fmt::Debug, iter::Filter, path::PathBuf, process::Command,
-    thread, time::Duration, vec::IntoIter,
+    ffi::OsString, fmt::Debug, path::PathBuf, process::Command, thread,
+    time::Duration,
 };
 
 use anyhow::{anyhow, bail, Context, Result};
+use chj_rustbin::util::network_interface::{
+    external_interfaces, ExternalInterfaces, SummarizeAs,
+};
 use clap::Parser;
 use log::{debug, info};
-use network_interface::{NetworkInterface, NetworkInterfaceConfig};
-
-struct ExternalInterfaces(
-    Filter<
-        IntoIter<NetworkInterface>,
-        for<'a> fn(&'a NetworkInterface) -> bool,
-    >,
-);
-
-fn external() -> Result<ExternalInterfaces> {
-    let ifaces = NetworkInterface::show()?;
-    fn f(iface: &NetworkInterface) -> bool {
-        (!iface.internal)
-            && !iface.addr.is_empty()
-            && !iface.name.starts_with("tap")
-    }
-    Ok(ExternalInterfaces(ifaces.into_iter().filter(f)))
-}
-
-trait Summarize<Summary> {
-    fn summarize(self) -> Summary;
-}
-
-impl Summarize<Vec<NetworkInterface>> for ExternalInterfaces {
-    fn summarize(self) -> Vec<NetworkInterface> {
-        self.0.collect()
-    }
-}
-
-impl Summarize<Vec<String>> for ExternalInterfaces {
-    fn summarize(self) -> Vec<String> {
-        let mut vec: Vec<_> = self.0.map(|iface| iface.name).collect();
-        vec.sort();
-        vec
-    }
-}
-
-impl Summarize<bool> for ExternalInterfaces {
-    fn summarize(mut self) -> bool {
-        self.0.next().is_some()
-    }
-}
 
 fn act_as<T>(act: impl Fn(&T) -> Result<()>, sleep_time: f64) -> Result<()>
 where
     T: PartialEq + Debug,
-    ExternalInterfaces: Summarize<T>,
+    ExternalInterfaces: SummarizeAs<T>,
 {
     let mut last_ifaces: Option<T> = None;
     let mut i: u64 = 0;
     loop {
-        let new_ifaces = Some(external()?.summarize());
+        let new_ifaces = Some(external_interfaces()?.summarize());
         if last_ifaces != new_ifaces {
             let ifaces = new_ifaces.as_ref().expect("made as a Some above");
             info!("have interfaces: {ifaces:#?}");

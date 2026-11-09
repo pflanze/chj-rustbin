@@ -7,6 +7,7 @@ pub mod limited_warn;
 pub mod lines_chunks;
 pub mod link_rename;
 pub mod map_trait;
+pub mod network_interface;
 pub mod num_hardware_threads;
 pub mod pad;
 pub mod range_utils;

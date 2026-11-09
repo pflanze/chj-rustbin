@@ -61,4 +61,4 @@ num_cpus = "1.13.1"
 # not needed for .join(..) on strings: itertools = "0.11.0"
 tempfile = "3.6.0"
 dashmap = { version = "5.3.4", features = ["rayon"] }
-derive_more = { version = "2.0.1", features = ["deref", "from", "from_str"] }
+derive_more = { version = "2.0.1", features = ["deref", "from", "from_str", "into_iterator"] }

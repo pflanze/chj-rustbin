@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-use chj_rustbin::{mystring::get_stats, scripting::linux::config::Config};
+use chj_rustbin::scripting::linux::config::Config;
 use clap::Parser;
 
 #[cfg(not(miri))]
@@ -39,8 +39,6 @@ fn main() -> Result<()> {
             println!("{difference}");
         }
     }
-
-    dbg!(get_stats());
 
     Ok(())
 }

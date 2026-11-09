@@ -7,7 +7,10 @@ use std::{
 
 use anyhow::{anyhow, bail, Context, Result};
 use bstr::{ByteSlice, ByteVec};
-use chj_rustbin::script_tools::{cmd, SetX};
+use chj_rustbin::{
+    script_tools::{cmd, SetX},
+    util::forked_drop::ForkedDropper,
+};
 use cj_path_util::path_util::AppendToPath;
 use clap::Parser;
 use tempfile::tempdir;
@@ -99,7 +102,7 @@ fn main() -> Result<()> {
         dbg!(&files);
     }
 
-    let temp = tempdir()?;
+    let temp = ForkedDropper::new(tempdir()?)?;
     let temp_path = temp.path();
 
     let mut have_paths = false;

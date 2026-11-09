@@ -1,7 +1,8 @@
-use std::path::PathBuf;
+use std::{fs::File, os::fd::AsRawFd, path::PathBuf};
 
-use anyhow::Result;
+use anyhow::{anyhow, Context, Result};
 use cj_path_util::path_util::AppendToPath;
+use nix::fcntl::{flock, FlockArg};
 
 use crate::{
     def_subdirs, kernel_upgrade::kernel::Kernel,
@@ -15,15 +16,32 @@ def_subdirs! {pub Dirs => kernels, hashes, patches, configs, stamps}
 pub struct KernelWorker {
     webget: WebGet,
     dirs: Dirs,
+    _locked_file: File,
 }
 
 impl KernelWorker {
     pub fn new(base_dir: PathBuf) -> Result<Self> {
+        let lock_path = (&base_dir).append(".kernel-upgrade.flock");
+
         let dirs = Dirs::new(base_dir);
         dirs.create_dirs_if_not_exist()?;
 
+        let _locked_file = File::create(&lock_path)
+            .with_context(|| anyhow!("opening lock file {lock_path:?}"))?;
+
+        // File::lock in std is not in rustc from Debian stable yet,
+        // thus use nix
+        if flock(_locked_file.as_raw_fd(), FlockArg::LockExclusiveNonblock)
+            .is_err()
+        {
+            eprintln!("waiting for lock file {lock_path:?} to be released");
+            flock(_locked_file.as_raw_fd(), FlockArg::LockExclusive)
+                .with_context(|| anyhow!("flock on lock file {lock_path:?}"))?;
+        }
+
         Ok(Self {
             dirs,
+            _locked_file,
             webget: WebGet::auto_choose()?,
         })
     }

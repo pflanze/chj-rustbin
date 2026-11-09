@@ -84,7 +84,8 @@ struct Opts {
 
     /// Path to the base directory optionally containing a "linux"
     /// subdir with the kernel sources. "hashes", "patches", "configs"
-    /// and "stamps" subdirs will be created.
+    /// and "stamps" subdirs and a ".kernel-upgrade.flock" file will
+    /// be created.
     ///
     /// Currently, only ever use the same base directory for the same
     /// `version.patchlevel` version of the linux kernel;

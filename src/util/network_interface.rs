@@ -1,22 +1,16 @@
 use std::{iter::Filter, vec::IntoIter};
 
 use anyhow::Result;
+use derive_more::IntoIterator;
 use network_interface::{NetworkInterface, NetworkInterfaceConfig};
 
+#[derive(IntoIterator)]
 pub struct ExternalInterfaces(
     Filter<
         IntoIter<NetworkInterface>,
         for<'a> fn(&'a NetworkInterface) -> bool,
     >,
 );
-
-impl Iterator for ExternalInterfaces {
-    type Item = NetworkInterface;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.next()
-    }
-}
 
 /// Network interfaces that are not internal, do have an address
 /// (i.e. are up?), and whose name does not start with "tap"

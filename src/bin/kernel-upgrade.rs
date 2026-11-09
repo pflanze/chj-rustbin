@@ -1,6 +1,6 @@
 use std::{fmt::Display, num::NonZeroUsize, path::PathBuf};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 
 use chj_rustbin::{
@@ -9,7 +9,7 @@ use chj_rustbin::{
     kernel_upgrade::{
         get_hashes_and_patch::{GetAndApplyError, GetHashesAndPatch},
         get_tar_and_unpack::GetTarAndUnpack,
-        kernel_worker::KernelWorker,
+        kernel_worker::{KernelWorker, KernelWorkerError},
     },
     script_tools::SetX,
     scripting::linux::kernel_version::KernelVersion,
@@ -58,6 +58,10 @@ impl Display for RebootNeeded {
 #[clap(next_line_help = true)]
 /// Upgrade the kernel on the system
 struct Opts {
+    /// Exit silently if another instance is running
+    #[clap(long)]
+    skip_if_locked: bool,
+
     /// Exit without error if no public network interface is active
     #[clap(long)]
     skip_if_offline: bool,
@@ -113,23 +117,25 @@ struct Opts {
 }
 
 /// Returns a success report kind and statement
-fn run(opts: &Opts) -> Result<(ReportKind, RebootNeeded, String)> {
+fn run(
+    opts: &Opts,
+) -> Result<(ReportKind, RebootNeeded, String), KernelWorkerError> {
     let _x = SetX::new(true);
 
-    let worker = KernelWorker::new(opts.base_dir.clone())?;
+    let worker = KernelWorker::new(opts.base_dir.clone(), opts.skip_if_locked)?;
 
     let linux_path = worker.linux_path();
     let mut current_kernel = if linux_path.exists() {
         worker.current_kernel()?
     } else {
         let Some(version) = &opts.initial_linux_version else {
-            bail!(
+            Err(anyhow!(
                 "directory {linux_path:?} does not exist, please provide \
                      the `INITIAL_LINUX_VERSION` program argument"
-            )
+            ))?
         };
         let kernel = worker.kernel_with_version(version.clone());
-        kernel.get_unpacked()?;
+        kernel.get_unpacked().context("getting unpacked kernel")?;
         kernel
     };
 
@@ -139,7 +145,9 @@ fn run(opts: &Opts) -> Result<(ReportKind, RebootNeeded, String)> {
         eprintln!("current kernel = {}", current_kernel.version());
 
         if opts.make_oldconfig || opts.build {
-            current_kernel.make_oldconfig()?;
+            current_kernel
+                .make_oldconfig()
+                .context("running make oldconfig")?;
         } else {
             eprintln!("skipping `make oldconfig` since neither --build nor --make-oldconfig \
                        has been given");
@@ -157,7 +165,7 @@ fn run(opts: &Opts) -> Result<(ReportKind, RebootNeeded, String)> {
                     eprintln!("upstream has no patch at {}", patch.url());
                     break;
                 }
-                _ => Err(e)?,
+                _ => Err(e).context("getting and applying kernel patch")?,
             },
         };
 
@@ -165,7 +173,9 @@ fn run(opts: &Opts) -> Result<(ReportKind, RebootNeeded, String)> {
     }
 
     if opts.build {
-        current_kernel.build(num_hardware_threads(opts.num_cores))?;
+        current_kernel
+            .build(num_hardware_threads(opts.num_cores))
+            .context("building the kernel")?;
     }
 
     // XX and builds and installs, and reboots?, optionally.
@@ -213,12 +223,17 @@ fn main() -> Result<()> {
             Ok((report_kind, reboot_needed, success_statement)) => {
                 format!("{report_kind}\n{reboot_needed}\n{success_statement}")
             }
+            Err(KernelWorkerError::Locked) => return Ok(()),
             Err(e) => format!("error\n{e:#?}"),
         };
         std::fs::write(report_path, report)
             .with_context(|| anyhow!("writing report to {report_path:?}"))
     } else {
-        run(&opts)?;
+        match run(&opts) {
+            Ok(_) => (),
+            Err(KernelWorkerError::Locked) => return Ok(()),
+            Err(e) => Err(e)?,
+        }
         Ok(())
     }
 }

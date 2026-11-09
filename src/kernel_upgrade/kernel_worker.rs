@@ -19,8 +19,22 @@ pub struct KernelWorker {
     _locked_file: File,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum KernelWorkerError {
+    #[error("another kernel worker is running")]
+    Locked,
+    #[error("setting up kernel worker: {0:#}")]
+    Anyhow(#[from] anyhow::Error),
+}
+
 impl KernelWorker {
-    pub fn new(base_dir: PathBuf) -> Result<Self> {
+    /// When another instance is running, if `stop_if_locked` is true
+    /// `Err(KernelWorkerError::Locked)` is returned, otherwise prints
+    /// a message to stderr and waits for the lock to be release.
+    pub fn new(
+        base_dir: PathBuf,
+        stop_if_locked: bool,
+    ) -> Result<Self, KernelWorkerError> {
         let lock_path = (&base_dir).append(".kernel-upgrade.flock");
 
         let dirs = Dirs::new(base_dir);
@@ -34,6 +48,9 @@ impl KernelWorker {
         if flock(_locked_file.as_raw_fd(), FlockArg::LockExclusiveNonblock)
             .is_err()
         {
+            if stop_if_locked {
+                Err(KernelWorkerError::Locked)?
+            }
             eprintln!("waiting for lock file {lock_path:?} to be released");
             flock(_locked_file.as_raw_fd(), FlockArg::LockExclusive)
                 .with_context(|| anyhow!("flock on lock file {lock_path:?}"))?;

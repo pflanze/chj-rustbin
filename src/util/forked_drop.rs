@@ -1,4 +1,4 @@
-use std::process::exit;
+use std::{mem::ManuallyDrop, process::exit};
 
 use anyhow::{bail, Result};
 use derive_more::Deref;
@@ -24,9 +24,9 @@ pub unsafe trait ForkedDrop: Drop {}
 /// The disappearance of the parent is detected by the closing of an
 /// embedded unix pipe.
 ///
-/// Deref / DerefMut allows to still access the value by reference. To
-/// avoid calling Drop in the parent as well, leaks the copy in the
-/// parent!
+/// Deref / DerefMut allows to still access the value by reference,
+/// but drop is not called in the parent (meaning, a memory leak will
+/// occur if T has associated heap memory).
 ///
 /// Note that `ForkedDropper::new` only forks once, which means that
 /// if this object is dropped and the child exits, the parent will get
@@ -35,8 +35,8 @@ pub unsafe trait ForkedDrop: Drop {}
 /// `wait`).
 #[derive(Deref)]
 pub struct ForkedDropper<T: ForkedDrop + 'static> {
-    #[deref]
-    value: &'static mut T,
+    #[deref(forward)]
+    value: ManuallyDrop<T>,
     pipe_write: i32,
 }
 
@@ -90,7 +90,7 @@ impl<T: ForkedDrop> ForkedDropper<T> {
         }
 
         close(pipe_read)?;
-        let value = Box::leak(Box::new(value));
+        let value = ManuallyDrop::new(value);
 
         Ok(Self { value, pipe_write })
     }

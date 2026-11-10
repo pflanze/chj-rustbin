@@ -2,7 +2,10 @@ use std::{mem::ManuallyDrop, process::exit};
 
 use anyhow::{bail, Result};
 use derive_more::Deref;
-use nix::unistd::{close, fork, pipe, setsid, write, ForkResult};
+use nix::{
+    errno::Errno,
+    unistd::{close, fork, pipe, setsid, write, ForkResult},
+};
 use tempfile::TempDir;
 
 /// The following conditions must be upheld for safety:
@@ -46,7 +49,8 @@ impl<T: ForkedDrop> Drop for ForkedDropper<T> {
     }
 }
 
-/// Directly write to stderr, bypassing any locks or allocations
+/// Write directly to stderr, avoiding to take any locks or make
+/// allocations. Ignores errors.
 fn werr(s: &str) {
     _ = write(2, s.as_bytes());
 }
@@ -81,7 +85,11 @@ impl<T: ForkedDrop> ForkedDropper<T> {
                     }
                 }
                 let mut buf = [0; 1];
-                _ = nix::unistd::read(pipe_read, &mut buf);
+                while let Err(e) = nix::unistd::read(pipe_read, &mut buf) {
+                    if e != Errno::EINTR {
+                        break;
+                    }
+                }
                 // werr("time to drop!\n");
                 drop(value);
                 exit(0);

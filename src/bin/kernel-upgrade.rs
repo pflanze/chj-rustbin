@@ -40,6 +40,7 @@ enum RebootNeeded {
     Upgrade {
         from: KernelVersion,
         to: KernelVersion,
+        linux_path: PathBuf,
     },
 }
 
@@ -47,8 +48,16 @@ impl Display for RebootNeeded {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RebootNeeded::None => f.write_str("no-reboot-needed"),
-            RebootNeeded::Upgrade { from, to } => {
-                write!(f, "need-reboot from {from} to {to}")
+            RebootNeeded::Upgrade {
+                from,
+                to,
+                linux_path,
+            } => {
+                write!(
+                    f,
+                    "need-reboot from {from} to {to} at: {}",
+                    linux_path.display()
+                )
             }
         }
     }
@@ -117,9 +126,7 @@ struct Opts {
 }
 
 /// Returns a success report kind and statement
-fn run(
-    opts: &Opts,
-) -> Result<(ReportKind, RebootNeeded, String), KernelWorkerError> {
+fn run(opts: &Opts) -> Result<(ReportKind, RebootNeeded), KernelWorkerError> {
     let _x = SetX::new(true);
 
     let worker = KernelWorker::new(opts.base_dir.clone(), opts.skip_if_locked)?;
@@ -178,8 +185,6 @@ fn run(
             .context("building the kernel")?;
     }
 
-    // XX and builds and installs, and reboots?, optionally.
-
     println!("kernel-upgrade: done, executed {num_updates} steps of patch version updates.");
 
     let running_kernel_version = KernelVersion::of_running_kernel()?;
@@ -187,24 +192,19 @@ fn run(
         RebootNeeded::Upgrade {
             from: running_kernel_version,
             to: current_kernel.version().clone(),
+            linux_path: current_kernel.worker().linux_path(),
         }
     } else {
         RebootNeeded::None
     };
 
-    Ok(if num_updates == 0 {
-        (ReportKind::NoChange, reboot_needed, "".into())
+    let change = if num_updates == 0 {
+        ReportKind::NoChange
     } else {
-        (
-            ReportKind::NewKernelReady,
-            reboot_needed,
-            format!(
-                "{}\n{}",
-                current_kernel.version(),
-                current_kernel.worker().linux_path().display()
-            ),
-        )
-    })
+        ReportKind::NewKernelReady
+    };
+
+    Ok((change, reboot_needed))
 }
 
 fn main() -> Result<()> {
@@ -220,11 +220,11 @@ fn main() -> Result<()> {
 
     if let Some(report_path) = &opts.report_to {
         let report = match run(&opts) {
-            Ok((report_kind, reboot_needed, success_statement)) => {
-                format!("{report_kind}\n{reboot_needed}\n{success_statement}")
+            Ok((report_kind, reboot_needed)) => {
+                format!("{report_kind}\n{reboot_needed}\n")
             }
             Err(KernelWorkerError::Locked) => return Ok(()),
-            Err(e) => format!("error\n{e:#?}"),
+            Err(e) => format!("error\n{e:#?}\n"),
         };
         std::fs::write(report_path, report)
             .with_context(|| anyhow!("writing report to {report_path:?}"))

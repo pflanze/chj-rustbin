@@ -57,6 +57,15 @@ struct Args {
     #[clap(long)]
     display: Option<String>,
 
+    /// Pass paths to all symlinks as arguments to eog. This means eog
+    /// will try to show each item, and if it is unable, will show an
+    /// error statement for that item position, which could be useful.
+    /// Default: pass only the path to the directory containing the
+    /// symlinks, which makes eog build the list of items itself and
+    /// for that pick only those that it can display.
+    #[clap(short, long)]
+    all_paths: bool,
+
     /// The paths to the files to show, in the order in which they should be
     /// shown. Conflicts with `--stdin`.
     files: Vec<PathBuf>,
@@ -67,13 +76,14 @@ fn main() -> Result<()> {
         verbose,
         stdin: use_stdin,
         z,
-        files,
         fullscreen,
         disable_gallery,
         slide_show,
         new_instance,
         single_window,
         display,
+        all_paths,
+        files,
     } = Args::parse();
 
     let files = if use_stdin || z {
@@ -105,7 +115,7 @@ fn main() -> Result<()> {
     let temp = ForkedDropper::new(tempdir()?)?;
     let temp_path = temp.path();
 
-    let mut have_paths = false;
+    let mut eog_path_args = Vec::new();
 
     for (i, file) in files.iter().enumerate() {
         match file.metadata() {
@@ -140,10 +150,10 @@ fn main() -> Result<()> {
         symlink(&target, &source).with_context(|| {
             anyhow!("creating symlink for {target:?} at {source:?}")
         })?;
-        have_paths = true;
+        eog_path_args.push(source);
     }
 
-    if have_paths {
+    if !eog_path_args.is_empty() {
         let _x = SetX::new(verbose);
 
         let mut eog_args: Vec<&OsStr> = vec![];
@@ -167,7 +177,13 @@ fn main() -> Result<()> {
             eog_args.push("--display".as_ref());
             eog_args.push(display.as_ref());
         }
-        eog_args.push(temp_path.as_ref());
+        if all_paths {
+            eog_args.extend(
+                eog_path_args.iter().map(|path| -> &OsStr { path.as_ref() }),
+            );
+        } else {
+            eog_args.push(temp_path.as_ref());
+        }
 
         cmd("eog", eog_args)?;
     }

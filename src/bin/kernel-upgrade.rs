@@ -191,6 +191,12 @@ fn run(opts: &Opts) -> Result<(ReportKind, RebootNeeded), KernelWorkerError> {
 
     println!("kernel-upgrade: done, executed {num_updates} steps of patch version updates.");
 
+    let change = if num_updates == 0 {
+        ReportKind::NoChange
+    } else {
+        ReportKind::NewKernelReady
+    };
+
     let running_kernel_version = KernelVersion::of_running_kernel()?;
     let reboot_needed = if current_kernel.version() > &running_kernel_version {
         RebootNeeded::Upgrade {
@@ -200,12 +206,6 @@ fn run(opts: &Opts) -> Result<(ReportKind, RebootNeeded), KernelWorkerError> {
         }
     } else {
         RebootNeeded::None
-    };
-
-    let change = if num_updates == 0 {
-        ReportKind::NoChange
-    } else {
-        ReportKind::NewKernelReady
     };
 
     Ok((change, reboot_needed))

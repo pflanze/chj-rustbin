@@ -19,8 +19,10 @@ use crate::utillib::into_arc_path::IntoArcPath;
 
 #[derive(Debug, Clone, Default)]
 pub struct ScriptContext {
-    /// Whether to show a trace in the style of `set -x` in bash
-    pub x: bool,
+    /// Whether to show a trace in the style of `set -x` in bash, and
+    /// the number of `+` characters shown (which is incremented by
+    /// `set_cwd`). Initialize with 1 if you set it.
+    pub x: Option<u8>,
     /// The current directory to use when resolving paths, instead of
     /// the actual current directoy of the running process; if this is
     /// a relative path, it is relative to the current directory of
@@ -29,6 +31,15 @@ pub struct ScriptContext {
 }
 
 impl ScriptContext {
+    fn pluses(&self) -> Option<&'static str> {
+        const PLUSES: &str = "+++++++++++++++++++++++++++++++++++++++++++++++++++++++++\
+                              +++++++++++++++++++++++++++++++++++++++++++++++++++++++++\
+                              +++++++++++++++++++++++++++++++++++++++++++++++++++++++++\
+                              +++++++++++++++++++++++++++++++++++++++++++++++++++++++++\
+                              +++++++++++++++++++++++++++";
+        self.x.map(|n| &PLUSES[0..(n as usize)])
+    }
+
     /// Base `path` on `self.cwd` if defined
     ///
     /// If `self.cwd` is set and `path` is relative, add it to the
@@ -44,10 +55,17 @@ impl ScriptContext {
     }
 
     pub fn set_cwd<P: IntoArcPath>(&self, cwd: P) -> Self {
-        Self {
-            x: self.x,
+        let this = Self {
+            x: self.x.map(|x| x.saturating_add(1)),
             cwd: Some(cwd.into_arc_path()),
+        };
+        if let Some(pluses) = this.pluses() {
+            eprintln!(
+                "{pluses} cd {:?}",
+                this.cwd.as_ref().expect("set above")
+            );
         }
+        this
     }
 
     pub fn unset_cwd(&self) -> Self {
@@ -68,8 +86,8 @@ impl ScriptContext {
         if let Some(path) = &self.cwd {
             cmd.current_dir(path);
         }
-        if self.x {
-            eprintln!("+ {cmd:?}");
+        if let Some(pluses) = self.pluses() {
+            eprintln!("{pluses} {cmd:?}");
         }
 
         let status = cmd
@@ -120,8 +138,8 @@ impl ScriptContext {
 
     pub fn cd<'t>(&mut self, path: impl MaybeExpandTilde<'t>) {
         let_path_expand_tilde!(path);
-        if self.x {
-            eprintln!("+ cd {path:?}");
+        if let Some(pluses) = self.pluses() {
+            eprintln!("{pluses} cd {path:?}");
         }
         self.cwd = Some(path.into());
     }
@@ -141,8 +159,8 @@ impl ScriptContext {
         if let Some(path) = &self.cwd {
             cmd.current_dir(path);
         }
-        if self.x {
-            eprintln!("+ `{cmd:?}`");
+        if let Some(pluses) = self.pluses() {
+            eprintln!("{pluses} `{cmd:?}`");
         }
 
         let mut child = cmd.spawn()?;
@@ -181,8 +199,8 @@ impl ScriptContext {
         if let Some(path) = &self.cwd {
             cmd.current_dir(path);
         }
-        if self.x {
-            eprintln!("+ `{cmd:?}`2");
+        if let Some(pluses) = self.pluses() {
+            eprintln!("{pluses} `{cmd:?}`2");
         }
 
         let mut child = cmd.spawn()?;
@@ -223,8 +241,8 @@ impl ScriptContext {
         if let Some(path) = &self.cwd {
             cmd.current_dir(path);
         }
-        if self.x {
-            eprintln!("+ `{cmd:?} 2>&1`");
+        if let Some(pluses) = self.pluses() {
+            eprintln!("{pluses} `{cmd:?} 2>&1`");
         }
 
         let mut child = cmd.spawn()?;
@@ -277,8 +295,8 @@ impl ScriptContext {
         if let Some(path) = &self.cwd {
             cmd.current_dir(path);
         }
-        if self.x {
-            eprintln!("+ `{cmd:?}`2");
+        if let Some(pluses) = self.pluses() {
+            eprintln!("{pluses} `{cmd:?}`2");
         }
 
         let mut child = cmd.spawn()?;
@@ -313,8 +331,8 @@ impl ScriptContext {
         if let Some(path) = &self.cwd {
             cmd.current_dir(path);
         }
-        if self.x {
-            eprintln!("+ `{cmd:?}`2");
+        if let Some(pluses) = self.pluses() {
+            eprintln!("{pluses} `{cmd:?}`2");
         }
 
         let mut child = cmd.spawn()?;

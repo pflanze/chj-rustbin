@@ -154,7 +154,7 @@ fn main() -> Result<()> {
 
     if !eog_path_args.is_empty() {
         let ctx = ScriptContext {
-            x: verbose,
+            x: verbose.then_some(1),
             cwd: None,
         };
 

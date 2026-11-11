@@ -127,7 +127,10 @@ struct Opts {
 
 /// Returns a success report kind and statement
 fn run(opts: &Opts) -> Result<(ReportKind, RebootNeeded), KernelWorkerError> {
-    let ctx = ScriptContext { x: true, cwd: None };
+    let ctx = ScriptContext {
+        x: Some(1),
+        cwd: None,
+    };
 
     let worker =
         KernelWorker::new(opts.base_dir.clone(), opts.skip_if_locked, ctx)?;

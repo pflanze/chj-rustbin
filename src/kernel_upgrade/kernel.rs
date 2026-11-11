@@ -49,6 +49,13 @@ impl<'worker> Kernel<'worker> {
         &self.version
     }
 
+    pub fn the_patch_to_the_next_point_version(&self) -> KernelPatch<'worker> {
+        KernelPatch {
+            worker: self.worker,
+            from_version: self.version.clone(),
+        }
+    }
+
     /// Before appending the file name, or "incr/" subdir and file
     /// name parts for incremental patches (i.e. may not be
     /// retrievable directly)
@@ -133,13 +140,6 @@ impl<'worker> Kernel<'worker> {
                 Ok(())
             },
         )
-    }
-
-    pub fn the_patch_to_the_next_point_version(&self) -> KernelPatch<'worker> {
-        KernelPatch {
-            worker: self.worker,
-            from_version: self.version.clone(),
-        }
     }
 }
 

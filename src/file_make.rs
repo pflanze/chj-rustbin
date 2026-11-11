@@ -16,6 +16,8 @@ where
     BuildAction(BuildError),
     #[error("running the build action: {0:#}")]
     FileHandling(anyhow::Error),
+    #[error("target {0:?} is missing and building is disabled")]
+    Missing(Box<Path>),
 }
 
 // Conflicting implementation:
@@ -52,6 +54,7 @@ where
                 MakeError::BuildAction(BuildError2::from(e))
             }
             MakeError::FileHandling(e) => MakeError::FileHandling(e),
+            MakeError::Missing(path) => MakeError::Missing(path),
         }
     }
 }
@@ -79,8 +82,19 @@ impl IntoPathIterator for () {
     }
 }
 
-#[derive(Debug)]
-pub struct FileMake {}
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum FileMakeMode {
+    /// If a target is missing, build it using the given build action
+    #[default]
+    Build,
+    /// If a target is missing, return a Missing error
+    ReportMissing,
+}
+
+#[derive(Debug, Default)]
+pub struct FileMake {
+    pub mode: FileMakeMode,
+}
 
 impl FileMake {
     /// Run `build_action` if `target` does not exist or is older than any
@@ -109,6 +123,15 @@ impl FileMake {
     {
         let target_ref = target.as_ref();
         let build = || {
+            match self.mode {
+                FileMakeMode::Build => (),
+                FileMakeMode::ReportMissing => {
+                    return Err(MakeError::Missing(
+                        target_ref.to_owned().into(),
+                    ))
+                }
+            }
+
             eprintln!("making target {target_ref:?}");
             build_action(&target, &dependencies).map_err(MakeError::BuildAction)
         };

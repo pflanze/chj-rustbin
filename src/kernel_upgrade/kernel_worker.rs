@@ -79,7 +79,7 @@ impl KernelWorker {
             dirs,
             _locked_file,
             webget: WebGet::auto_choose()?,
-            file_make: FileMake {},
+            file_make: FileMake::default(),
             script_context,
         })
     }

@@ -97,8 +97,11 @@ impl<'worker> Kernel<'worker> {
         )
     }
 
-    fn stamp_path(&self) -> PathBuf {
-        self.worker.dirs().stamps().append(self.version.to_string())
+    fn build_stamp_path(&self) -> PathBuf {
+        self.worker
+            .dirs()
+            .stamps()
+            .append(format!("build-{}", self.version))
     }
 
     /// (Returns the path to the stamp file)
@@ -111,7 +114,7 @@ impl<'worker> Kernel<'worker> {
     > {
         let linux_path = self.worker.linux_path();
         self.fm().make(
-            self.stamp_path(),
+            self.build_stamp_path(),
             [self.make_oldconfig()?],
             |target, _dependencies| {
                 let ctx = self.worker().script_context();

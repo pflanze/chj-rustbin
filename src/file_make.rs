@@ -59,6 +59,8 @@ where
     }
 }
 
+// XX there is also `trait IntoIteratorWithBottom` now, but it seems
+// problematic enough that I won't change this code yet.
 pub trait IntoPathIterator {
     fn into_path_iterator(&self) -> impl Iterator<Item = &Path>;
 }

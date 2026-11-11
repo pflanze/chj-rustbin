@@ -2,6 +2,7 @@ pub mod anyhow;
 pub mod as_os_str;
 pub mod div;
 pub mod forked_drop;
+pub mod into_iterator_with_bottom;
 pub mod io;
 pub mod let_format_or;
 pub mod limited_warn;

@@ -5,7 +5,9 @@ use cj_path_util::path_util::AppendToPath;
 use nix::fcntl::{flock, FlockArg};
 
 use crate::{
-    def_subdirs, kernel_upgrade::kernel::Kernel,
+    def_subdirs,
+    file_make::FileMake,
+    kernel_upgrade::{fm::Fm, kernel::Kernel},
     scripting::linux::kernel_version::KernelVersion,
 };
 use external_webget::WebGet;
@@ -15,8 +17,15 @@ def_subdirs! {pub Dirs => kernels, hashes, patches, configs, stamps}
 #[derive(Debug)]
 pub struct KernelWorker {
     webget: WebGet,
+    file_make: FileMake,
     dirs: Dirs,
     _locked_file: File,
+}
+
+impl Fm for KernelWorker {
+    fn fm(&self) -> &FileMake {
+        &self.file_make
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -60,6 +69,7 @@ impl KernelWorker {
             dirs,
             _locked_file,
             webget: WebGet::auto_choose()?,
+            file_make: FileMake {},
         })
     }
 

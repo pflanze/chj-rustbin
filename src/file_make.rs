@@ -79,66 +79,73 @@ impl IntoPathIterator for () {
     }
 }
 
-/// Run `build_action` if `target` does not exist or is older than any
-/// of the paths in `dependencies`.
-///
-/// `target` can be a directory, but symlinks are not accepted.
-pub fn file_make<
-    'path,
-    TargetPath,
-    Dependencies,
-    DependencyError,
-    BuildError,
-    F,
->(
-    target: TargetPath,
-    dependencies: Dependencies,
-    build_action: F,
-) -> Result<TargetPath, MakeError<DependencyError, BuildError>>
-where
-    TargetPath: AsRef<Path>,
-    Dependencies: IntoPathIterator,
-    DependencyError: std::error::Error + Send + Sync + 'static,
-    BuildError: std::error::Error + Send + Sync + 'static,
-    F: Fn(&TargetPath, &Dependencies) -> Result<(), BuildError>,
-{
-    let target_ref = target.as_ref();
-    let build = || {
-        eprintln!("making target {target_ref:?}");
-        build_action(&target, &dependencies).map_err(MakeError::BuildAction)
-    };
-    match target_ref.symlink_metadata() {
-        Ok(target_metadata) => {
-            if target_metadata.is_symlink() {
-                Err(MakeError::FileHandling(anyhow!(
-                    "target path exists but is a symlink: {target_ref:?}"
-                )))?
-            }
+#[derive(Debug)]
+pub struct FileMake {}
 
-            let target_modified = target_metadata
-                .modified()
-                .with_context(|| {
-                    anyhow!("getting modified time for target {target_ref:?}")
-                })
-                .map_err(MakeError::FileHandling)?;
+impl FileMake {
+    /// Run `build_action` if `target` does not exist or is older than any
+    /// of the paths in `dependencies`.
+    ///
+    /// `target` can be a directory, but symlinks are not accepted.
+    pub fn make<
+        'path,
+        TargetPath,
+        Dependencies,
+        DependencyError,
+        BuildError,
+        F,
+    >(
+        &self,
+        target: TargetPath,
+        dependencies: Dependencies,
+        build_action: F,
+    ) -> Result<TargetPath, MakeError<DependencyError, BuildError>>
+    where
+        TargetPath: AsRef<Path>,
+        Dependencies: IntoPathIterator,
+        DependencyError: std::error::Error + Send + Sync + 'static,
+        BuildError: std::error::Error + Send + Sync + 'static,
+        F: Fn(&TargetPath, &Dependencies) -> Result<(), BuildError>,
+    {
+        let target_ref = target.as_ref();
+        let build = || {
+            eprintln!("making target {target_ref:?}");
+            build_action(&target, &dependencies).map_err(MakeError::BuildAction)
+        };
+        match target_ref.symlink_metadata() {
+            Ok(target_metadata) => {
+                if target_metadata.is_symlink() {
+                    Err(MakeError::FileHandling(anyhow!(
+                        "target path exists but is a symlink: {target_ref:?}"
+                    )))?
+                }
 
-            let mut needs_build = false;
-
-            for dependency in dependencies.into_path_iterator() {
-                let dependency_metadata = dependency
-                    .metadata()
+                let target_modified = target_metadata
+                    .modified()
                     .with_context(|| {
                         anyhow!(
-                            "can't get metadata of dependency {dependency:?}"
+                            "getting modified time for target {target_ref:?}"
                         )
                     })
                     .map_err(MakeError::FileHandling)?;
-                if dependency_metadata.is_symlink() {
-                    Err(MakeError::FileHandling(anyhow!(
+
+                let mut needs_build = false;
+
+                for dependency in dependencies.into_path_iterator() {
+                    let dependency_metadata = dependency
+                        .metadata()
+                        .with_context(|| {
+                            anyhow!(
+                            "can't get metadata of dependency {dependency:?}"
+                        )
+                        })
+                        .map_err(MakeError::FileHandling)?;
+                    if dependency_metadata.is_symlink() {
+                        Err(MakeError::FileHandling(anyhow!(
                         "dependency path exists but is a symlink: {dependency:?}"
                     )))?
-                }
-                let dependency_modified = dependency_metadata
+                    }
+                    let dependency_modified = dependency_metadata
                     .modified()
                     .with_context(|| {
                         anyhow!(
@@ -146,25 +153,26 @@ where
                         )
                     })
                     .map_err(MakeError::FileHandling)?;
-                // Do not use `>=` as that fails when hard-linking (or
-                // cp -a) files, them having identical mtime. Be
-                // careful, though, overwrites to the dependency would
-                // also update the target!
-                if dependency_modified > target_modified {
-                    needs_build = true;
+                    // Do not use `>=` as that fails when hard-linking (or
+                    // cp -a) files, them having identical mtime. Be
+                    // careful, though, overwrites to the dependency would
+                    // also update the target!
+                    if dependency_modified > target_modified {
+                        needs_build = true;
+                    }
+                }
+
+                if needs_build {
+                    build()?;
+                } else {
+                    eprintln!("target {target_ref:?} is up to date");
                 }
             }
-
-            if needs_build {
-                build()?;
-            } else {
-                eprintln!("target {target_ref:?} is up to date");
-            }
+            Err(e) => match e.kind() {
+                ErrorKind::NotFound => build()?,
+                _ => (),
+            },
         }
-        Err(e) => match e.kind() {
-            ErrorKind::NotFound => build()?,
-            _ => (),
-        },
+        Ok(target)
     }
-    Ok(target)
 }

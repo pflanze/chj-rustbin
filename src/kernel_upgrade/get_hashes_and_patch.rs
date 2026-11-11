@@ -19,10 +19,11 @@ use cj_path_util::{path_util::AppendToPath, unix::polyfill::add_extension};
 
 use crate::{
     easy_webget::{EasyWebget, GetToFileError},
-    file_make::{file_make, MakeError},
+    file_make::MakeError,
     gpg::{Gpg, GpgKeyRef},
     kernel_upgrade::{
-        get_gpg_key::get_gpg_key, kernel::Kernel, kernel_worker::KernelWorker,
+        fm::Fm, get_gpg_key::get_gpg_key, kernel::Kernel,
+        kernel_worker::KernelWorker,
     },
     scripting::{linux::kernel_version::KernelVersion, sha256sum::sha256sum},
     util::{anyhow::AnyhowError, link_rename::link_rename},
@@ -48,7 +49,7 @@ pub enum GetAndApplyError {
 /// (`https://cdn.kernel.org/pub/linux/kernel/v*.x/incr/patch-*`), but
 /// might also be used in the future for the
 /// `https://cdn.kernel.org/pub/linux/kernel/v*.x/patch-*` files.
-pub trait GetHashesAndPatch<'worker> {
+pub trait GetHashesAndPatch<'worker>: Fm {
     const HASHES_SIGNATURE_KEY: GpgKeyRef;
 
     fn worker(&self) -> &'worker KernelWorker;
@@ -80,7 +81,7 @@ pub trait GetHashesAndPatch<'worker> {
         &self,
         newer_than_paths: &[&Path],
     ) -> Result<PathBuf, MakeError<AnyhowError, GetToFileError>> {
-        file_make(
+        self.fm().make(
             self.hashes_base_dir()
                 .map_err(AnyhowError)?
                 .append("sha256sums.asc"),
@@ -105,7 +106,7 @@ pub trait GetHashesAndPatch<'worker> {
         &self,
         newer_than_paths: &[&Path],
     ) -> Result<PathBuf, MakeError<AnyhowError, AnyhowError>> {
-        file_make(
+        self.fm().make(
             self.hashes_base_dir()
                 .map_err(AnyhowError)?
                 .append("sha256sums"),
@@ -114,6 +115,7 @@ pub trait GetHashesAndPatch<'worker> {
                     .map_err(anyhow::Error::from)
                     .map_err(AnyhowError)?,
                 get_gpg_key(
+                    self.fm(),
                     self.get_gpg_key_touch_file().map_err(AnyhowError)?,
                     &Self::HASHES_SIGNATURE_KEY.key_fingerprint,
                 )
@@ -191,7 +193,7 @@ pub trait GetHashesAndPatch<'worker> {
     fn get_unchecked(
         &self,
     ) -> Result<PathBuf, MakeError<AnyhowError, GetToFileError>> {
-        file_make(
+        self.fm().make(
             add_extension(self.file_path().map_err(AnyhowError)?, "-unchecked")
                 .expect("file_path is non-empty"),
             (),
@@ -207,7 +209,7 @@ pub trait GetHashesAndPatch<'worker> {
         PathBuf,
         MakeError<MakeError<AnyhowError, GetToFileError>, AnyhowError>,
     > {
-        file_make(
+        self.fm().make(
             self.file_path()
                 .map_err(AnyhowError)
                 .map_err(MakeError::Dependency)?,

@@ -10,10 +10,11 @@ use anyhow::{anyhow, Context, Result};
 use cj_path_util::path_util::AppendToPath;
 
 use crate::{
-    file_make::{file_make, MakeError},
+    file_make::MakeError,
     gpg::{GpgKeyRef, KeyType},
     kernel_upgrade::{
         file_kind::{FileKind, FileName},
+        fm::Fm,
         get_tar_and_unpack::GetTarAndUnpack,
         kernel_patch::KernelPatch,
         kernel_worker::KernelWorker,
@@ -33,6 +34,12 @@ const KERNEL_TAR_KEY: GpgKeyRef = GpgKeyRef {
 pub struct Kernel<'worker> {
     pub(crate) worker: &'worker KernelWorker,
     pub(crate) version: KernelVersion,
+}
+
+impl<'worker> Fm for Kernel<'worker> {
+    fn fm(&self) -> &crate::file_make::FileMake {
+        self.worker.fm()
+    }
 }
 
 impl<'worker> Kernel<'worker> {
@@ -65,7 +72,7 @@ impl<'worker> Kernel<'worker> {
         &self,
     ) -> Result<PathBuf, MakeError<Infallible, AnyhowError>> {
         let linux_path = &self.worker.linux_path();
-        file_make(
+        self.fm().make(
             self.config_backup_path(),
             [
                 // Make sure there is an initial file, or `make oldconfig` will
@@ -107,7 +114,7 @@ impl<'worker> Kernel<'worker> {
         MakeError<MakeError<Infallible, AnyhowError>, AnyhowError>,
     > {
         let linux_path = self.worker.linux_path();
-        file_make(
+        self.fm().make(
             self.stamp_path(),
             [self.make_oldconfig()?],
             |target, _dependencies| {

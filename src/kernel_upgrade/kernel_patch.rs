@@ -4,10 +4,11 @@ use anyhow::Result;
 use cj_path_util::path_util::AppendToPath;
 
 use crate::{
+    file_make::FileMake,
     gpg::{GpgKeyRef, KeyType},
     io_utils::dirs::create_dir_if_not_exists,
     kernel_upgrade::{
-        get_hashes_and_patch::GetHashesAndPatch, kernel::Kernel,
+        fm::Fm, get_hashes_and_patch::GetHashesAndPatch, kernel::Kernel,
         kernel_worker::KernelWorker,
     },
     scripting::linux::kernel_version::KernelVersion,
@@ -35,6 +36,12 @@ impl<'worker> KernelPatch<'worker> {
             worker,
             version: from_version.clone(),
         }
+    }
+}
+
+impl<'worker> Fm for KernelPatch<'worker> {
+    fn fm(&self) -> &FileMake {
+        self.worker.fm()
     }
 }
 

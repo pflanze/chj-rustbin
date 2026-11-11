@@ -3,7 +3,7 @@ use std::{convert::Infallible, path::Path};
 use anyhow::Result;
 
 use crate::{
-    file_make::{file_make, MakeError},
+    file_make::{FileMake, MakeError},
     gpg::Gpg,
     script_tools::touch,
     util::anyhow::AnyhowError,
@@ -11,10 +11,11 @@ use crate::{
 
 /// Get gpg key if necessary
 pub(crate) fn get_gpg_key<P: AsRef<Path>>(
+    fm: &FileMake,
     touch_file: P,
     key_fingerprint: &str,
 ) -> Result<P, MakeError<Infallible, AnyhowError>> {
-    file_make(
+    fm.make(
         touch_file,
         (),
         |target, _dependencies| -> Result<(), AnyhowError> {

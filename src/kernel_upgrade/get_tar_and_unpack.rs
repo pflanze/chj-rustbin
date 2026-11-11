@@ -21,13 +21,14 @@ use cj_path_util::{
 
 use crate::{
     easy_webget::{EasyWebget, GetToFileError},
-    file_make::{file_make, MakeError},
+    file_make::MakeError,
     gpg::{Gpg, GpgKeyRef},
     kernel_upgrade::{
         file_kind::{
             FileKind, FileKindSignature, FileKindTarChecked,
             FileKindTarUnchecked, FileKindTarXzUnchecked, FileName, FilePath,
         },
+        fm::Fm,
         kernel_worker::KernelWorker,
     },
     script_tools::{cmd_with_stdin_from, cmd_with_stdout_to, ls_paths, CmdCwd},
@@ -35,7 +36,7 @@ use crate::{
     utillib::into_arc_path::IntoArcPath,
 };
 
-pub trait GetTarAndUnpack<'worker> {
+pub trait GetTarAndUnpack<'worker>: Fm {
     const HASHES_SIGNATURE_KEY: GpgKeyRef;
 
     fn worker(&self) -> &'worker KernelWorker;
@@ -68,7 +69,7 @@ pub trait GetTarAndUnpack<'worker> {
         FilePath<FileKindSignature>,
         MakeError<AnyhowError, GetToFileError>,
     > {
-        file_make(
+        self.fm().make(
             self.file_path::<FileKindSignature>()
                 .map_err(|e| MakeError::Dependency(AnyhowError(e)))?,
             (),
@@ -87,7 +88,7 @@ pub trait GetTarAndUnpack<'worker> {
         FilePath<FileKindTarXzUnchecked>,
         MakeError<AnyhowError, GetToFileError>,
     > {
-        file_make(
+        self.fm().make(
             self.file_path::<FileKindTarXzUnchecked>()
                 .map_err(AnyhowError)?,
             (),
@@ -106,7 +107,7 @@ pub trait GetTarAndUnpack<'worker> {
         FilePath<FileKindTarUnchecked>,
         MakeError<MakeError<AnyhowError, GetToFileError>, AnyhowError>,
     > {
-        file_make(
+        self.fm().make(
             self.file_path::<FileKindTarUnchecked>()
                 .map_err(|e| MakeError::Dependency(AnyhowError(e)))?,
             [self.get_compressed()?],
@@ -138,7 +139,7 @@ pub trait GetTarAndUnpack<'worker> {
         FilePath<FileKindTarChecked>,
         MakeError<MakeError<AnyhowError, GetToFileError>, AnyhowError>,
     > {
-        file_make(
+        self.fm().make(
             self.file_path::<FileKindTarChecked>().map_err(|e| {
                 MakeError::Dependency(MakeError::Dependency(AnyhowError(e)))
             })?,
@@ -176,7 +177,7 @@ pub trait GetTarAndUnpack<'worker> {
     fn get_unpacked(
         &self,
     ) -> Result<PathBuf, MakeError<AnyhowError, AnyhowError>> {
-        file_make(
+        self.fm().make(
             self.target_directory_path().map_err(AnyhowError)?,
             (),
             |target, ()| -> Result<(), AnyhowError> {

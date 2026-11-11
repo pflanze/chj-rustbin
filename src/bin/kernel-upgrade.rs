@@ -20,7 +20,8 @@ use chj_rustbin::{
     },
 };
 use external_webget::RequestError;
-use nix::unistd::getuid;
+use libc::uid_t;
+use nix::unistd::{getuid, Uid};
 
 enum ReportKind {
     NoChange,
@@ -96,6 +97,10 @@ impl Display for RebootNeeded {
 ///
 /// So far this has been tested on Debian.
 struct Opts {
+    /// For development only: fake user id.
+    #[clap(long)]
+    dev_force_uid: Option<uid_t>,
+
     /// Exit silently if another instance is running
     #[clap(long)]
     skip_if_locked: bool,
@@ -189,6 +194,7 @@ impl TryFrom<Opts> for ProcessedOpts {
 
     fn try_from(value: Opts) -> std::result::Result<Self, Self::Error> {
         let Opts {
+            dev_force_uid,
             skip_if_locked,
             skip_if_offline,
             make_oldconfig,
@@ -219,7 +225,12 @@ impl TryFrom<Opts> for ProcessedOpts {
             allow_root_builds,
         };
 
-        mode.check_uid(getuid())?;
+        let uid = if let Some(uid) = dev_force_uid {
+            Uid::from_raw(uid)
+        } else {
+            getuid()
+        };
+        mode.check_uid(uid)?;
 
         let initial_linux_version = if mode.allow_install_only() {
             if initial_linux_version.is_some() {

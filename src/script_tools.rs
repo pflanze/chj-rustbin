@@ -15,7 +15,10 @@ use bstr::BString;
 use cj_path_util::path_util::AppendToPath;
 use maybe_expand_tilde::{let_path_expand_tilde, MaybeExpandTilde};
 
-use crate::utillib::into_arc_path::IntoArcPath;
+use crate::{
+    util::into_iterator_with_bottom::IntoIteratorWithBottom,
+    utillib::into_arc_path::IntoArcPath,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct ScriptContext {
@@ -75,14 +78,17 @@ impl ScriptContext {
         }
     }
 
-    pub fn cmd_acceptable<A: AsRef<OsStr>>(
+    pub fn cmd_acceptable<A>(
         &self,
         prog: &str,
-        args: impl IntoIterator<Item = A>,
+        args: A,
         acceptable_exit_codes: &[i32],
-    ) -> Result<i32> {
+    ) -> Result<i32>
+    where
+        for<'t> &'t A: IntoIteratorWithBottom<&'t OsStr>,
+    {
         let mut cmd = Command::new(prog);
-        cmd.args(args);
+        cmd.args(args.into_iter_with_bottom());
         if let Some(path) = &self.cwd {
             cmd.current_dir(path);
         }
@@ -109,20 +115,18 @@ impl ScriptContext {
         }
     }
 
-    pub fn cmd<A: AsRef<OsStr>>(
-        &self,
-        prog: &str,
-        args: impl IntoIterator<Item = A>,
-    ) -> Result<()> {
+    pub fn cmd<A>(&self, prog: &str, args: A) -> Result<()>
+    where
+        for<'t> &'t A: IntoIteratorWithBottom<&'t OsStr>,
+    {
         self.cmd_acceptable(prog, args, &[])?;
         Ok(())
     }
 
-    pub fn cmd01<A: AsRef<OsStr>>(
-        &self,
-        prog: &str,
-        args: impl IntoIterator<Item = A>,
-    ) -> Result<i32> {
+    pub fn cmd01<A>(&self, prog: &str, args: A) -> Result<i32>
+    where
+        for<'t> &'t A: IntoIteratorWithBottom<&'t OsStr>,
+    {
         self.cmd_acceptable(prog, args, &[1])
     }
 
@@ -147,14 +151,17 @@ impl ScriptContext {
     /// Run prog with args, capturing its stdout, but letting it inherit
     /// stderr. Unlike shell's backtick (subcommand capture), does not
     /// remove a trailing newline.
-    pub fn cmd_backtick<A: AsRef<OsStr>>(
+    pub fn cmd_backtick<A>(
         &self,
         prog: &str,
-        args: impl IntoIterator<Item = A>,
+        args: A,
         acceptable_exit_codes: &[i32],
-    ) -> Result<BString> {
+    ) -> Result<BString>
+    where
+        for<'t> &'t A: IntoIteratorWithBottom<&'t OsStr>,
+    {
         let mut cmd = Command::new(prog);
-        cmd.args(args);
+        cmd.args(args.into_iter_with_bottom());
         cmd.stdout(Stdio::piped());
         if let Some(path) = &self.cwd {
             cmd.current_dir(path);
@@ -187,14 +194,17 @@ impl ScriptContext {
 
     /// Run prog with args, capturing its stderr, but letting it inherit
     /// stdout.
-    pub fn cmd_capturing_stderr<A: AsRef<OsStr>>(
+    pub fn cmd_capturing_stderr<A>(
         &self,
         prog: &str,
-        args: impl IntoIterator<Item = A>,
+        args: A,
         acceptable_exit_codes: &[i32],
-    ) -> Result<BString> {
+    ) -> Result<BString>
+    where
+        for<'t> &'t A: IntoIteratorWithBottom<&'t OsStr>,
+    {
         let mut cmd = Command::new(prog);
-        cmd.args(args);
+        cmd.args(args.into_iter_with_bottom());
         cmd.stderr(Stdio::piped());
         if let Some(path) = &self.cwd {
             cmd.current_dir(path);
@@ -228,14 +238,17 @@ impl ScriptContext {
 
     /// Run prog with args, capturing both its stdout and stderr,
     /// returning them in that order.
-    pub fn cmd_capturing_both<A: AsRef<OsStr>>(
+    pub fn cmd_capturing_both<A>(
         &self,
         prog: &str,
-        args: impl IntoIterator<Item = A>,
+        args: A,
         acceptable_exit_codes: &[i32],
-    ) -> Result<(BString, BString)> {
+    ) -> Result<(BString, BString)>
+    where
+        for<'t> &'t A: IntoIteratorWithBottom<&'t OsStr>,
+    {
         let mut cmd = Command::new(prog);
-        cmd.args(args);
+        cmd.args(args.into_iter_with_bottom());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
         if let Some(path) = &self.cwd {
@@ -282,15 +295,18 @@ impl ScriptContext {
 
     /// Run prog with args, writing its stdout to `output`, but letting it
     /// inherit stderr.
-    pub fn cmd_with_stdout_to<A: AsRef<OsStr>>(
+    pub fn cmd_with_stdout_to<A>(
         &self,
         prog: &str,
-        args: impl IntoIterator<Item = A>,
+        args: A,
         output: File,
         acceptable_exit_codes: &[i32],
-    ) -> Result<()> {
+    ) -> Result<()>
+    where
+        for<'t> &'t A: IntoIteratorWithBottom<&'t OsStr>,
+    {
         let mut cmd = Command::new(prog);
-        cmd.args(args);
+        cmd.args(args.into_iter_with_bottom());
         cmd.stdout(output);
         if let Some(path) = &self.cwd {
             cmd.current_dir(path);
@@ -318,15 +334,18 @@ impl ScriptContext {
         }
     }
 
-    pub fn cmd_with_stdin_from<A: AsRef<OsStr>>(
+    pub fn cmd_with_stdin_from<A>(
         &self,
         input: File,
         prog: &str,
-        args: impl IntoIterator<Item = A>,
+        args: A,
         acceptable_exit_codes: &[i32],
-    ) -> Result<()> {
+    ) -> Result<()>
+    where
+        for<'t> &'t A: IntoIteratorWithBottom<&'t OsStr>,
+    {
         let mut cmd = Command::new(prog);
-        cmd.args(args);
+        cmd.args(args.into_iter_with_bottom());
         cmd.stdin(input);
         if let Some(path) = &self.cwd {
             cmd.current_dir(path);

@@ -124,7 +124,7 @@ impl<'worker> Kernel<'worker> {
 
                     let j = &format!("-j{num_cores}");
                     ctx.cmd("make", [j])?;
-                    ctx.cmd("make", [j, "modules"])?;
+                    ctx.cmd("make", [j.as_ref(), "modules"])?;
                 }
                 ctx.touch(target)?;
                 Ok(())

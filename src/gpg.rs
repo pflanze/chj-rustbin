@@ -69,7 +69,7 @@ impl Gpg {
     pub fn recv_key(&self, fingerprint: &str) -> Result<BString> {
         self.script_context.cmd_capturing_stderr(
             "gpg",
-            &[
+            [
                 "--keyserver",
                 "keyserver.ubuntu.com",
                 "--recv-key",
@@ -97,7 +97,7 @@ impl Gpg {
         signed_file: &Path,
         restrict_to_key: Option<&GpgKeyRef>,
     ) -> Result<BString, VerifyError> {
-        let args = &[
+        let args = [
             "--verify".as_ref(),
             signature_file.as_os_str(),
             signed_file.as_os_str(),
@@ -138,7 +138,7 @@ impl Gpg {
     ) -> Result<BString, VerifyError> {
         let unpacked_temp_path =
             TempPathOptions::default().temp_path_for(unpacked_file)?;
-        let args = &[
+        let args = [
             "-o".as_ref(),
             unpacked_temp_path.temp_path.as_os_str(),
             "--verify".as_ref(),

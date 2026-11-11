@@ -11,7 +11,7 @@ impl ScriptContext {
     /// Call out to `sha256sum` tool to calculate the SHA-256 hash as a
     /// hex number string
     pub fn sha256sum(&self, path: &Path) -> Result<String> {
-        let (out, err) = self.cmd_capturing_both("sha256sum", &[path], &[])?;
+        let (out, err) = self.cmd_capturing_both("sha256sum", [path], &[])?;
         if let Some((hash, _rest)) = out.split_once_str(b" ") {
             let s = String::from_utf8(hash.to_vec()).with_context(|| {
                 anyhow!(

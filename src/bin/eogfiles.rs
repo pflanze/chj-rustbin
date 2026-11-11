@@ -8,8 +8,7 @@ use std::{
 use anyhow::{anyhow, bail, Context, Result};
 use bstr::{ByteSlice, ByteVec};
 use chj_rustbin::{
-    script_tools::{cmd, SetX},
-    util::forked_drop::ForkedDropper,
+    script_tools::ScriptContext, util::forked_drop::ForkedDropper,
 };
 use cj_path_util::path_util::AppendToPath;
 use clap::Parser;
@@ -154,7 +153,10 @@ fn main() -> Result<()> {
     }
 
     if !eog_path_args.is_empty() {
-        let _x = SetX::new(verbose);
+        let ctx = ScriptContext {
+            x: verbose,
+            cwd: None,
+        };
 
         let mut eog_args: Vec<&OsStr> = vec![];
 
@@ -185,7 +187,7 @@ fn main() -> Result<()> {
             eog_args.push(temp_path.as_ref());
         }
 
-        cmd("eog", eog_args)?;
+        ctx.cmd("eog", eog_args)?;
     }
 
     Ok(())

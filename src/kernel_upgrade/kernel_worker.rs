@@ -1,4 +1,9 @@
-use std::{fs::File, os::fd::AsRawFd, path::PathBuf};
+use std::{
+    convert::Infallible,
+    fs::File,
+    os::fd::AsRawFd,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{anyhow, Context, Result};
 use cj_path_util::path_util::AppendToPath;
@@ -6,9 +11,12 @@ use nix::fcntl::{flock, FlockArg};
 
 use crate::{
     def_subdirs,
-    file_make::FileMake,
+    file_make::{FileMake, MakeError},
+    gpg::Gpg,
     kernel_upgrade::{fm::Fm, kernel::Kernel},
+    script_tools::ScriptContext,
     scripting::linux::kernel_version::KernelVersion,
+    util::anyhow::AnyhowError,
 };
 use external_webget::WebGet;
 
@@ -18,6 +26,7 @@ def_subdirs! {pub Dirs => kernels, hashes, patches, configs, stamps}
 pub struct KernelWorker {
     webget: WebGet,
     file_make: FileMake,
+    script_context: ScriptContext,
     dirs: Dirs,
     _locked_file: File,
 }
@@ -43,6 +52,7 @@ impl KernelWorker {
     pub fn new(
         base_dir: PathBuf,
         stop_if_locked: bool,
+        script_context: ScriptContext,
     ) -> Result<Self, KernelWorkerError> {
         let lock_path = (&base_dir).append(".kernel-upgrade.flock");
 
@@ -70,6 +80,7 @@ impl KernelWorker {
             _locked_file,
             webget: WebGet::auto_choose()?,
             file_make: FileMake {},
+            script_context,
         })
     }
 
@@ -78,6 +89,9 @@ impl KernelWorker {
     }
     pub fn dirs(&self) -> &Dirs {
         &self.dirs
+    }
+    pub fn script_context(&self) -> &ScriptContext {
+        &self.script_context
     }
 
     /// Path to the linux source and build directory
@@ -89,6 +103,7 @@ impl KernelWorker {
         Ok(Kernel {
             worker: self,
             version: KernelVersion::from_makefile_in_directory(
+                &self.script_context,
                 &self.linux_path(),
             )?,
         })
@@ -99,5 +114,24 @@ impl KernelWorker {
             worker: self,
             version,
         }
+    }
+
+    /// Get gpg key if necessary
+    ///
+    /// `touch_file` is relative to `self.script_context.cwd`!
+    pub(crate) fn get_gpg_key<P: AsRef<Path>>(
+        &self,
+        touch_file: P,
+        key_fingerprint: &str,
+    ) -> Result<P, MakeError<Infallible, AnyhowError>> {
+        self.fm().make(
+            touch_file,
+            (),
+            |target, _dependencies| -> Result<(), AnyhowError> {
+                Gpg::default().recv_key(key_fingerprint)?;
+                self.script_context.touch(target.as_ref())?;
+                Ok(())
+            },
+        )
     }
 }

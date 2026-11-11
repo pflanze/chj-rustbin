@@ -8,9 +8,27 @@ pub trait IntoArcPath {
     fn into_arc_path(self) -> Arc<Path>;
 }
 
+impl IntoArcPath for Arc<Path> {
+    fn into_arc_path(self) -> Arc<Path> {
+        self
+    }
+}
+
+impl IntoArcPath for &Arc<Path> {
+    fn into_arc_path(self) -> Arc<Path> {
+        self.clone()
+    }
+}
+
 impl IntoArcPath for PathBuf {
     fn into_arc_path(self) -> Arc<Path> {
         self.into()
+    }
+}
+
+impl IntoArcPath for &PathBuf {
+    fn into_arc_path(self) -> Arc<Path> {
+        self.clone().into()
     }
 }
 

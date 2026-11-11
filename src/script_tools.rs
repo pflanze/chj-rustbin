@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     ffi::OsStr,
     fs::File,
     io::Read,
@@ -11,324 +12,353 @@ use std::{
 use anyhow::{anyhow, bail, Context, Result};
 
 use bstr::BString;
+use cj_path_util::path_util::AppendToPath;
 use maybe_expand_tilde::{let_path_expand_tilde, MaybeExpandTilde};
 
-use crate::define_scoped_setting;
+use crate::utillib::into_arc_path::IntoArcPath;
 
-define_scoped_setting! {
-    /// Enable or disable tracing of command invocations
-    ///
-    /// Example: `let _guard = SetX::new(true);`
-    ///
-    /// `SetX::new(true)` corresponds to `set -x`, `SetX::new(false)` to `set
-    /// +x` in Bash. Unlike in Bash, the setting is removed when the `SetX`
-    /// instance is dropped and the last previous active setting comes into
-    /// effect.
-    SetX => bool, false => SETX, SETX_ID
+#[derive(Debug, Clone, Default)]
+pub struct ScriptContext {
+    /// Whether to show a trace in the style of `set -x` in bash
+    pub x: bool,
+    /// The current directory to use when resolving paths, instead of
+    /// the actual current directoy of the running process; if this is
+    /// a relative path, it is relative to the current directory of
+    /// the process at the time of use!
+    pub cwd: Option<Arc<Path>>,
 }
 
-define_scoped_setting! {
-    /// Directory from which to execute commands, until dropped.
+impl ScriptContext {
+    /// Base `path` on `self.cwd` if defined
     ///
-    /// Example: `let _guard = CmdCwd::new(Some(arc_path));`
-    ///
-    /// This only registers the given path, which can be relative, for future
-    /// `cmd_*` executions--it does not change the current directory of the
-    /// current process (the parent process of the future commands), nor is the
-    /// given path canonicalized at the time of registration. Dropping removes
-    /// the registration again, meaning previous still active registrations will
-    /// be used. Careful: the registration is resolved at the time of running a
-    /// command, thus changing the actual current dir while relative
-    /// registrations are active may not lead to the outcome that you want.
-    CmdCwd => Option<Arc<Path>>, None => CMD_CWD, CMD_CWD_ID
-}
-
-pub fn cmd_acceptable<A: AsRef<OsStr>>(
-    prog: &str,
-    args: impl IntoIterator<Item = A>,
-    acceptable_exit_codes: &[i32],
-) -> Result<i32> {
-    let mut cmd = Command::new(prog);
-    cmd.args(args);
-    if let Some(path) = CmdCwd::get() {
-        cmd.current_dir(path);
-    }
-    if SetX::get() {
-        eprintln!("+ {cmd:?}");
-    }
-
-    let status = cmd
-        .status()
-        .with_context(|| anyhow!("running external command {prog:?}"))?;
-    if status.success() {
-        Ok(0)
-    } else {
-        if let Some(code) = status.code() {
-            if acceptable_exit_codes.contains(&code) {
-                Ok(code)
-            } else {
-                bail!("{prog:?} exited with code {code}")
-            }
+    /// If `self.cwd` is set and `path` is relative, add it to the
+    /// former, otherwise leave unchanged
+    pub fn resolve_path<'path>(&self, path: &'path Path) -> Cow<'path, Path> {
+        if path.is_absolute() {
+            path.into()
+        } else if let Some(cwd) = &self.cwd {
+            cwd.append(path).into()
         } else {
-            let signal = status.signal();
-            bail!("{prog:?} exited via signal {signal:?}")
+            path.into()
         }
     }
-}
 
-pub fn cmd<A: AsRef<OsStr>>(
-    prog: &str,
-    args: impl IntoIterator<Item = A>,
-) -> Result<()> {
-    cmd_acceptable(prog, args, &[])?;
-    Ok(())
-}
-
-pub fn cmd01<A: AsRef<OsStr>>(
-    prog: &str,
-    args: impl IntoIterator<Item = A>,
-) -> Result<i32> {
-    cmd_acceptable(prog, args, &[1])
-}
-
-pub fn catfile<'t>(path: impl MaybeExpandTilde<'t>) -> Result<String> {
-    let_path_expand_tilde!(path);
-    std::fs::read_to_string(&path)
-        .with_context(|| anyhow!("reading file {path:?}"))
-}
-
-pub fn cd<'t>(path: impl MaybeExpandTilde<'t>) -> Result<()> {
-    let_path_expand_tilde!(path);
-    if SetX::get() {
-        eprintln!("+ cd {path:?}");
-    }
-    std::env::set_current_dir(&path).with_context(|| anyhow!("cd {path:?}"))
-}
-
-/// Run prog with args, capturing its stdout, but letting it inherit
-/// stderr. Unlike shell's backtick (subcommand capture), does not
-/// remove a trailing newline.
-pub fn cmd_backtick<A: AsRef<OsStr>>(
-    prog: &str,
-    args: impl IntoIterator<Item = A>,
-    acceptable_exit_codes: &[i32],
-) -> Result<BString> {
-    let mut cmd = Command::new(prog);
-    cmd.args(args);
-    cmd.stdout(Stdio::piped());
-    if let Some(path) = CmdCwd::get() {
-        cmd.current_dir(path);
-    }
-    if SetX::get() {
-        eprintln!("+ `{cmd:?}`");
-    }
-
-    let mut child = cmd.spawn()?;
-    let stdout = child.stdout.as_mut().expect("asked for it above");
-    let mut output = Vec::new();
-    stdout.read_to_end(&mut output)?;
-    let status = child.wait()?;
-
-    if status.success() {
-        Ok(output.into())
-    } else {
-        if let Some(code) = status.code() {
-            if acceptable_exit_codes.contains(&code) {
-                Ok(output.into())
-            } else {
-                bail!("{prog:?} exited with code {code}")
-            }
-        } else {
-            let signal = status.signal();
-            bail!("{prog:?} exited via signal {signal:?}")
+    pub fn set_cwd<P: IntoArcPath>(&self, cwd: P) -> Self {
+        Self {
+            x: self.x,
+            cwd: Some(cwd.into_arc_path()),
         }
     }
-}
 
-/// Run prog with args, capturing its stderr, but letting it inherit
-/// stdout.
-pub fn cmd_capturing_stderr<A: AsRef<OsStr>>(
-    prog: &str,
-    args: impl IntoIterator<Item = A>,
-    acceptable_exit_codes: &[i32],
-) -> Result<BString> {
-    let mut cmd = Command::new(prog);
-    cmd.args(args);
-    cmd.stderr(Stdio::piped());
-    if let Some(path) = CmdCwd::get() {
-        cmd.current_dir(path);
-    }
-    if SetX::get() {
-        eprintln!("+ `{cmd:?}`2");
-    }
-
-    let mut child = cmd.spawn()?;
-    let out = child.stderr.as_mut().expect("asked for it above");
-    let mut output = Vec::new();
-    out.read_to_end(&mut output)?;
-    let output = output.into();
-    let status = child.wait()?;
-
-    if status.success() {
-        Ok(output)
-    } else {
-        if let Some(code) = status.code() {
-            if acceptable_exit_codes.contains(&code) {
-                Ok(output)
-            } else {
-                bail!("{prog:?} exited with code {code} after printing:\n{output}")
-            }
-        } else {
-            let signal = status.signal();
-            bail!("{prog:?} exited via signal {signal:?} after printing:\n{output}")
+    pub fn unset_cwd(&self) -> Self {
+        Self {
+            x: self.x,
+            cwd: None,
         }
     }
-}
 
-/// Run prog with args, capturing both its stdout and stderr,
-/// returning them in that order.
-pub fn cmd_capturing_both<A: AsRef<OsStr>>(
-    prog: &str,
-    args: impl IntoIterator<Item = A>,
-    acceptable_exit_codes: &[i32],
-) -> Result<(BString, BString)> {
-    let mut cmd = Command::new(prog);
-    cmd.args(args);
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::piped());
-    if let Some(path) = CmdCwd::get() {
-        cmd.current_dir(path);
-    }
-    if SetX::get() {
-        eprintln!("+ `{cmd:?} 2>&1`");
-    }
+    pub fn cmd_acceptable<A: AsRef<OsStr>>(
+        &self,
+        prog: &str,
+        args: impl IntoIterator<Item = A>,
+        acceptable_exit_codes: &[i32],
+    ) -> Result<i32> {
+        let mut cmd = Command::new(prog);
+        cmd.args(args);
+        if let Some(path) = &self.cwd {
+            cmd.current_dir(path);
+        }
+        if self.x {
+            eprintln!("+ {cmd:?}");
+        }
 
-    let mut child = cmd.spawn()?;
-
-    let child_stdout = child.stdout.as_mut().expect("asked for it above");
-    let child_stderr = child.stderr.as_mut().expect("asked for it above");
-    let mut stdout = Vec::new();
-    let mut stderr = Vec::new();
-
-    let (r1, r2) = rayon::join(
-        || child_stdout.read_to_end(&mut stdout),
-        || child_stderr.read_to_end(&mut stderr),
-    );
-    r1?;
-    r2?;
-
-    let status = child.wait()?;
-
-    let stdout = stdout.into();
-    let stderr = stderr.into();
-
-    if status.success() {
-        Ok((stdout, stderr))
-    } else {
-        if let Some(code) = status.code() {
-            if acceptable_exit_codes.contains(&code) {
-                Ok((stdout, stderr))
-            } else {
-                bail!("{prog:?} exited with code {code} after printing {stderr:?}")
-            }
+        let status = cmd
+            .status()
+            .with_context(|| anyhow!("running external command {prog:?}"))?;
+        if status.success() {
+            Ok(0)
         } else {
-            let signal = status.signal();
-            bail!("{prog:?} exited via signal {signal:?} after printing {stderr:?}")
+            if let Some(code) = status.code() {
+                if acceptable_exit_codes.contains(&code) {
+                    Ok(code)
+                } else {
+                    bail!("{prog:?} exited with code {code}")
+                }
+            } else {
+                let signal = status.signal();
+                bail!("{prog:?} exited via signal {signal:?}")
+            }
         }
     }
-}
 
-/// Run prog with args, writing its stdout to `output`, but letting it
-/// inherit stderr.
-pub fn cmd_with_stdout_to<A: AsRef<OsStr>>(
-    prog: &str,
-    args: impl IntoIterator<Item = A>,
-    output: File,
-    acceptable_exit_codes: &[i32],
-) -> Result<()> {
-    let mut cmd = Command::new(prog);
-    cmd.args(args);
-    cmd.stdout(output);
-    if let Some(path) = CmdCwd::get() {
-        cmd.current_dir(path);
-    }
-    if SetX::get() {
-        eprintln!("+ `{cmd:?}`2");
-    }
-
-    let mut child = cmd.spawn()?;
-    let status = child.wait()?;
-
-    if status.success() {
+    pub fn cmd<A: AsRef<OsStr>>(
+        &self,
+        prog: &str,
+        args: impl IntoIterator<Item = A>,
+    ) -> Result<()> {
+        self.cmd_acceptable(prog, args, &[])?;
         Ok(())
-    } else {
-        if let Some(code) = status.code() {
-            if acceptable_exit_codes.contains(&code) {
-                Ok(())
-            } else {
-                bail!("{prog:?} exited with code {code}")
-            }
+    }
+
+    pub fn cmd01<A: AsRef<OsStr>>(
+        &self,
+        prog: &str,
+        args: impl IntoIterator<Item = A>,
+    ) -> Result<i32> {
+        self.cmd_acceptable(prog, args, &[1])
+    }
+
+    pub fn catfile<'t>(
+        &self,
+        path: impl MaybeExpandTilde<'t>,
+    ) -> Result<String> {
+        let_path_expand_tilde!(path);
+        let path = self.resolve_path(&path);
+        std::fs::read_to_string(&path)
+            .with_context(|| anyhow!("reading file {path:?}"))
+    }
+
+    pub fn cd<'t>(&mut self, path: impl MaybeExpandTilde<'t>) {
+        let_path_expand_tilde!(path);
+        if self.x {
+            eprintln!("+ cd {path:?}");
+        }
+        self.cwd = Some(path.into());
+    }
+
+    /// Run prog with args, capturing its stdout, but letting it inherit
+    /// stderr. Unlike shell's backtick (subcommand capture), does not
+    /// remove a trailing newline.
+    pub fn cmd_backtick<A: AsRef<OsStr>>(
+        &self,
+        prog: &str,
+        args: impl IntoIterator<Item = A>,
+        acceptable_exit_codes: &[i32],
+    ) -> Result<BString> {
+        let mut cmd = Command::new(prog);
+        cmd.args(args);
+        cmd.stdout(Stdio::piped());
+        if let Some(path) = &self.cwd {
+            cmd.current_dir(path);
+        }
+        if self.x {
+            eprintln!("+ `{cmd:?}`");
+        }
+
+        let mut child = cmd.spawn()?;
+        let stdout = child.stdout.as_mut().expect("asked for it above");
+        let mut output = Vec::new();
+        stdout.read_to_end(&mut output)?;
+        let status = child.wait()?;
+
+        if status.success() {
+            Ok(output.into())
         } else {
-            let signal = status.signal();
-            bail!("{prog:?} exited via signal {signal:?}")
+            if let Some(code) = status.code() {
+                if acceptable_exit_codes.contains(&code) {
+                    Ok(output.into())
+                } else {
+                    bail!("{prog:?} exited with code {code}")
+                }
+            } else {
+                let signal = status.signal();
+                bail!("{prog:?} exited via signal {signal:?}")
+            }
         }
     }
-}
 
-pub fn cmd_with_stdin_from<A: AsRef<OsStr>>(
-    input: File,
-    prog: &str,
-    args: impl IntoIterator<Item = A>,
-    acceptable_exit_codes: &[i32],
-) -> Result<()> {
-    let mut cmd = Command::new(prog);
-    cmd.args(args);
-    cmd.stdin(input);
-    if let Some(path) = CmdCwd::get() {
-        cmd.current_dir(path);
+    /// Run prog with args, capturing its stderr, but letting it inherit
+    /// stdout.
+    pub fn cmd_capturing_stderr<A: AsRef<OsStr>>(
+        &self,
+        prog: &str,
+        args: impl IntoIterator<Item = A>,
+        acceptable_exit_codes: &[i32],
+    ) -> Result<BString> {
+        let mut cmd = Command::new(prog);
+        cmd.args(args);
+        cmd.stderr(Stdio::piped());
+        if let Some(path) = &self.cwd {
+            cmd.current_dir(path);
+        }
+        if self.x {
+            eprintln!("+ `{cmd:?}`2");
+        }
+
+        let mut child = cmd.spawn()?;
+        let out = child.stderr.as_mut().expect("asked for it above");
+        let mut output = Vec::new();
+        out.read_to_end(&mut output)?;
+        let output = output.into();
+        let status = child.wait()?;
+
+        if status.success() {
+            Ok(output)
+        } else {
+            if let Some(code) = status.code() {
+                if acceptable_exit_codes.contains(&code) {
+                    Ok(output)
+                } else {
+                    bail!("{prog:?} exited with code {code} after printing:\n{output}")
+                }
+            } else {
+                let signal = status.signal();
+                bail!("{prog:?} exited via signal {signal:?} after printing:\n{output}")
+            }
+        }
     }
-    if SetX::get() {
-        eprintln!("+ `{cmd:?}`2");
+
+    /// Run prog with args, capturing both its stdout and stderr,
+    /// returning them in that order.
+    pub fn cmd_capturing_both<A: AsRef<OsStr>>(
+        &self,
+        prog: &str,
+        args: impl IntoIterator<Item = A>,
+        acceptable_exit_codes: &[i32],
+    ) -> Result<(BString, BString)> {
+        let mut cmd = Command::new(prog);
+        cmd.args(args);
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+        if let Some(path) = &self.cwd {
+            cmd.current_dir(path);
+        }
+        if self.x {
+            eprintln!("+ `{cmd:?} 2>&1`");
+        }
+
+        let mut child = cmd.spawn()?;
+
+        let child_stdout = child.stdout.as_mut().expect("asked for it above");
+        let child_stderr = child.stderr.as_mut().expect("asked for it above");
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let (r1, r2) = rayon::join(
+            || child_stdout.read_to_end(&mut stdout),
+            || child_stderr.read_to_end(&mut stderr),
+        );
+        r1?;
+        r2?;
+
+        let status = child.wait()?;
+
+        let stdout = stdout.into();
+        let stderr = stderr.into();
+
+        if status.success() {
+            Ok((stdout, stderr))
+        } else {
+            if let Some(code) = status.code() {
+                if acceptable_exit_codes.contains(&code) {
+                    Ok((stdout, stderr))
+                } else {
+                    bail!("{prog:?} exited with code {code} after printing {stderr:?}")
+                }
+            } else {
+                let signal = status.signal();
+                bail!("{prog:?} exited via signal {signal:?} after printing {stderr:?}")
+            }
+        }
     }
 
-    let mut child = cmd.spawn()?;
-    let status = child.wait()?;
+    /// Run prog with args, writing its stdout to `output`, but letting it
+    /// inherit stderr.
+    pub fn cmd_with_stdout_to<A: AsRef<OsStr>>(
+        &self,
+        prog: &str,
+        args: impl IntoIterator<Item = A>,
+        output: File,
+        acceptable_exit_codes: &[i32],
+    ) -> Result<()> {
+        let mut cmd = Command::new(prog);
+        cmd.args(args);
+        cmd.stdout(output);
+        if let Some(path) = &self.cwd {
+            cmd.current_dir(path);
+        }
+        if self.x {
+            eprintln!("+ `{cmd:?}`2");
+        }
 
-    if status.success() {
+        let mut child = cmd.spawn()?;
+        let status = child.wait()?;
+
+        if status.success() {
+            Ok(())
+        } else {
+            if let Some(code) = status.code() {
+                if acceptable_exit_codes.contains(&code) {
+                    Ok(())
+                } else {
+                    bail!("{prog:?} exited with code {code}")
+                }
+            } else {
+                let signal = status.signal();
+                bail!("{prog:?} exited via signal {signal:?}")
+            }
+        }
+    }
+
+    pub fn cmd_with_stdin_from<A: AsRef<OsStr>>(
+        &self,
+        input: File,
+        prog: &str,
+        args: impl IntoIterator<Item = A>,
+        acceptable_exit_codes: &[i32],
+    ) -> Result<()> {
+        let mut cmd = Command::new(prog);
+        cmd.args(args);
+        cmd.stdin(input);
+        if let Some(path) = &self.cwd {
+            cmd.current_dir(path);
+        }
+        if self.x {
+            eprintln!("+ `{cmd:?}`2");
+        }
+
+        let mut child = cmd.spawn()?;
+        let status = child.wait()?;
+
+        if status.success() {
+            Ok(())
+        } else {
+            if let Some(code) = status.code() {
+                if acceptable_exit_codes.contains(&code) {
+                    Ok(())
+                } else {
+                    bail!("{prog:?} exited with code {code}")
+                }
+            } else {
+                let signal = status.signal();
+                bail!("{prog:?} exited via signal {signal:?}")
+            }
+        }
+    }
+
+    /// Get a list of the paths to all items in `dir`, relative to
+    /// `self.cwd` if any, sorted by path
+    pub fn ls_paths(&self, dir: &Path) -> Result<Vec<PathBuf>> {
+        let mut items = self
+            .resolve_path(dir)
+            .read_dir()
+            .context("opening dir")?
+            .map(|item| Ok(item.context("getting item")?.path()))
+            .collect::<Result<Vec<PathBuf>>>()?;
+        items.sort();
+        Ok(items)
+    }
+
+    /// Create the file at `path` (relative to `self.cwd` if any) or
+    /// update its modification time if it exists.
+    ///
+    /// Careful: gives an error for directories. Follows symlinks. Currently only
+    /// manually tested, only on Linux.
+    pub fn touch(&self, path: &Path) -> Result<()> {
+        let path = self.resolve_path(path);
+        File::create(&path).with_context(|| anyhow!("touch {path:?}"))?;
         Ok(())
-    } else {
-        if let Some(code) = status.code() {
-            if acceptable_exit_codes.contains(&code) {
-                Ok(())
-            } else {
-                bail!("{prog:?} exited with code {code}")
-            }
-        } else {
-            let signal = status.signal();
-            bail!("{prog:?} exited via signal {signal:?}")
-        }
     }
-}
-
-/// Get a list of the paths to all items in `dir`, sorted by path
-pub fn ls_paths(dir: &Path) -> Result<Vec<PathBuf>> {
-    let mut items = dir
-        .read_dir()
-        .context("opening dir")?
-        .map(|item| Ok(item.context("getting item")?.path()))
-        .collect::<Result<Vec<PathBuf>>>()?;
-    items.sort();
-    Ok(items)
-}
-
-/// Create the file at `path` or update its modification time if it
-/// exists.
-///
-/// Careful: gives an error for directories. Follows symlinks. Currently only
-/// manually tested, only on Linux.
-pub fn touch(path: &Path) -> Result<()> {
-    File::create(path).with_context(|| anyhow!("touch {path:?}"))?;
-    Ok(())
 }
 
 #[test]

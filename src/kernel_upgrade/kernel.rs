@@ -19,7 +19,6 @@ use crate::{
         kernel_patch::KernelPatch,
         kernel_worker::KernelWorker,
     },
-    script_tools::{cmd, touch, CmdCwd},
     scripting::linux::kernel_version::KernelVersion,
     util::anyhow::AnyhowError,
     utillib::into_arc_path::IntoArcPath,
@@ -83,16 +82,13 @@ impl<'worker> Kernel<'worker> {
                 // before updating to this kernel version.)
             ],
             |target, dependencies| {
-                let [dependency] = dependencies;
-                {
-                    // (Should this region be redirected into a file? All of the
-                    // program's output, right, i.e. set stdout and stderr
-                    // temporarily?)
+                let ctx = self.worker().script_context();
 
-                    let _cwd =
-                        CmdCwd::new(Some(linux_path.clone().into_arc_path()));
-                    cmd("make", ["oldconfig"])?;
-                }
+                let [dependency] = dependencies;
+                // (Should this region be redirected into a file? All of the
+                // program's output, right, i.e. set stdout and stderr
+                // temporarily?)
+                ctx.set_cwd(linux_path).cmd("make", ["oldconfig"])?;
                 std::fs::copy(dependency, target).with_context(|| {
                     anyhow!("copying {dependency:?} to {target:?}")
                 })?;
@@ -118,18 +114,19 @@ impl<'worker> Kernel<'worker> {
             self.stamp_path(),
             [self.make_oldconfig()?],
             |target, _dependencies| {
+                let ctx = self.worker().script_context();
                 {
                     // (Should this region be redirected into a file? All of the
                     // program's output, right, i.e. set stdout and stderr
                     // temporarily?)
 
+                    let ctx = ctx.set_cwd(&linux_path);
+
                     let j = &format!("-j{num_cores}");
-                    let _cwd =
-                        CmdCwd::new(Some(linux_path.clone().into_arc_path()));
-                    cmd("make", [j])?;
-                    cmd("make", [j, "modules"])?;
+                    ctx.cmd("make", [j])?;
+                    ctx.cmd("make", [j, "modules"])?;
                 }
-                touch(target)?;
+                ctx.touch(target)?;
                 Ok(())
             },
         )

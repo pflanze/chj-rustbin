@@ -21,11 +21,8 @@ use crate::{
     easy_webget::{EasyWebget, GetToFileError},
     file_make::MakeError,
     gpg::{Gpg, GpgKeyRef},
-    kernel_upgrade::{
-        fm::Fm, get_gpg_key::get_gpg_key, kernel::Kernel,
-        kernel_worker::KernelWorker,
-    },
-    scripting::{linux::kernel_version::KernelVersion, sha256sum::sha256sum},
+    kernel_upgrade::{fm::Fm, kernel::Kernel, kernel_worker::KernelWorker},
+    scripting::linux::kernel_version::KernelVersion,
     util::{anyhow::AnyhowError, link_rename::link_rename},
 };
 
@@ -114,12 +111,12 @@ pub trait GetHashesAndPatch<'worker>: Fm {
                 self.get_hashes_asc(newer_than_paths)
                     .map_err(anyhow::Error::from)
                     .map_err(AnyhowError)?,
-                get_gpg_key(
-                    self.fm(),
-                    self.get_gpg_key_touch_file().map_err(AnyhowError)?,
-                    &Self::HASHES_SIGNATURE_KEY.key_fingerprint,
-                )
-                .map_err(MakeError::into_make_error)?,
+                self.worker()
+                    .get_gpg_key(
+                        self.get_gpg_key_touch_file().map_err(AnyhowError)?,
+                        &Self::HASHES_SIGNATURE_KEY.key_fingerprint,
+                    )
+                    .map_err(MakeError::into_make_error)?,
             ],
             |target, dependencies| -> Result<(), AnyhowError> {
                 let [source, _keystamp] = dependencies;
@@ -236,7 +233,7 @@ pub trait GetHashesAndPatch<'worker>: Fm {
                         })?
                     };
 
-                let sum = sha256sum(source)?;
+                let sum = self.worker().script_context().sha256sum(source)?;
 
                 if sum_expected == sum.as_bytes() {
                     eprintln!(

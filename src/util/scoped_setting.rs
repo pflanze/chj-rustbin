@@ -10,9 +10,12 @@
 //!
 //! `$T` must implement Clone.  The `$DEFAULT` expression is run every time
 //! `$Name::get()` is run with no active settings.
+//!
+//! OH: this will not work with tasks sent to thread pools like rayon
+//! or tokio!  TODO: study more, delete if hopeless.
 
 #[macro_export]
-macro_rules! define_scoped_setting {
+macro_rules! do_not_use__define_scoped_setting {
     { $(#[$attr:meta])*
       $Name:ident => $T:ty, $DEFAULT:expr => $NAME:ident, $NAME_ID:ident } => {
 

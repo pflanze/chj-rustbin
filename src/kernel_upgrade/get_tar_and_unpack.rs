@@ -31,9 +31,7 @@ use crate::{
         fm::Fm,
         kernel_worker::KernelWorker,
     },
-    script_tools::{cmd_with_stdin_from, cmd_with_stdout_to, ls_paths, CmdCwd},
     util::{anyhow::AnyhowError, as_os_str::AsOsStr},
-    utillib::into_arc_path::IntoArcPath,
 };
 
 pub trait GetTarAndUnpack<'worker>: Fm {
@@ -117,7 +115,7 @@ pub trait GetTarAndUnpack<'worker>: Fm {
                     unbuffered_temp_file_for(target.as_ref(), None)
                         .context("creating file for make target")?
                         .into_constituents();
-                cmd_with_stdout_to(
+                self.worker().script_context().cmd_with_stdout_to(
                     "xz",
                     [
                         "-d".as_os_str(),
@@ -154,13 +152,17 @@ pub trait GetTarAndUnpack<'worker>: Fm {
                     .get_decompressed_unchecked()
                     .context("during check build action")?;
 
-                Gpg::default().verify(
-                    &signature_path,
-                    &unchecked_path,
-                    Some(&Self::HASHES_SIGNATURE_KEY)
-                )
+                Gpg::default()
+                    .verify(
+                        &signature_path,
+                        &unchecked_path,
+                        Some(&Self::HASHES_SIGNATURE_KEY),
+                    )
                     .with_context(|| {
-                        anyhow!("verifying signature {signature_path:?} on {unchecked_path:?}")
+                        anyhow!(
+                            "verifying signature {signature_path:?} \
+                             on {unchecked_path:?}"
+                        )
                     })?;
 
                 rename(&unchecked_path, target).with_context(|| {
@@ -181,6 +183,8 @@ pub trait GetTarAndUnpack<'worker>: Fm {
             self.target_directory_path().map_err(AnyhowError)?,
             (),
             |target, ()| -> Result<(), AnyhowError> {
+                let ctx = self.worker().script_context();
+
                 let tar_path = self
                     .get_decompressed_checked()
                     .context("about to unpack")?;
@@ -196,27 +200,31 @@ pub trait GetTarAndUnpack<'worker>: Fm {
                 let input = File::open(&tar_path).with_context(|| {
                     anyhow!("opening tar file {tar_path:?} for input")
                 })?;
-                {
-                    let _dir = CmdCwd::new(Some(tmpdir.path().into_arc_path()));
-                    cmd_with_stdin_from(input, "tar", ["x"], &[])?;
-                }
-                let paths = ls_paths(tmpdir.path())?;
+                ctx.set_cwd(tmpdir.path()).cmd_with_stdin_from(
+                    input,
+                    "tar",
+                    ["x"],
+                    &[],
+                )?;
+                let paths = ctx.ls_paths(tmpdir.path())?;
                 match paths.as_slice() {
                     [linux_dir] => {
-                        rename(linux_dir, &target)
-                            .with_context(
-                                || anyhow!(
-                                    "renaming dir from {linux_dir:?} to {target:?}"
-                                ))?;
+                        rename(linux_dir, &target).with_context(|| {
+                            anyhow!(
+                                "renaming dir from {linux_dir:?} \
+                                 to {target:?}"
+                            )
+                        })?;
 
                         // Don't need the unpacked tar anymore:
-                        _= remove_file(&tar_path);
+                        _ = remove_file(&tar_path);
 
                         Ok(())
                     }
                     _ => Err(anyhow!(
-                        "expecting 1 unpacked entry from the tar file, got: {paths:?}"
-                    ))?
+                        "expecting 1 unpacked entry from the \
+                         tar file, got: {paths:?}"
+                    ))?,
                 }
             },
         )

@@ -12,7 +12,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use bstr::ByteSlice;
 use cj_path_util::path_util::AppendToPath;
 
-use crate::script_tools::{catfile, cmd_backtick, SetX};
+use crate::script_tools::ScriptContext;
 
 /// XX TODO: PartialOrd is probably not correct if extraversion is
 /// non-`Null`
@@ -118,9 +118,12 @@ where
 
 impl KernelVersion {
     /// Read version from the `Makefile` in the given directory
-    pub fn from_makefile_in_directory<'t>(directory: &Path) -> Result<Self> {
+    pub fn from_makefile_in_directory<'t>(
+        ctx: &ScriptContext,
+        directory: &Path,
+    ) -> Result<Self> {
         let path = directory.append("Makefile");
-        let m = catfile(path)?;
+        let m = ctx.catfile(path)?;
         let keyvals: BTreeMap<String, String> = m
             .lines()
             .map(|line| line.trim())
@@ -148,8 +151,8 @@ impl KernelVersion {
 
     /// Gets the version of the running Linux kernel via `uname -r`
     pub fn of_running_kernel() -> Result<Self> {
-        let _x = SetX::new(false); // disable tracing
-        let version = cmd_backtick("uname", ["-r"], &[])?;
+        let ctx = ScriptContext::default(); // assumes no tracing
+        let version = ctx.cmd_backtick("uname", ["-r"], &[])?;
         Self::from_str(version.to_str()?)
     }
 

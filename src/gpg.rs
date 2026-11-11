@@ -6,7 +6,7 @@ use anyhow::{anyhow, Context, Result};
 use bstr::{BString, ByteSlice};
 use cj_path_util::temp_path::{TempPathOptions, TempfileError};
 
-use crate::script_tools::cmd_capturing_stderr;
+use crate::script_tools::ScriptContext;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyType {
@@ -44,7 +44,9 @@ impl GpgKeyRef {
 }
 
 #[derive(Debug, Default)]
-pub struct Gpg {}
+pub struct Gpg {
+    pub script_context: ScriptContext,
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum VerifyError {
@@ -65,7 +67,7 @@ impl Gpg {
     /// Run --recv-key for the given fingerprint, specifying
     /// "keyserver.ubuntu.com" as the keyserver
     pub fn recv_key(&self, fingerprint: &str) -> Result<BString> {
-        cmd_capturing_stderr(
+        self.script_context.cmd_capturing_stderr(
             "gpg",
             &[
                 "--keyserver",
@@ -100,7 +102,9 @@ impl Gpg {
             signature_file.as_os_str(),
             signed_file.as_os_str(),
         ];
-        let output = cmd_capturing_stderr("gpg", args, &[])
+        let output = self
+            .script_context
+            .cmd_capturing_stderr("gpg", args, &[])
             .with_context(|| anyhow!("executing 'gpg' {args:?}"))?;
 
         if let Some(key) = restrict_to_key {
@@ -140,7 +144,9 @@ impl Gpg {
             "--verify".as_ref(),
             signed_file.as_os_str(),
         ];
-        let output = cmd_capturing_stderr("gpg", args, &[])
+        let output = self
+            .script_context
+            .cmd_capturing_stderr("gpg", args, &[])
             .with_context(|| anyhow!("executing 'gpg' {args:?}"))?;
 
         if let Some(key) = restrict_to_key {

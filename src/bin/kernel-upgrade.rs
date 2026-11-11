@@ -11,7 +11,7 @@ use chj_rustbin::{
         get_tar_and_unpack::GetTarAndUnpack,
         kernel_worker::{KernelWorker, KernelWorkerError},
     },
-    script_tools::SetX,
+    script_tools::ScriptContext,
     scripting::linux::kernel_version::KernelVersion,
     util::{
         network_interface::{external_interfaces, SummarizeAs},
@@ -127,9 +127,10 @@ struct Opts {
 
 /// Returns a success report kind and statement
 fn run(opts: &Opts) -> Result<(ReportKind, RebootNeeded), KernelWorkerError> {
-    let _x = SetX::new(true);
+    let ctx = ScriptContext { x: true, cwd: None };
 
-    let worker = KernelWorker::new(opts.base_dir.clone(), opts.skip_if_locked)?;
+    let worker =
+        KernelWorker::new(opts.base_dir.clone(), opts.skip_if_locked, ctx)?;
 
     let linux_path = worker.linux_path();
     let mut current_kernel = if linux_path.exists() {

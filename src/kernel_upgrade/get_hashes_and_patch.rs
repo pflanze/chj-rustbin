@@ -21,7 +21,9 @@ use crate::{
     easy_webget::{EasyWebget, GetToFileError},
     file_make::MakeError,
     gpg::{Gpg, GpgKeyRef},
-    kernel_upgrade::{fm::Fm, kernel::Kernel, kernel_worker::KernelWorker},
+    kernel_upgrade::{
+        fm::Fm, kernel::Kernel, kernel_worker::KernelWorker, mode::Action,
+    },
     scripting::linux::kernel_version::KernelVersion,
     util::{anyhow::AnyhowError, link_rename::link_rename},
 };
@@ -53,11 +55,16 @@ pub trait GetHashesAndPatch<'worker>: Fm {
 
     fn from_version(&self) -> &KernelVersion;
 
+    fn to_version(&self) -> KernelVersion;
+
     /// Must create the directory if it doesn't exist
     fn hashes_base_dir(&self) -> Result<Arc<Path>>;
 
     /// Must create the directory if it doesn't exist
     fn patches_base_dir(&self) -> Result<Arc<Path>>;
+
+    /// Must create the directory if it doesn't exist
+    fn stamps_base_dir(&self) -> Result<Arc<Path>>;
 
     /// Should end in "/"
     fn hashes_and_patches_base_url(&self) -> String;
@@ -78,7 +85,7 @@ pub trait GetHashesAndPatch<'worker>: Fm {
         &self,
         newer_than_paths: &[&Path],
     ) -> Result<PathBuf, MakeError<AnyhowError, GetToFileError>> {
-        self.fm().make(
+        self.fm(Action::Retrieve).make(
             self.hashes_base_dir()
                 .map_err(AnyhowError)?
                 .append("sha256sums.asc"),
@@ -103,7 +110,7 @@ pub trait GetHashesAndPatch<'worker>: Fm {
         &self,
         newer_than_paths: &[&Path],
     ) -> Result<PathBuf, MakeError<AnyhowError, AnyhowError>> {
-        self.fm().make(
+        self.fm(Action::Retrieve).make(
             self.hashes_base_dir()
                 .map_err(AnyhowError)?
                 .append("sha256sums"),
@@ -190,7 +197,7 @@ pub trait GetHashesAndPatch<'worker>: Fm {
     fn get_unchecked(
         &self,
     ) -> Result<PathBuf, MakeError<AnyhowError, GetToFileError>> {
-        self.fm().make(
+        self.fm(Action::Retrieve).make(
             add_extension(self.file_path().map_err(AnyhowError)?, "-unchecked")
                 .expect("file_path is non-empty"),
             (),
@@ -206,7 +213,7 @@ pub trait GetHashesAndPatch<'worker>: Fm {
         PathBuf,
         MakeError<MakeError<AnyhowError, GetToFileError>, AnyhowError>,
     > {
-        self.fm().make(
+        self.fm(Action::Retrieve).make(
             self.file_path()
                 .map_err(AnyhowError)
                 .map_err(MakeError::Dependency)?,
@@ -258,46 +265,62 @@ pub trait GetHashesAndPatch<'worker>: Fm {
         )
     }
 
-    /// Returns the new Kernel (in old place)
-    // GetToFileError
-    fn get_and_apply(&self) -> Result<Kernel<'worker>, GetAndApplyError> {
-        let path = self.get_checked()?;
+    /// Returns the new `Kernel` instead of its path (it's in the old
+    /// place)
+    fn get_and_apply(
+        &self,
+    ) -> Result<Kernel<'worker>, MakeError<GetAndApplyError, AnyhowError>> {
+        let to_version = self.to_version();
+        self.fm(Action::Retrieve).make(
+            self.stamps_base_dir()
+                .map_err(GetAndApplyError::from)?
+                .append(format!("applied-{}", to_version)),
+            [self.get_checked().map_err(GetAndApplyError::GetChecked)?],
+            |target, dependencies| -> Result<_, AnyhowError> {
+                let [path] = dependencies;
 
-        let mut xzcat: Child = Command::new("xzcat")
-            .arg(&*path)
-            .stdout(Stdio::piped())
-            .spawn()
-            .context("starting 'xzcat'")?;
+                let mut xzcat: Child = Command::new("xzcat")
+                    .arg(&*path)
+                    .stdout(Stdio::piped())
+                    .spawn()
+                    .context("starting 'xzcat'")?;
 
-        let inp = xzcat.stdout.take().expect("requested above");
+                let inp = xzcat.stdout.take().expect("requested above");
 
-        let mut patch: Child = Command::new("patch")
-            .arg("-p1")
-            .current_dir(self.worker().linux_path())
-            .stdin(inp)
-            .spawn()
-            .context("starting 'patch'")?;
+                let mut patch: Child = Command::new("patch")
+                    .arg("-p1")
+                    .current_dir(self.worker().linux_path())
+                    .stdin(inp)
+                    .spawn()
+                    .context("starting 'patch'")?;
 
-        let mut errors = Vec::new();
-        let xzcat_status = xzcat.wait().context("waiting for xzcat")?;
-        if !xzcat_status.success() {
-            errors.push(format!("xzcat failed: {xzcat_status}"));
-        }
-        let patch_status = patch.wait().context("waiting for patch")?;
-        if !patch_status.success() {
-            errors.push(format!("patch failed: {patch_status}"));
-        }
-        if !errors.is_empty() {
-            Err(anyhow!(
-                "applying {:?}: {}",
-                self.file_path(),
-                errors.join(", ")
-            ))?;
-        }
+                let mut errors = Vec::new();
+                let xzcat_status = xzcat.wait().context("waiting for xzcat")?;
+                if !xzcat_status.success() {
+                    errors.push(format!("xzcat failed: {xzcat_status}"));
+                }
+                let patch_status = patch.wait().context("waiting for patch")?;
+                if !patch_status.success() {
+                    errors.push(format!("patch failed: {patch_status}"));
+                }
+                if !errors.is_empty() {
+                    Err(anyhow!(
+                        "applying {:?}: {}",
+                        self.file_path(),
+                        errors.join(", ")
+                    ))?;
+                }
+
+                self.worker()
+                    .script_context()
+                    .touch(target)
+                    .map_err(AnyhowError)
+            },
+        )?;
 
         Ok(Kernel {
             worker: self.worker(),
-            version: self.from_version().sublevel_add(1),
+            version: to_version,
         })
     }
 }

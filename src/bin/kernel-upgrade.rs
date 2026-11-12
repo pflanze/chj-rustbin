@@ -9,7 +9,8 @@ use chj_rustbin::{
     kernel_upgrade::{
         get_hashes_and_patch::{GetAndApplyError, GetHashesAndPatch},
         get_tar_and_unpack::GetTarAndUnpack,
-        kernel_worker::{KernelWorker, KernelWorkerError},
+        kernel_worker::{KernelWorker, KernelWorkerError, KernelWorkerOpts},
+        mode::{Action, Mode},
     },
     script_tools::ScriptContext,
     scripting::linux::kernel_version::KernelVersion,
@@ -19,6 +20,7 @@ use chj_rustbin::{
     },
 };
 use external_webget::RequestError;
+use nix::unistd::getuid;
 
 enum ReportKind {
     NoChange,
@@ -35,8 +37,9 @@ impl Display for ReportKind {
     }
 }
 
+#[derive(Debug)]
 enum RebootNeeded {
-    None,
+    No,
     Upgrade {
         from: KernelVersion,
         to: KernelVersion,
@@ -44,10 +47,23 @@ enum RebootNeeded {
     },
 }
 
+impl RebootNeeded {
+    fn is_yes(&self) -> bool {
+        match self {
+            RebootNeeded::No => false,
+            RebootNeeded::Upgrade {
+                from: _,
+                to: _,
+                linux_path: _,
+            } => true,
+        }
+    }
+}
+
 impl Display for RebootNeeded {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RebootNeeded::None => f.write_str("no-reboot-needed"),
+            RebootNeeded::No => f.write_str("no-reboot-needed"),
             RebootNeeded::Upgrade {
                 from,
                 to,
@@ -65,7 +81,20 @@ impl Display for RebootNeeded {
 
 #[derive(clap::Parser, Debug)]
 #[clap(next_line_help = true)]
-/// Upgrade the kernel on the system
+/// Upgrade the Linux kernel on the local system
+///
+/// This fetches / updates a local copy of the kernel sources, builds
+/// them, reports the need for an upgrade, and installs them. It
+/// verifies the cryptographic signatures / signed hashes on all
+/// downloaded files.
+///
+/// It is meant to be run from two user accounts, in two modes: with
+/// `--build` as a normal user, and then when the need to
+/// install/reboot arises (which can be reported via `--report-to`),
+/// it can be run again as root with the same base directory argument
+/// and the `--install` or `--install-and-reboot` argument.
+///
+/// So far this has been tested on Debian.
 struct Opts {
     /// Exit silently if another instance is running
     #[clap(long)]
@@ -85,6 +114,24 @@ struct Opts {
     /// Build the kernel after updating it (default: false)
     #[clap(short, long)]
     build: bool,
+
+    /// Install an already-built kernel. This must be run as root, and
+    /// conflicts with `--make-oldconfig` and `--build`. It does
+    /// verify that the kernel was actually built, and if it isn't,
+    /// returns an error, as the kernel is supposed to get built as
+    /// non-root user, unless `--allow-root-builds` is given which
+    /// disables this check.
+    #[clap(long)]
+    install: bool,
+
+    /// Does `--install`, then if successful reboots the machine
+    #[clap(long)]
+    install_and_reboot: bool,
+
+    /// Allow the root user to retrieve kernel sources and build
+    /// them. Not recommended.
+    #[clap(long)]
+    allow_root_builds: bool,
 
     /// Number of cores to use (default: try to determine automatically)
     #[clap(short = 'j', long)]
@@ -125,15 +172,97 @@ struct Opts {
     initial_linux_version: Option<KernelVersion>,
 }
 
+struct ProcessedOpts {
+    skip_if_locked: bool,
+    skip_if_offline: bool,
+    mode: Mode,
+    num_cores: Option<NonZeroUsize>,
+    // (Should this only be for <= Mode::Build / "non-root"?)
+    report_to: Option<PathBuf>,
+    base_dir: PathBuf,
+    // In some situations alway None / unused
+    initial_linux_version: Option<KernelVersion>,
+}
+
+impl TryFrom<Opts> for ProcessedOpts {
+    type Error = anyhow::Error;
+
+    fn try_from(value: Opts) -> std::result::Result<Self, Self::Error> {
+        let Opts {
+            skip_if_locked,
+            skip_if_offline,
+            make_oldconfig,
+            build,
+            install,
+            install_and_reboot,
+            allow_root_builds,
+            num_cores,
+            report_to,
+            base_dir,
+            initial_linux_version,
+        } = value;
+
+        let wanted_action = if install_and_reboot {
+            Action::Install { reboot: true }
+        } else if install {
+            Action::Install { reboot: false }
+        } else if build {
+            Action::Build
+        } else if make_oldconfig {
+            Action::MakeOldconfig
+        } else {
+            Action::Retrieve
+        };
+
+        let mode = Mode {
+            wanted_action,
+            allow_root_builds,
+        };
+
+        mode.check_uid(getuid())?;
+
+        let initial_linux_version = if mode.allow_install_only() {
+            if initial_linux_version.is_some() {
+                eprintln!(
+                    "note: initial linux version was provided but is \
+                     unused since running install only"
+                );
+            }
+            None
+        } else {
+            initial_linux_version
+        };
+
+        Ok(Self {
+            skip_if_locked,
+            skip_if_offline,
+            mode,
+            num_cores,
+            report_to,
+            base_dir,
+            initial_linux_version,
+        })
+    }
+}
+
 /// Returns a success report kind and statement
-fn run(opts: &Opts) -> Result<(ReportKind, RebootNeeded), KernelWorkerError> {
+fn run(
+    opts: &ProcessedOpts,
+) -> Result<(ReportKind, RebootNeeded), KernelWorkerError> {
     let ctx = ScriptContext {
         x: Some(1),
         cwd: None,
     };
 
-    let worker =
-        KernelWorker::new(opts.base_dir.clone(), opts.skip_if_locked, ctx)?;
+    let worker = KernelWorker::new(
+        opts.base_dir.clone(),
+        KernelWorkerOpts {
+            skip_if_locked: opts.skip_if_locked,
+            refuse_lock_file_creation: !opts.mode.allow_lock_file_creation(),
+        },
+        ctx,
+        opts.mode,
+    )?;
 
     let linux_path = worker.linux_path();
     let mut current_kernel = if linux_path.exists() {
@@ -142,7 +271,7 @@ fn run(opts: &Opts) -> Result<(ReportKind, RebootNeeded), KernelWorkerError> {
         let Some(version) = &opts.initial_linux_version else {
             Err(anyhow!(
                 "directory {linux_path:?} does not exist, please provide \
-                     the `INITIAL_LINUX_VERSION` program argument"
+                 the `INITIAL_LINUX_VERSION` program argument"
             ))?
         };
         let kernel = worker.kernel_with_version(version.clone());
@@ -152,44 +281,56 @@ fn run(opts: &Opts) -> Result<(ReportKind, RebootNeeded), KernelWorkerError> {
 
     let mut num_updates = 0;
 
-    loop {
-        eprintln!("current kernel = {}", current_kernel.version());
+    if opts.mode.do_retrieve() {
+        loop {
+            eprintln!("current kernel = {}", current_kernel.version());
 
-        if opts.make_oldconfig || opts.build {
-            current_kernel
-                .make_oldconfig()
-                .context("running make oldconfig")?;
-        } else {
-            eprintln!("skipping `make oldconfig` since neither --build nor --make-oldconfig \
-                       has been given");
+            if opts.mode.do_make_oldconfig() {
+                current_kernel
+                    .make_oldconfig()
+                    .context("running make oldconfig")?;
+            } else {
+                eprintln!(
+                    "skipping `make oldconfig` since running in {} mode",
+                    opts.mode
+                );
+            }
+
+            let patch = current_kernel.the_patch_to_the_next_point_version();
+            current_kernel = match patch.get_and_apply() {
+                Ok(kernel) => kernel,
+                Err(e) => match &e {
+                    MakeError::Dependency(GetAndApplyError::GetChecked(
+                        MakeError::Dependency(MakeError::BuildAction(
+                            GetToFileError::RequestError(
+                                RequestError::NotFound,
+                            ),
+                        )),
+                    )) => {
+                        eprintln!("upstream has no patch at {}", patch.url());
+                        break;
+                    }
+                    _ => Err(e).context("getting and applying kernel patch")?,
+                },
+            };
+
+            num_updates += 1;
         }
 
-        let patch = current_kernel.the_patch_to_the_next_point_version();
-        current_kernel = match patch.get_and_apply() {
-            Ok(kernel) => kernel,
-            Err(e) => match &e {
-                GetAndApplyError::GetChecked(MakeError::Dependency(
-                    MakeError::BuildAction(GetToFileError::RequestError(
-                        RequestError::NotFound,
-                    )),
-                )) => {
-                    eprintln!("upstream has no patch at {}", patch.url());
-                    break;
-                }
-                _ => Err(e).context("getting and applying kernel patch")?,
-            },
-        };
-
-        num_updates += 1;
+        println!("kernel-upgrade: executed {num_updates} steps of patch version updates.");
     }
 
-    if opts.build {
+    let n_hw_threads = num_hardware_threads(opts.num_cores);
+
+    // With --allow-root-builds, this is duplicated with .install()
+    // further down as that has a dependency on build anyway, but is
+    // cosmetic only.
+    if opts.mode.do_build() {
         current_kernel
-            .build(num_hardware_threads(opts.num_cores))
+            .build(n_hw_threads)
             .context("building the kernel")?;
+        println!("kernel-upgrade: kernel {} built.", current_kernel.version());
     }
-
-    println!("kernel-upgrade: done, executed {num_updates} steps of patch version updates.");
 
     let change = if num_updates == 0 {
         ReportKind::NoChange
@@ -205,16 +346,31 @@ fn run(opts: &Opts) -> Result<(ReportKind, RebootNeeded), KernelWorkerError> {
             linux_path: current_kernel.worker().linux_path(),
         }
     } else {
-        RebootNeeded::None
+        RebootNeeded::No
     };
+
+    if reboot_needed.is_yes() {
+        // Actually *do* need to install and then potentially reboot
+        if opts.mode.do_install() {
+            current_kernel
+                .install(n_hw_threads)
+                .context("installing the kernel")?;
+            println!(
+                "kernel-upgrade: kernel {} installed.",
+                current_kernel.version()
+            );
+        }
+    }
 
     Ok((change, reboot_needed))
 }
 
 fn main() -> Result<()> {
     let opts: Opts = Opts::parse();
+    // Also checks current uid (a bit hacky):
+    let processed_opts = ProcessedOpts::try_from(opts)?;
 
-    if opts.skip_if_offline {
+    if processed_opts.skip_if_offline {
         let is_online: bool = external_interfaces()?.summarize();
         if !is_online {
             eprintln!("exiting since there are no active network interfaces");
@@ -222,22 +378,27 @@ fn main() -> Result<()> {
         }
     }
 
-    if let Some(report_path) = &opts.report_to {
-        let report = match run(&opts) {
+    let reboot_needed = if let Some(report_path) = &processed_opts.report_to {
+        let (report, reboot_needed) = match run(&processed_opts) {
             Ok((report_kind, reboot_needed)) => {
-                format!("{report_kind}\n{reboot_needed}\n")
+                (format!("{report_kind}\n{reboot_needed}\n"), reboot_needed)
             }
             Err(KernelWorkerError::Locked) => return Ok(()),
-            Err(e) => format!("error\n{e:#?}\n"),
+            Err(e) => (format!("error\n{e:#}\n"), RebootNeeded::No),
         };
         std::fs::write(report_path, report)
-            .with_context(|| anyhow!("writing report to {report_path:?}"))
+            .with_context(|| anyhow!("writing report to {report_path:?}"))?;
+        reboot_needed
     } else {
-        match run(&opts) {
-            Ok(_) => (),
+        match run(&processed_opts) {
+            Ok((_report_kinde, reboot_needed)) => reboot_needed,
             Err(KernelWorkerError::Locked) => return Ok(()),
             Err(e) => Err(e)?,
         }
-        Ok(())
+    };
+
+    if reboot_needed.is_yes() && processed_opts.mode.do_reboot() {
+        ScriptContext::default().cmd("reboot", ())?;
     }
+    Ok(())
 }

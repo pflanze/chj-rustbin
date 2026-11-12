@@ -9,7 +9,7 @@ use crate::{
     io_utils::dirs::create_dir_if_not_exists,
     kernel_upgrade::{
         fm::Fm, get_hashes_and_patch::GetHashesAndPatch, kernel::Kernel,
-        kernel_worker::KernelWorker,
+        kernel_worker::KernelWorker, mode::Action,
     },
     scripting::linux::kernel_version::KernelVersion,
 };
@@ -40,8 +40,8 @@ impl<'worker> KernelPatch<'worker> {
 }
 
 impl<'worker> Fm for KernelPatch<'worker> {
-    fn fm(&self) -> &FileMake {
-        self.worker.fm()
+    fn fm(&self, for_action: Action) -> FileMake {
+        self.worker.mode().fm(for_action)
     }
 }
 
@@ -68,7 +68,17 @@ impl<'worker> GetHashesAndPatch<'worker> for KernelPatch<'worker> {
         Ok(path.into())
     }
 
+    fn stamps_base_dir(&self) -> Result<Arc<Path>> {
+        let path = self.worker().dirs().stamps().append("incr");
+        create_dir_if_not_exists(&path)?;
+        Ok(path.into())
+    }
+
     fn from_version(&self) -> &KernelVersion {
         &self.from_version
+    }
+
+    fn to_version(&self) -> KernelVersion {
+        self.from_version.sublevel_add(1)
     }
 }

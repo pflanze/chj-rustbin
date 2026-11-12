@@ -10,7 +10,7 @@ use anyhow::{anyhow, Context, Result};
 use cj_path_util::path_util::AppendToPath;
 
 use crate::{
-    file_make::MakeError,
+    file_make::{FileMake, MakeError},
     gpg::{GpgKeyRef, KeyType},
     kernel_upgrade::{
         file_kind::{FileKind, FileName},
@@ -18,6 +18,7 @@ use crate::{
         get_tar_and_unpack::GetTarAndUnpack,
         kernel_patch::KernelPatch,
         kernel_worker::KernelWorker,
+        mode::Action,
     },
     scripting::linux::kernel_version::KernelVersion,
     util::anyhow::AnyhowError,
@@ -36,8 +37,8 @@ pub struct Kernel<'worker> {
 }
 
 impl<'worker> Fm for Kernel<'worker> {
-    fn fm(&self) -> &crate::file_make::FileMake {
-        self.worker.fm()
+    fn fm(&self, for_action: Action) -> FileMake {
+        self.worker.mode().fm(for_action)
     }
 }
 
@@ -78,7 +79,7 @@ impl<'worker> Kernel<'worker> {
         &self,
     ) -> Result<PathBuf, MakeError<Infallible, AnyhowError>> {
         let linux_path = &self.worker.linux_path();
-        self.fm().make(
+        self.fm(Action::MakeOldconfig).make(
             self.config_backup_path(),
             [
                 // Make sure there is an initial file, or `make oldconfig` will
@@ -120,7 +121,7 @@ impl<'worker> Kernel<'worker> {
         MakeError<MakeError<Infallible, AnyhowError>, AnyhowError>,
     > {
         let linux_path = self.worker.linux_path();
-        self.fm().make(
+        self.fm(Action::Build).make(
             self.build_stamp_path(),
             [self.make_oldconfig()?],
             |target, _dependencies| {
@@ -135,6 +136,45 @@ impl<'worker> Kernel<'worker> {
                     let j = &format!("-j{num_cores}");
                     ctx.cmd("make", [j])?;
                     ctx.cmd("make", [j.as_ref(), "modules"])?;
+                }
+                ctx.touch(target)?;
+                Ok(())
+            },
+        )
+    }
+
+    fn install_stamp_path(&self) -> PathBuf {
+        self.worker
+            .dirs()
+            .stamps()
+            .append(format!("install-{}", self.version))
+    }
+
+    pub fn install(
+        &self,
+        num_cores: NonZeroUsize,
+    ) -> Result<
+        PathBuf,
+        MakeError<MakeError<Infallible, AnyhowError>, AnyhowError>,
+    > {
+        let linux_path = self.worker.linux_path();
+        // Doesn't matter what we say for reboot here
+        self.fm(Action::Install { reboot: false }).make(
+            self.install_stamp_path(),
+            [self.build(num_cores)?],
+            |target, _dependencies| {
+                let ctx = self.worker().script_context();
+                {
+                    // (Should this region be redirected into a file? All of the
+                    // program's output, right, i.e. set stdout and stderr
+                    // temporarily?)
+
+                    let ctx = ctx.set_cwd(&linux_path);
+
+                    let j = &format!("-j{num_cores}");
+                    ctx.cmd("make", [j.as_ref(), "modules_install"])?;
+                    // Not needing j here?
+                    ctx.cmd("make", [j.as_ref(), "install"])?;
                 }
                 ctx.touch(target)?;
                 Ok(())

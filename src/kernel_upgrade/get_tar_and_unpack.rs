@@ -30,6 +30,7 @@ use crate::{
         },
         fm::Fm,
         kernel_worker::KernelWorker,
+        mode::Action,
     },
     util::{anyhow::AnyhowError, as_os_str::AsOsStr},
 };
@@ -67,7 +68,7 @@ pub trait GetTarAndUnpack<'worker>: Fm {
         FilePath<FileKindSignature>,
         MakeError<AnyhowError, GetToFileError>,
     > {
-        self.fm().make(
+        self.fm(Action::Retrieve).make(
             self.file_path::<FileKindSignature>()
                 .map_err(|e| MakeError::Dependency(AnyhowError(e)))?,
             (),
@@ -86,7 +87,7 @@ pub trait GetTarAndUnpack<'worker>: Fm {
         FilePath<FileKindTarXzUnchecked>,
         MakeError<AnyhowError, GetToFileError>,
     > {
-        self.fm().make(
+        self.fm(Action::Retrieve).make(
             self.file_path::<FileKindTarXzUnchecked>()
                 .map_err(AnyhowError)?,
             (),
@@ -105,7 +106,7 @@ pub trait GetTarAndUnpack<'worker>: Fm {
         FilePath<FileKindTarUnchecked>,
         MakeError<MakeError<AnyhowError, GetToFileError>, AnyhowError>,
     > {
-        self.fm().make(
+        self.fm(Action::Retrieve).make(
             self.file_path::<FileKindTarUnchecked>()
                 .map_err(|e| MakeError::Dependency(AnyhowError(e)))?,
             [self.get_compressed()?],
@@ -137,7 +138,7 @@ pub trait GetTarAndUnpack<'worker>: Fm {
         FilePath<FileKindTarChecked>,
         MakeError<MakeError<AnyhowError, GetToFileError>, AnyhowError>,
     > {
-        self.fm().make(
+        self.fm(Action::Retrieve).make(
             self.file_path::<FileKindTarChecked>().map_err(|e| {
                 MakeError::Dependency(MakeError::Dependency(AnyhowError(e)))
             })?,
@@ -179,7 +180,7 @@ pub trait GetTarAndUnpack<'worker>: Fm {
     fn get_unpacked(
         &self,
     ) -> Result<PathBuf, MakeError<AnyhowError, AnyhowError>> {
-        self.fm().make(
+        self.fm(Action::Retrieve).make(
             self.target_directory_path().map_err(AnyhowError)?,
             (),
             |target, ()| -> Result<(), AnyhowError> {

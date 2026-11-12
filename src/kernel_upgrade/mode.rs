@@ -145,7 +145,7 @@ impl Mode {
         use Action::*;
         match self.wanted_action {
             Retrieve | MakeOldconfig | Build => {
-                if uid.is_root() && self.allow_root_builds {
+                if uid.is_root() && !self.allow_root_builds {
                     bail!(
                         "root is not allowed to retrieve files or build \
                          unless --allow-root-builds is given"

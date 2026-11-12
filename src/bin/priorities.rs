@@ -34,6 +34,7 @@ use chj_rustbin::{
     io::file_path_type::{
         recursive_file_path_types_iter, FilePathType, ItemOptions,
     },
+    io_utils::broken_pipe_to_exit::BrokenPipeToExit,
     parse::{
         parse_error::{
             Backing, IntoOwningBacking, ParseContext, ParseError,
@@ -71,6 +72,11 @@ macro_rules! warning {
 #[derive(clap::Parser, Debug)]
 /// Parse a folder with todo files with "OPEN.." or "TODO.." markers.
 struct Opts {
+    /// The exit code to use when writing to stdout reports a broken pipe
+    /// (default: 141)
+    #[clap(long)]
+    broken_pipe_exit_code: Option<i32>,
+
     /// Show execution durations (for performance debugging)
     #[clap(long)]
     show_timings: bool,
@@ -2406,6 +2412,7 @@ fn ignored_by(ignore: &[Regex], path: &Path) -> bool {
 
 fn main() -> Result<()> {
     let Opts {
+        broken_pipe_exit_code,
         show_timings,
         // dirs, files and other are used via `impl_item_options_from!`
         dirs: _,
@@ -2692,6 +2699,7 @@ fn main() -> Result<()> {
         }
         Ok(())
     })()
+    .broken_pipe_to_exit(broken_pipe_exit_code)
     .context("printing to stdout")?;
 
     show_current_timing(show_timings, current_timing, "END");

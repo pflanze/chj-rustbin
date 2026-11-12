@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, bail, Context, Error, Result};
 use bstr::{BStr, ByteSlice, ByteVec};
+use chj_rustbin::io_utils::broken_pipe_to_exit::BrokenPipeToExit;
 use chj_rustbin::util::lines_chunks::{LinesChunksSettings, ParLinesChunks};
 use clap::Parser;
 use dashmap::DashSet;
@@ -28,6 +29,11 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[clap(name = "intersection from chj-rustbin")]
 struct Opt {
+    /// The exit code to use when writing to stdout reports a broken pipe
+    /// (default: 141)
+    #[clap(long)]
+    broken_pipe_exit_code: Option<i32>,
+
     /// Show the set, not the filtered last file (i.e. there will be
     /// no repetitions in the output, and it is lexically sorted
     /// instead of like the last file). This also allows to include
@@ -304,29 +310,38 @@ fn output_fd_for_input_index(i: usize) -> i32 {
 }
 
 fn main() -> Result<()> {
-    let (mode, paths, fddrop, record_separator) = {
-        let opt: Opt = Opt::from_args();
-        let paths: VecDeque<PathBuf> = opt.file_paths.into();
+    let (mode, paths, fddrop, record_separator, broken_pipe_exit_code) = {
+        let Opt {
+            broken_pipe_exit_code,
+            set,
+            sorted,
+            numeric,
+            fddrop,
+            structsizes,
+            record_separator,
+            file_paths,
+        } = Opt::from_args();
+        let paths: VecDeque<PathBuf> = file_paths.into();
 
-        let mode = if opt.numeric {
+        let mode = if numeric {
             Mode::Sorted(SortOrder::Numeric)
-        } else if opt.sorted {
+        } else if sorted {
             Mode::Sorted(SortOrder::Lexical)
-        } else if opt.set {
+        } else if set {
             Mode::Set
-        } else if opt.structsizes {
+        } else if structsizes {
             Mode::StructSizes
         } else {
             Mode::SetThenLinear
         };
 
         if let Mode::Sorted(_) = mode {
-            if opt.set {
+            if set {
                 bail!("only one of --set or --sorted (or --numeric) is valid");
             }
         }
 
-        (mode, paths, opt.fddrop, opt.record_separator)
+        (mode, paths, fddrop, record_separator, broken_pipe_exit_code)
     };
 
     if paths.len() < mode.min_paths_len() {
@@ -543,11 +558,14 @@ fn main() -> Result<()> {
                         let mut out = BufWriter::new(stdout().lock());
                         let mut v: Vec<_> = set.into_iter().collect();
                         v.sort();
-                        for line in &v {
-                            out.write_all(line)?;
-                            out.write_all(b"\n")?;
-                        }
-                        out.flush()?;
+                        (|| -> Result<(), std::io::Error> {
+                            for line in &v {
+                                out.write_all(line)?;
+                                out.write_all(b"\n")?;
+                            }
+                            out.flush()
+                        })()
+                        .broken_pipe_to_exit(broken_pipe_exit_code)?
                     }
                     Mode::SetThenLinear => {
                         let file = last_file
@@ -569,10 +587,13 @@ fn main() -> Result<()> {
                             })
                             .collect();
                         let mut out = stdout().lock();
-                        for chunk in &chunks {
-                            out.write_all(chunk)?;
-                        }
-                        out.flush()?;
+                        (|| -> Result<(), std::io::Error> {
+                            for chunk in &chunks {
+                                out.write_all(chunk)?;
+                            }
+                            out.flush()
+                        })()
+                        .broken_pipe_to_exit(broken_pipe_exit_code)?
                     }
                     _ => unreachable(),
                 }

@@ -30,7 +30,10 @@ use chj_rustbin::{
         unix::unix_file_type::UnixFileTypeMask, unix_gr::GrInfoCache,
         unix_pw::PwInfoCache, write_all_vectored::write_all_vectored,
     },
-    io_utils::read_buf::{ParReadBufStream, ReadBufStream},
+    io_utils::{
+        broken_pipe_to_exit::BrokenPipeToExit,
+        read_buf::{ParReadBufStream, ReadBufStream},
+    },
     is_a_terminal::is_a_terminal,
     limited_eprintln,
     lst::{
@@ -85,6 +88,11 @@ impl FromStr for ColorMode {
 
 #[derive(clap::Args, Debug)]
 struct PrintOpts {
+    /// The exit code to use when writing to stdout reports a broken pipe
+    /// (default: 141)
+    #[clap(long)]
+    broken_pipe_exit_code: Option<i32>,
+
     /// Disable parallelism in some places; default: use parallelism.
     #[clap(long)]
     dev_single_threaded: bool,
@@ -1617,6 +1625,7 @@ fn print_paths<
     _regions: &'region SharedRegions,
 ) -> Result<()> {
     let PrintOpts {
+        broken_pipe_exit_code,
         dev_single_threaded,
         pos,
         show_matches,
@@ -1746,8 +1755,11 @@ fn print_paths<
         };
         probe!("write all vectored");
         let mut outp = stdout().lock();
-        write_all_vectored(&mut ioslices, tot_size, &mut outp)?;
-        outp.flush()?;
+        (|| -> std::io::Result<()> {
+            write_all_vectored(&mut ioslices, tot_size, &mut outp)?;
+            outp.flush()
+        })()
+        .broken_pipe_to_exit(*broken_pipe_exit_code)?
     }
 
     Ok(())
@@ -1879,8 +1891,11 @@ fn print_listing<
             tot_size += v.len();
         }
         let mut outp = stdout().lock();
-        write_all_vectored(&mut ioslices, tot_size, &mut outp)?;
-        outp.flush()?;
+        (|| -> std::io::Result<()> {
+            write_all_vectored(&mut ioslices, tot_size, &mut outp)?;
+            outp.flush()
+        })()
+        .broken_pipe_to_exit(opts.broken_pipe_exit_code)?
     }
     Ok(())
 }

@@ -1734,7 +1734,7 @@ fn print_paths<
                 .collect()
         };
         let mut tot_size = 0;
-        let ioslices: Vec<_> = {
+        let mut ioslices: Vec<_> = {
             probe!("bag to ioslices");
             buffers
                 .iter()
@@ -1746,7 +1746,7 @@ fn print_paths<
         };
         probe!("write all vectored");
         let mut outp = stdout().lock();
-        write_all_vectored(&ioslices, tot_size, &mut outp)?;
+        write_all_vectored(&mut ioslices, tot_size, &mut outp)?;
         outp.flush()?;
     }
 
@@ -1879,7 +1879,7 @@ fn print_listing<
             tot_size += v.len();
         }
         let mut outp = stdout().lock();
-        write_all_vectored(&ioslices, tot_size, &mut outp)?;
+        write_all_vectored(&mut ioslices, tot_size, &mut outp)?;
         outp.flush()?;
     }
     Ok(())

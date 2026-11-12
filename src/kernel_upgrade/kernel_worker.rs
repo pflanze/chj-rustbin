@@ -133,6 +133,10 @@ impl KernelWorker {
         self.mode
     }
 
+    pub fn base_dir(&self) -> &Path {
+        &self.dirs.base_dir
+    }
+
     /// Path to the linux source and build directory
     pub fn linux_path(&self) -> PathBuf {
         (&self.dirs.base_dir).append("linux")

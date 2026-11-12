@@ -1,4 +1,9 @@
-use std::{fmt::Display, num::NonZeroUsize, path::PathBuf};
+use std::{
+    fmt::Display,
+    num::NonZeroUsize,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
@@ -18,6 +23,7 @@ use chj_rustbin::{
         network_interface::{external_interfaces, SummarizeAs},
         num_hardware_threads::num_hardware_threads,
     },
+    utillib::into_arc_path::IntoArcPath,
 };
 use external_webget::RequestError;
 use libc::uid_t;
@@ -44,7 +50,7 @@ enum RebootNeeded {
     Upgrade {
         from: KernelVersion,
         to: KernelVersion,
-        linux_path: PathBuf,
+        base_path: Arc<Path>,
     },
 }
 
@@ -55,7 +61,7 @@ impl RebootNeeded {
             RebootNeeded::Upgrade {
                 from: _,
                 to: _,
-                linux_path: _,
+                base_path: _,
             } => true,
         }
     }
@@ -68,12 +74,12 @@ impl Display for RebootNeeded {
             RebootNeeded::Upgrade {
                 from,
                 to,
-                linux_path,
+                base_path,
             } => {
                 write!(
                     f,
                     "need-reboot from {from} to {to} at: {}",
-                    linux_path.display()
+                    base_path.display()
                 )
             }
         }
@@ -357,7 +363,7 @@ fn run(
         RebootNeeded::Upgrade {
             from: running_kernel_version,
             to: current_kernel.version().clone(),
-            linux_path: current_kernel.worker().linux_path(),
+            base_path: current_kernel.worker().base_dir().into_arc_path(),
         }
     } else {
         RebootNeeded::No

@@ -1,4 +1,10 @@
-use std::thread::{self, JoinHandle};
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread::{self, JoinHandle},
+};
 
 use anyhow::anyhow;
 
@@ -32,5 +38,30 @@ impl<T: Send + 'static> Joint<T> for JoinHandle<T> {
             };
             anyhow!("thread panicked with: {e:#?}")
         })
+    }
+}
+
+pub struct Stopper(Arc<AtomicBool>);
+
+impl Stopper {
+    pub fn new() -> Self {
+        Self(Arc::new(AtomicBool::new(false)))
+    }
+    pub fn reader(&self) -> StopperReader {
+        StopperReader(self.0.clone())
+    }
+}
+
+pub struct StopperReader(Arc<AtomicBool>);
+
+impl StopperReader {
+    pub fn get(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
+impl Drop for Stopper {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
     }
 }

@@ -5,10 +5,6 @@ use std::{
     ffi::{c_int, c_void},
     io::IoSlice,
     os::fd::AsRawFd,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
     thread::sleep,
     time::Duration,
 };
@@ -20,7 +16,7 @@ use chj_rustbin::{
         unix::file_pipe::file_pipe,
         write_all_vectored::{_write_all_vectored, io_slices_tot_size},
     },
-    util::thread::{spawnt, Joint},
+    util::thread::{spawnt, Joint, Stopper},
 };
 use libc::kill;
 use nix::{
@@ -40,27 +36,6 @@ extern "C" fn my_handler(_sig: c_int) {
         "assume the user doesn't close stderr or \
          redirect to a place that errors",
     );
-}
-
-struct Stopper(Arc<AtomicBool>);
-impl Stopper {
-    fn new() -> Self {
-        Self(Arc::new(AtomicBool::new(false)))
-    }
-    fn reader(&self) -> StopperReader {
-        StopperReader(self.0.clone())
-    }
-}
-struct StopperReader(Arc<AtomicBool>);
-impl StopperReader {
-    fn get(&self) -> bool {
-        self.0.load(Ordering::SeqCst)
-    }
-}
-impl Drop for Stopper {
-    fn drop(&mut self) {
-        self.0.store(true, Ordering::SeqCst);
-    }
 }
 
 fn main() -> Result<()> {

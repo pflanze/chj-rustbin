@@ -340,7 +340,10 @@ fn run(
         current_kernel
             .build(n_hw_threads)
             .context("building the kernel")?;
-        println!("kernel-upgrade: kernel {} built.", current_kernel.version());
+        println!(
+            "kernel-upgrade: kernel {} is built.",
+            current_kernel.version()
+        );
     }
 
     let change = if num_updates == 0 {
@@ -367,7 +370,7 @@ fn run(
                 .install(n_hw_threads)
                 .context("installing the kernel")?;
             println!(
-                "kernel-upgrade: kernel {} installed.",
+                "kernel-upgrade: kernel {} is installed.",
                 current_kernel.version()
             );
         }

@@ -391,8 +391,9 @@ impl ScriptContext {
     ///
     /// Careful: gives an error for directories. Follows symlinks. Currently only
     /// manually tested, only on Linux.
-    pub fn touch(&self, path: &Path) -> Result<()> {
-        let path = self.resolve_path(path);
+    pub fn touch<'t>(&self, path: impl MaybeExpandTilde<'t>) -> Result<()> {
+        let_path_expand_tilde!(path);
+        let path = self.resolve_path(&path);
         File::create(&path).with_context(|| anyhow!("touch {path:?}"))?;
         Ok(())
     }

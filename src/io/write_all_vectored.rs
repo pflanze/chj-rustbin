@@ -4,7 +4,10 @@ pub fn io_slices_tot_size(sls: &[IoSlice]) -> usize {
     sls.iter().map(|sl| sl.len()).sum()
 }
 
-fn continue_after_eintr(res: Result<usize>) -> Result<usize> {
+// Those never actually seem to happen?
+fn continue_after_eintr<const DEBUG: bool>(
+    res: Result<usize>,
+) -> Result<usize> {
     match res {
         Ok(v) => Ok(v),
         Err(e) => match e.kind() {
@@ -13,13 +16,21 @@ fn continue_after_eintr(res: Result<usize>) -> Result<usize> {
             // std::io::ErrorKind::InProgress
             // std::io::ErrorKind::WouldBlock
             // std::io::ErrorKind::ResourceBusy
-            std::io::ErrorKind::Interrupted => Ok(0),
+            std::io::ErrorKind::Interrupted => {
+                if DEBUG {
+                    eprintln!("handling EINTR (ErrorKind::Interrupted)");
+                }
+                // XX this is just an assumption
+                Ok(0)
+            }
             _ => Err(e),
         },
     }
 }
 
-fn _write_all_vectored<const TESTING: bool, const DEBUG: bool>(
+/// This function is not meant to be used directly. Use
+/// `write_all_vectored` instead.
+pub fn _write_all_vectored<const TESTING: bool, const DEBUG: bool>(
     ioslices: &mut [IoSlice],
     tot_size: usize,
     mut outp: impl Write,
@@ -58,14 +69,14 @@ fn _write_all_vectored<const TESTING: bool, const DEBUG: bool>(
                     }
                 }
             }
-            let w = continue_after_eintr(outp.write_vectored(&slv))?;
+            let w = continue_after_eintr::<DEBUG>(outp.write_vectored(&slv))?;
             assert_eq!(w, to_write);
             if DEBUG {
                 dbg!(w);
             }
             w
         } else {
-            continue_after_eintr(
+            continue_after_eintr::<DEBUG>(
                 outp.write_vectored(&ioslices[num_slices_done..]),
             )?
         };
@@ -96,6 +107,8 @@ fn _write_all_vectored<const TESTING: bool, const DEBUG: bool>(
     Ok(tot_written)
 }
 
+/// The `write_all_vectored` method in std is unstable, thus
+/// reimplement it using stable.
 pub fn write_all_vectored(
     ioslices: &mut [IoSlice],
     tot_size: usize,

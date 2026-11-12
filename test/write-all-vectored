@@ -1,0 +1,11 @@
+#!/bin/bash
+set -euo pipefail
+IFS=
+
+tmp=$(mktemp)
+
+target/release/test-write-all-vectored > "$tmp" 2>&1
+
+grep -q "Got signal" "$tmp"
+
+rm "$tmp"

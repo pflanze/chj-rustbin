@@ -19,7 +19,12 @@ test_priorities: target/release/priorities
 test_bag: target/release/test-bag
 	target/release/test-bag --random-len 50000000 --slice-len 500000
 
-test: test_intersection test_priorities test_bag
+# This test allocates a somewhat high amount of memory (~2 GB) and
+# takes around 1s of real time (2s CPU time).
+test_write-all-vectored: target/release/test-write-all-vectored
+	test/write-all-vectored
+
+test: test_intersection test_priorities test_bag test_write-all-vectored
 	cargo test --release
 	git status > /dev/null || true
 
